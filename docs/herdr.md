@@ -98,7 +98,7 @@ There are two, and they share nothing.
 | | This plugin | A host config's own queue |
 | --- | --- | --- |
 | Where | `lua/codereview/queue.lua` | e.g. `~/.config/nvim/lua/util/claude_queue.lua` |
-| Fed by | `<leader>r` — the review view | `<leader>a` — buffer/visual annotation |
+| Fed by | the review view, and `codereview.annotate()` from any buffer | `<leader>a` — buffer/visual annotation |
 | Reviewed with | `require("codereview").queue()` | that config's own picker |
 | Persisted | **yes**, with git blob hashes | typically not — session only |
 | Survives a restart | yes; a moved file's note is flagged stale | no |
@@ -108,10 +108,15 @@ an already-rendered batch, at the very end — it is a delivery hook, not a queu
 `send` to a host config's delivery path does not route anything through that config's
 queue, and the two never see each other's entries.
 
-That means annotations captured in the review view are only ever reviewed and submitted
-through `:CodeReview`'s own float, and a host config's separate annotation flow keeps its
-own list. Deliberate — it lets an existing flow keep working untouched — but worth knowing
-before wondering why `<leader>a`'s queue looks empty after a review session.
+That means annotations captured through the plugin — in the review view or from any buffer
+with `codereview.annotate()` — are only ever reviewed and submitted through
+`:CodeReview`'s own float, and a host config's separate annotation flow keeps its own list.
+Deliberate — it lets an existing flow keep working untouched — but worth knowing before
+wondering why `<leader>a`'s queue looks empty after a review session.
+
+The two converge only when a host repoints its own capture keymap at
+`require("codereview").annotate()`, at which point its queue module has nothing left
+feeding it.
 
 Persistence is the practical difference. The plugin records the git blob each entry was
 captured against, so after a restart a note whose file has changed comes back flagged
