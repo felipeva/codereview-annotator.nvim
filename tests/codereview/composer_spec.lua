@@ -10,12 +10,24 @@ h.cd_fixture("mktree")
 
 -- Deliberately no `compose`: the built-in composer is the subject of this file.
 local pending_pick -- the picker's callback, held so it answers on a later tick like a real one
+local file_answer -- what the file picker answers with; nil is a cancel
+local file_picks = 0 -- how many times it was opened at all
+local file_pick_hook -- runs inside the picker, before it answers
 require("codereview").setup({
   syntax = false,
   pick_target = function(cb)
     pending_pick = function()
       cb({ short = "janus · api", pane_id = "wV:p3", cwd = "/elsewhere" })
     end
+  end,
+  -- Answers inline. A real picker takes focus and gives it back; `file_pick_hook` is how a
+  -- test makes it behave like one -- moving the cursor, say -- before it answers.
+  pick_file = function(cb)
+    file_picks = file_picks + 1
+    if file_pick_hook then
+      file_pick_hook()
+    end
+    cb(file_answer)
   end,
 })
 
@@ -278,6 +290,209 @@ describe("routing from the composer", function()
   it("still queues the note it was holding", function()
     assert.same(1, queue.count())
     assert.same("a routed note", queue.all()[1].note)
+  end)
+end)
+
+describe("referencing a file", function()
+  queue.clear()
+  file_answer = { path = "apps/web/src/index.lua" }
+  annotate_line()
+  local composer_win = floating()
+  h.feed("i@")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  -- Closed through the API, not by feeding `q`: abandoning has its own test, and a stray
+  -- `q` that arrives after the composer has gone reaches the review buffer, where it
+  -- closes the whole review and takes every assertion below with it.
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("opens the file picker", function()
+    assert.is_true(file_picks > 0, "pick_file was never called")
+  end)
+
+  -- Trailing space because you are mid-sentence: a reference is something you write *into*
+  -- a note, not the end of one.
+  it("splices a reference to the chosen file", function()
+    assert.same("@apps/web/src/index.lua ", line)
+  end)
+end)
+
+-- A real picker takes focus and the cursor with it, and can leave the composer's cursor
+-- anywhere at all by the time it answers. The splice belongs where the `@` was typed.
+describe("referencing a file mid-sentence", function()
+  queue.clear()
+  file_answer = { path = "docs/guide.md" }
+  annotate_line()
+  local composer_win = floating()
+
+  -- A picker that moves the cursor before it answers, which any real one does by taking
+  -- focus. What gets spliced must not depend on where it left things.
+  local moved = false
+  file_pick_hook = function()
+    vim.api.nvim_win_set_cursor(composer_win, { 1, 0 })
+    moved = true
+  end
+
+  -- One feed, not two: `nvim_feedkeys` does not reliably leave the editor in insert mode
+  -- between calls, so a second feed would arrive in normal mode and never reach the
+  -- insert-mode `@`.
+  h.feed("icompare with @")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  file_pick_hook = nil
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("ran a picker that moved the cursor", function()
+    assert.is_true(moved)
+  end)
+
+  it("splices where the @ was typed, not where the cursor ended up", function()
+    assert.same("compare with @docs/guide.md ", line)
+  end)
+end)
+
+-- The form has to be the one the payload renders for an annotation's own lines, or the
+-- coupling this work exists to remove has simply moved: the composer would be authoring a
+-- syntax the module that reads it never produces. Note the single line collapses to `#L12`
+-- rather than `#L12-12`.
+describe("referencing lines in a file", function()
+  for _, case in ipairs({
+    { answer = { path = "docs/guide.md", first = 12, last = 20 }, expect = "@docs/guide.md#L12-20 " },
+    { answer = { path = "docs/guide.md", first = 12, last = 12 }, expect = "@docs/guide.md#L12 " },
+    { answer = { path = "docs/guide.md" }, expect = "@docs/guide.md " },
+  }) do
+    queue.clear()
+    file_answer = case.answer
+    annotate_line()
+    local composer_win = floating()
+    h.feed("i@")
+    local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+    h.feed("<Esc>")
+    if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+      vim.api.nvim_win_close(composer_win, true)
+    end
+
+    it(("splices %s"):format(case.expect), function()
+      assert.same(case.expect, line)
+    end)
+  end
+end)
+
+-- Notes contain email addresses. An `@` that continues a word is a character, not a
+-- request for a picker.
+describe("an @ that does not begin a word", function()
+  queue.clear()
+  file_answer = { path = "docs/guide.md" }
+  local before = file_picks
+  annotate_line()
+  local composer_win = floating()
+  h.feed("iask someone@example.com about this")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("does not open the picker", function()
+    assert.same(before, file_picks)
+  end)
+
+  it("leaves the address as typed", function()
+    assert.same("ask someone@example.com about this", line)
+  end)
+end)
+
+-- A picker is entitled to answer with an absolute path. What lands in the note should read
+-- the way every other reference in the batch reads.
+describe("a picker that answers with an absolute path", function()
+  queue.clear()
+  file_answer = { path = vim.fs.joinpath(vim.uv.cwd(), "docs/guide.md"), first = 3 }
+  annotate_line()
+  local composer_win = floating()
+  h.feed("i@")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("splices it relative to the working directory", function()
+    assert.same("@docs/guide.md#L3 ", line)
+  end)
+end)
+
+-- Outside the tree there is nothing to be relative to, and an absolute path is the only
+-- name the file has.
+describe("a picker that answers with a path outside the tree", function()
+  queue.clear()
+  file_answer = { path = "/etc/hosts" }
+  annotate_line()
+  local composer_win = floating()
+  h.feed("i@")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("leaves it absolute", function()
+    assert.same("@/etc/hosts ", line)
+  end)
+end)
+
+-- The sentinel is written before the picker opens precisely so that this is what cancelling
+-- costs you: nothing.
+describe("cancelling the file picker", function()
+  queue.clear()
+  file_answer = nil
+  annotate_line()
+  local composer_win = floating()
+  h.feed("ilook at @")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("leaves the literal @ the user typed, and nothing else", function()
+    assert.same("look at @", line)
+  end)
+end)
+
+describe("a note carrying a reference", function()
+  queue.clear()
+  file_answer = { path = "docs/guide.md", first = 3 }
+  annotate_line()
+  h.feed("icompare with @<Esc>")
+  h.feed("<C-s>")
+
+  it("queues the note with the reference intact", function()
+    assert.same(1, queue.count())
+    assert.same("compare with @docs/guide.md#L3", queue.all()[1].note)
+  end)
+end)
+
+-- Reconfigures, so it comes after everything that wants a picker. The plugin ships none:
+-- every config already has one, and `@` staying a literal `@` is what "the composer is
+-- still fully usable without it" means.
+describe("with no file picker wired", function()
+  require("codereview").setup({ syntax = false })
+  queue.clear()
+  annotate_line()
+  local composer_win = floating()
+  h.feed("ilook at @")
+  local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  h.feed("<Esc>")
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+
+  it("inserts a literal @ and opens nothing", function()
+    assert.same("look at @", line)
   end)
 end)
 

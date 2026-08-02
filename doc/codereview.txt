@@ -195,6 +195,7 @@ and what is being annotated:
 
     ^S              queue the note and close
     ^T              choose where the batch goes
+    @               reference another file (|codereview-opt-pick_file|)
     q  <Esc>        abandon without queueing
 
 It opens in insert mode, because you opened it to write something. `^S` and
@@ -208,6 +209,11 @@ returns to the window the annotation was started from.
 
 Routing from here is the same choice the queue float offers, because it is the
 same choice: a target belongs to the batch, not to the window that asked.
+
+`@` references another file, through |codereview-opt-pick_file|. It is written
+into the note before the picker opens, so cancelling leaves the character you
+typed -- and it only opens a picker where a word begins, so an email address in
+a note is an email address.
 
 Wire |codereview-opt-compose| to replace this composer with your own.
 
@@ -262,9 +268,10 @@ path, and inlines its code when it cannot. The buffer itself is never touched.
 ==============================================================================
 7. ADAPTERS                                            *codereview-adapters*
 
-The plugin has no opinion about where a review goes. Three optional functions
-inject that. With none of them wired everything still works except delivery,
-which falls back to the `+` register.
+The plugin has no opinion about where a review goes, or about which pickers
+you use. Four optional functions inject that. With none of them wired
+everything still works except delivery, which falls back to the `+` register,
+and `@` in the composer, which stays a literal `@`.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
@@ -284,6 +291,22 @@ pick_target({cb})                                 *codereview-opt-pick_target*
         deliberately **not persisted**. The queue is worth keeping across a
         restart; a target names a live destination -- a pane id, say -- and
         restoring a dead one would route a batch into nothing.
+
+pick_file({cb})                                     *codereview-opt-pick_file*
+        Choose a file to reference from inside the composer and call {cb} with
+        it. The plugin ships no picker -- every config already has one -- so
+        without this `@` stays a literal `@` and opens nothing: >
+            cb({ path = "src/main.lua", first = 12, last = 20 })
+<
+        `first` and `last` are optional. A picker that cannot select lines
+        omits both, and the reference is then to the file rather than to a
+        range in it. Answering with nothing is a cancel, which leaves the `@`
+        that was typed and nothing else.
+
+        An absolute path under the working directory is spliced relative to
+        it, so that a reference written into a note reads the way every
+        reference the payload renders does. Outside that tree it stays
+        absolute -- there is nothing for it to be relative to.
 
 compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
         Collect note text and call {on_accept}(target, text). Replaces the
