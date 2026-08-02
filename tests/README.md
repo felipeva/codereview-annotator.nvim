@@ -103,6 +103,10 @@ so the out-of-core language path is still checked locally without ever failing C
 - **`nvim -l` sends `print` to stderr, not stdout.** A child spawned with `-l` that reports
   its result through `print` has to be read from `stderr`, or from both streams. Asserting
   against `stdout` alone silently never matches.
+- **An empty environment variable does not reach a child.** `vim.system` drops an env entry
+  whose value is `""`, so a child cannot tell "set to empty" from "never set". A flag a
+  child branches on has to be absent or carry a real value — `capture_child.lua` declines a
+  type when `CAPTURE_TYPE` is absent, not when it is blank.
 - **git config is neutralised.** Both the fixture scripts and `minimal_init.lua` set
   `GIT_CONFIG_GLOBAL=/dev/null`. Inherited settings quietly change what a fixture means:
   `diff.renames = false` turns the rename case into an unrelated add plus delete, and

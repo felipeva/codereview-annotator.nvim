@@ -228,33 +228,41 @@ describe("the user command", function()
   end)
 end)
 
+---One capture, in a process of its own.
+---@param file string
+---@param type_name string|nil nil declines a type, for an untyped annotation
+---@param note string
+local function session(file, type_name, note)
+  return vim
+    .system({
+      vim.v.progpath,
+      "--clean",
+      "-l",
+      vim.fs.joinpath(h.root, "tests", "codereview", "capture_child.lua"),
+    }, {
+      cwd = fixture,
+      text = true,
+      env = {
+        XDG_STATE_HOME = vim.env.XDG_STATE_HOME,
+        FIXTURE = fixture,
+        CAPTURE_FILE = file,
+        CAPTURE_TYPE = type_name,
+        CAPTURE_NOTE = note,
+      },
+    })
+    :wait(60000)
+end
+
+-- `nvim -l` sends `print` to stderr, so the child's report is read from both streams
+-- rather than from stdout alone.
+---@param child table
+---@return string
+local function output(child)
+  return (child.stdout or "") .. (child.stderr or "")
+end
+
 describe("capturing across a restart", function()
   local state = require("codereview.state")
-
-  ---One capture, in a process of its own.
-  ---@param file string
-  ---@param type_name string
-  ---@param note string
-  local function session(file, type_name, note)
-    return vim
-      .system({
-        vim.v.progpath,
-        "--clean",
-        "-l",
-        vim.fs.joinpath(h.root, "tests", "codereview", "capture_child.lua"),
-      }, {
-        cwd = fixture,
-        text = true,
-        env = {
-          XDG_STATE_HOME = vim.env.XDG_STATE_HOME,
-          FIXTURE = fixture,
-          CAPTURE_FILE = file,
-          CAPTURE_TYPE = type_name,
-          CAPTURE_NOTE = note,
-        },
-      })
-      :wait(60000)
-  end
 
   -- A clean slate on both sides, so what the two sessions write is all that is on disk.
   queue.clear()
@@ -267,14 +275,6 @@ describe("capturing across a restart", function()
     assert.same(0, first.code, (first.stderr or "") .. (first.stdout or ""))
     assert.same(0, second.code, (second.stderr or "") .. (second.stdout or ""))
   end)
-
-  -- `nvim -l` sends `print` to stderr, so the child's report is read from both streams
-  -- rather than from stdout alone.
-  ---@param child table
-  ---@return string
-  local function output(child)
-    return (child.stdout or "") .. (child.stderr or "")
-  end
 
   it("the first session persisted its annotation", function()
     assert.is_true(output(first):find("queued: 1", 1, true) ~= nil, output(first))
@@ -306,6 +306,57 @@ describe("capturing across a restart", function()
     assert.same({ "bug", "nitpick" }, { saved[1].type, saved[2].type })
     assert.same(h.git_lines(root, { "hash-object", "src/main.lua" })[1], saved[1].blob)
     assert.same(h.git_lines(root, { "hash-object", "src/routes.lua" })[1], saved[2].blob)
+  end)
+end)
+
+-- An entry with no type has to survive a restart like any other. Two processes for the
+-- reason the case above needs two: the queue is restored once per session, so a session
+-- that already restored cannot observe what restoring does to what the last one left.
+describe("an untyped annotation across a restart", function()
+  local state = require("codereview.state")
+
+  queue.clear()
+  state.clear(root)
+
+  local declined = session("src/main.lua", nil, "no instruction attached")
+  local later = session("src/routes.lua", "bug", "from a later session")
+
+  it("both sessions exit cleanly", function()
+    assert.same(0, declined.code, output(declined))
+    assert.same(0, later.code, output(later))
+  end)
+
+  it("queued the declined annotation rather than abandoning it", function()
+    assert.is_true(output(declined):find("queued: 1", 1, true) ~= nil, output(declined))
+  end)
+
+  -- Written with the field absent, not with a placeholder standing in for one: an entry
+  -- restored into a session whose host renamed its types must still read as untyped.
+  it("wrote it to disk carrying no type at all", function()
+    local saved = state.load(root).queue
+    assert.same("no instruction attached", saved[1].note)
+    assert.is_nil(saved[1].type)
+  end)
+
+  it("kept everything else an annotation carries", function()
+    local saved = state.load(root).queue
+    assert.same("src/main.lua", saved[1].path)
+    assert.same(h.git_lines(root, { "hash-object", "src/main.lua" })[1], saved[1].blob)
+  end)
+
+  -- The restore half: the later session captured one and ended up holding two, which is
+  -- only possible if the untyped entry came back off disk instead of being dropped.
+  it("is restored by the next session, not discarded on the way back", function()
+    assert.is_true(output(later):find("queued: 2", 1, true) ~= nil, output(later))
+  end)
+
+  it("still groups as untyped once restored", function()
+    local saved = state.load(root).queue
+    local groups = require("codereview.types").group(saved, require("codereview.config").get().types)
+    local labels = vim.tbl_map(function(g)
+      return g.type.label
+    end, groups)
+    assert.same({ "Bugs", "Untyped" }, labels)
   end)
 end)
 
