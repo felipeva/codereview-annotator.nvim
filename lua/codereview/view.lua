@@ -209,10 +209,9 @@ function M.persist()
     require("codereview.state").persist(V)
     return
   end
-  local root = ambient_root()
-  if root then
-    require("codereview.state").persist_queue(root)
-  end
+  -- Passed even when nil: there may still be annotations with no repository to write, and
+  -- skipping would leave a submitted batch's entries on disk to come back next start.
+  require("codereview.state").persist_queue(ambient_root())
 end
 
 -- Restored lazily, and once. `count()` is the sort of thing a statusline calls on every
@@ -232,11 +231,9 @@ function M.ensure_queue()
     return
   end
   queue_restored = true
-  local root = ambient_root()
-  if not root then
-    return
-  end
-  local staled = require("codereview.state").restore_queue(root)
+  -- No root is not a reason to skip: annotations with no repository behind them live in a
+  -- store that does not need one, and they would otherwise never come back.
+  local staled = require("codereview.state").restore_queue(ambient_root())
   if staled > 0 then
     -- Worded exactly as the review view reports it. With no view open this is the only
     -- moment a restored annotation's staleness would otherwise go unmentioned.

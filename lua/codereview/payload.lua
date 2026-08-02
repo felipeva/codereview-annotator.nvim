@@ -45,6 +45,13 @@ end
 ---@param base string
 ---@return string heading, string[]|nil block
 local function describe(entry, base)
+  -- A thought with no file behind it. There is no location to resolve, so there is nothing
+  -- for the `@ref`-versus-inline rules below to decide -- and every one of them would be
+  -- reading a path that is not there.
+  if entry.kind == "note" then
+    return "(no file)", nil
+  end
+
   local rel = M.relative_to(entry.abs_path, base)
   local where = rel or entry.abs_path or entry.path
 

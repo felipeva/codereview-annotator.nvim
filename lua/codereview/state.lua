@@ -61,10 +61,98 @@ function M.save(root, data)
   return pcall(vim.fn.writefile, { encoded }, file)
 end
 
+--- The store for annotations with no repository ---------------------------------
+
+---How long an annotation with no repository behind it survives.
+---
+---Nothing else will ever remove one. The per-repository store is reconciled against a
+---diff, which is the moment an entry can be judged obsolete; this store never is, so
+---without a sweep it grows for the life of the editor's state directory. Matches the
+---window the host config's draft store uses, for the same reason.
+local GLOBAL_TTL_SECONDS = 7 * 24 * 60 * 60
+
+---@return string
+function M.global_path()
+  return vim.fs.joinpath(vim.fn.stdpath("state"), "codereview", "no-repository.json")
+end
+
+---Split the queue by whether an entry belongs to a repository.
+---
+---Having a repository-relative path *is* the test: a capture outside a checkout and a bare
+---thought both lack one, and both are exactly the entries with nowhere repository-shaped
+---to live. No extra field to set, and nothing to keep in sync with reality.
+---@param items CRAnnotation[]
+---@return CRAnnotation[] owned, CRAnnotation[] loose
+local function partition(items)
+  local owned, loose = {}, {}
+  for _, item in ipairs(items) do
+    table.insert(item.path and owned or loose, item)
+  end
+  return owned, loose
+end
+
+---@return CRAnnotation[]
+function M.load_global()
+  local file = M.global_path()
+  if vim.fn.filereadable(file) == 0 then
+    return {}
+  end
+  local ok, decoded = pcall(function()
+    return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
+      luanil = { object = true, array = true },
+    })
+  end)
+  if not ok or type(decoded) ~= "table" or decoded.version ~= VERSION then
+    return {}
+  end
+
+  -- The sweep, on load rather than on a timer: this is the only moment the store is
+  -- read, so it is the only moment anything is in a position to drop from it.
+  local now, fresh = os.time(), {}
+  for _, item in ipairs(decoded.queue or {}) do
+    if type(item) == "table" and (now - (item.at or 0)) < GLOBAL_TTL_SECONDS then
+      fresh[#fresh + 1] = item
+    end
+  end
+  return fresh
+end
+
+---@param items CRAnnotation[]
+---@return boolean ok
+function M.save_global(items)
+  local file = M.global_path()
+  vim.fn.mkdir(vim.fs.dirname(file), "p")
+
+  local now = os.time()
+  for _, item in ipairs(items) do
+    -- Stamped once and then left alone. Refreshing it on every write would restart the
+    -- clock each time anything else was queued, and nothing would ever age out.
+    item.at = item.at or now
+  end
+
+  local ok, encoded = pcall(vim.json.encode, { version = VERSION, queue = items })
+  if not ok then
+    return false
+  end
+  return pcall(vim.fn.writefile, { encoded }, file)
+end
+
+---Forget every annotation with no repository behind it.
+function M.clear_global()
+  local file = M.global_path()
+  if vim.fn.filereadable(file) == 1 then
+    vim.fn.delete(file)
+  end
+end
+
+--- Writing and reading ----------------------------------------------------------
+
 ---Write the view's progress and the current queue.
 ---@param view CRView
 function M.persist(view)
-  local data = { version = VERSION, scopes = {}, queue = queue.all() }
+  local owned, loose = partition(queue.all())
+  M.save_global(loose)
+  local data = { version = VERSION, scopes = {}, queue = owned }
   for key, entry in pairs(view.per_scope) do
     -- `expanded` is deliberately not persisted: it is a transient way of peeking at a
     -- file, and restoring it would contradict the reviewed marks that drive collapse.
@@ -81,10 +169,16 @@ end
 ---a scopes table from, so writing a whole document the way `persist` does would blank the
 ---reviewed marks a review saved -- the queue would survive at the cost of the progress
 ---next to it.
----@param root string
+---@param root string|nil nil when the working directory is not inside a repository, in
+---       which case there is only the global store to write
 function M.persist_queue(root)
+  local owned, loose = partition(queue.all())
+  M.save_global(loose)
+  if not root then
+    return
+  end
   local data = M.load(root)
-  data.queue = queue.all()
+  data.queue = owned
   M.save(root, data)
 end
 
@@ -92,15 +186,21 @@ end
 ---
 ---Separate from `restore`, which needs a view and a scope to put reviewed marks back.
 ---The queue needs neither: it is what you submit, not what you are looking at.
----@param root string
+---@param root string|nil nil outside a repository, where only the global store applies
 ---@return integer staled
 function M.restore_queue(root)
   if queue.count() > 0 then
     return 0
   end
-  local data = M.load(root)
-  if data.queue and #data.queue > 0 then
-    queue.replace(data.queue)
+  -- Both stores, as one queue. Which store an entry came from is a persistence detail; the
+  -- queue is the queue.
+  local items = root and M.load(root).queue or {}
+  vim.list_extend(items, M.load_global())
+  if #items > 0 then
+    queue.replace(items)
+  end
+  if not root then
+    return 0
   end
   -- Judged as it comes back. This is the window staleness exists to cover: the file was
   -- free to change while nothing was watching it, and a restored note that still claims a

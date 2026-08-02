@@ -12,6 +12,14 @@ local types = require("codereview.types")
 
 local M = {}
 
+---Anchor key for an annotation with no file behind it.
+---
+---Every other key is built from a path, and a path is never empty, so this cannot collide
+---with one. Notes share it: nothing looks a note up by anchor -- the review view projects
+---annotations onto diff lines, and a note has none -- but `queue.by_key` needs a key it
+---can index, and nil is not one.
+local NOTE_KEY = "note:0"
+
 ---@param msg string
 local function warn(msg)
   vim.notify(msg, vim.log.levels.WARN, { title = "Code review" })
@@ -91,10 +99,16 @@ function M.target(buf, range)
   buf = (buf == nil or buf == 0) and vim.api.nvim_get_current_buf() or buf
 
   local name = vim.api.nvim_buf_get_name(buf)
-  -- A scratch buffer, the review view's own buffer, or anything else with no file behind
-  -- it. A bare thought with no path is a real capture shape, but it is its own slice.
+  -- Nothing on disk to anchor to: a scratch buffer, or a fresh unnamed one. That is a real
+  -- capture shape rather than an error -- a thought worth sending with no file behind it --
+  -- and it gets its own kind, because every other kind presupposes a file and both the
+  -- payload renderer and the queue float switch on kind.
+  --
+  -- A buffer that *has* a name which is not a file on disk still fails below. The review
+  -- view's own buffer is one of those, and turning `aa` in a review into a bare note would
+  -- be a worse answer than saying so.
   if name == "" then
-    return nil, "no file in this buffer"
+    return { kind = "note", key = NOTE_KEY, inline = false }
   end
 
   -- Realpath rather than the buffer's name: `git rev-parse --show-toplevel` answers in
@@ -107,22 +121,30 @@ function M.target(buf, range)
 
   local root = git.root(vim.fs.dirname(abs))
   local rel = root and payload.relative_to(abs, root)
-  if not rel then
-    return nil, "not inside a git repository"
-  end
 
   local entry = {
-    path = rel,
     abs_path = abs,
+    inline = false,
+  }
+
+  -- Outside any checkout there is no root to be relative to, nothing to hash against, and
+  -- nowhere repository-shaped to persist. The entry keeps its absolute path and goes on
+  -- exactly as any other; the absence of `path` is what later routes it to the store that
+  -- is not tied to a repository.
+  if rel then
+    entry.path = rel
     -- Hashed at capture time, exactly as the review path hashes a diffed file. This is
     -- what buys staleness detection later; an entry without it can go quietly wrong.
-    blob = git.blob(rel, nil, root),
+    entry.blob = git.blob(rel, nil, root)
     -- Records *what* that blob is: the working tree, not a ref. A review annotation's blob
     -- can be an index or commit blob depending on the scope it was captured in, so this is
     -- what lets staleness judge each kind against the thing it was actually taken from.
-    worktree = true,
-    inline = false,
-  }
+    entry.worktree = true
+  end
+
+  -- Keys off whichever path it has. A repository-relative one where there is a repository,
+  -- so it matches the review view's anchors; the absolute one otherwise.
+  local anchor = rel or abs
 
   local first, last = range and range.first, range and range.last
   if not first then
@@ -130,7 +152,7 @@ function M.target(buf, range)
   end
   if not first then
     entry.kind = "file"
-    entry.key = render.file_key(rel)
+    entry.key = render.file_key(anchor)
     entry.tag = "whole file"
     return entry
   end
@@ -146,7 +168,7 @@ function M.target(buf, range)
   -- payload and the float both switch on kind, and a buffer capture must not present as a
   -- different sort of thing than the same selection made during a review.
   entry.kind = first == last and "line" or "range"
-  entry.key = render.line_key(rel, { new = first })
+  entry.key = render.line_key(anchor, { new = first })
   -- Carried even though this normally travels as an `@ref`: a batch routed to an agent
   -- whose cwd does not contain the file cannot use a ref at all, and the fallback has to
   -- inline the exact lines rather than approximate them. Space-prefixed, so the block is

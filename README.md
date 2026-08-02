@@ -82,6 +82,11 @@ end, { desc = "Annotate as a bug" })
 | A visual selection | Exactly those lines |
 | `:'<,'>CodeReviewAnnotate bug` | Exactly those lines |
 | `:12,20CodeReviewAnnotate bug` | Lines 12 to 20 |
+| A file outside any checkout | The file, by absolute path |
+| A buffer with nothing on disk | A bare note, with no path at all |
+
+The last two are not second-class. They queue, submit and survive a restart like anything
+else — a scratch buffer is a fine place to leave a thought for the batch.
 
 Errors and warnings overlapping what you captured ride along with the note, so they stop
 being retyped by hand. Hints and info are left out — they are rarely why you are
@@ -302,6 +307,12 @@ Each entry records the git blob it was captured against. On reload:
 - an **annotation** whose blob moved is kept and flagged `⚠ stale`, because the prose is
   still worth sending and only its line anchor is untrustworthy. A stale entry never
   travels as an `@ref`; its code is inlined instead.
+
+Annotations with no repository behind them — a bare note, or a file outside any checkout —
+have nowhere repository-shaped to live, so they go to a single store beside the others.
+Nothing ever reconciles that store against a diff, so nothing would ever clear it: entries
+older than **seven days** are dropped when it is read. That bounds its growth but not its
+staleness, which is the accepted cost of not making those annotations second-class.
 
 Each kind is judged against whatever its blob was actually taken from. A review annotation
 is judged against the diff on screen, and a file the current scope does not include is not

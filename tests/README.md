@@ -27,6 +27,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
+| `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The composer stub `interactive_spec` drives — deliberately not a spec. |
 | `perf.lua` | Open-time report on a 60-file diff. Not part of `make test`. |
 
@@ -42,6 +43,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `viewless_spec` | The queue with no review view open: persist, restore, submit |
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, blob, composer, diagnostics, restart, one queue |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
+| `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |
@@ -78,6 +80,9 @@ so the out-of-core language path is still checked locally without ever failing C
   across a genuine restart; calling `state.load()` twice in one process proves nothing
   about what reached the disk. `state_child.lua` writes, the spec restarts and reads. Do
   not collapse it into one process.
+- **`norepo_spec` needs a directory that is genuinely outside a checkout**, and asserts it
+  rather than assuming it. If the temp directory ever sits inside a repository, every case
+  about a "loose" file silently becomes a test of the ordinary in-repository path.
 - **A filter test needs a fixture only that filter can reject.** `capture_spec` asserts
   that hints and info never ride along with an annotation. Those diagnostics originally sat
   on a line *outside* the captured range, so the range filter rejected them and the
