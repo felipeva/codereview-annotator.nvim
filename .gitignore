@@ -1,6 +1,2 @@
 .tests/
 *.log
-
-# Test runtime output
-tests/**/pty_state/
-tests/**/*.shada

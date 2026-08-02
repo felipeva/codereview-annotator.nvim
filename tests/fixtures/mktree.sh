@@ -1,12 +1,17 @@
 #!/bin/bash
-# Rebuild the NESTED fixture repo used by t8 (tree panel) and t10 (queue focus).
+# Rebuild the NESTED fixture repo used by panel_spec (tree) and focus_spec (queue float).
 #
 # Distinct from mkfixture.sh, which builds a flat src/-only repo for the diff and
 # annotation suites. This one exists to exercise the tree: `apps/api/src` and
 # `packages/shared/src` are single-child chains that must compact, while `apps` has two
 # children so it must not. Omitting any file changes the tree shape and breaks the
-# structural assertions -- t8 is sensitive to exactly which files are present.
+# structural assertions -- panel_spec is sensitive to exactly which files are present.
+# Regenerate with this script rather than hand-editing a fixture repo.
 set -e
+# Hermetic: no user or system git config. Without this the fixture inherits things that
+# change what it is (commit.gpgsign, diff.renames, core.autocrlf, hooks) -- gpg signing in
+# particular fails outright on a machine with no key, which is every CI runner.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 R="${1:?usage: mktree.sh <path>}"
 rm -rf "$R"; mkdir -p "$R"; cd "$R"
 git init -q -b master
@@ -16,22 +21,22 @@ mkdir -p apps/api/src/routes apps/web/src/components packages/shared/src docs
 
 # 10 files. The three that are never modified keep directories in the tree that carry no
 # changes, so "files under a directory" and the diff's file list stay distinguishable.
-ALL="apps/api/src/main.ts apps/api/src/routes/users.ts apps/api/src/routes/auth.ts
-     apps/web/src/components/Button.tsx apps/web/src/components/Modal.tsx
-     apps/web/src/index.ts packages/shared/src/types.ts packages/shared/src/utils.ts
+ALL="apps/api/src/main.lua apps/api/src/routes/users.lua apps/api/src/routes/auth.lua
+     apps/web/src/components/button.lua apps/web/src/components/modal.lua
+     apps/web/src/index.lua packages/shared/src/types.lua packages/shared/src/utils.lua
      docs/guide.md README.md"
 for f in $ALL; do
-  printf 'export const a = 1\nexport const b = 2\nexport const c = 3\n' > "$f"
+  printf 'local a = 1\nlocal b = 2\nlocal c = 3\n' > "$f"
 done
 git add -A && git commit -qm base
 
 git checkout -qb feature
 # 7 of the 10 change: 4 under apps/, plus one each under packages/, docs/, and the root.
-CHANGED="apps/api/src/main.ts apps/api/src/routes/users.ts
-         apps/web/src/components/Button.tsx apps/web/src/index.ts
-         packages/shared/src/types.ts docs/guide.md README.md"
+CHANGED="apps/api/src/main.lua apps/api/src/routes/users.lua
+         apps/web/src/components/button.lua apps/web/src/index.lua
+         packages/shared/src/types.lua docs/guide.md README.md"
 for f in $CHANGED; do
-  printf 'export const a = 1\nexport const b = 22\nexport const c = 3\n' > "$f"
+  printf 'local a = 1\nlocal b = 22\nlocal c = 3\n' > "$f"
 done
 git add -A && git commit -qm work
 

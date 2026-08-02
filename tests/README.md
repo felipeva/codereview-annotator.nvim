@@ -1,0 +1,105 @@
+# Tests
+
+```sh
+make deps                                             # clone plenary into .tests/
+make test                                             # the whole suite
+make test-file FILE=tests/codereview/diff_spec.lua    # one spec, in-process
+make lint                                             # stylua --check
+make perf                                             # open-time report, not a gate
+```
+
+`make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
+Neovim per spec file**. Each process builds its own fixture repository and gets its own
+throwaway state directory, so files neither share state nor need resetting between them.
+The whole suite is about 218 cases in ~5 seconds.
+
+Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
+`-u`, which loads your real config instead of `tests/minimal_init.lua`.
+
+## Layout
+
+| Path | What |
+| --- | --- |
+| `minimal_init.lua` | The only runtimepath is this plugin plus plenary. Also redirects `XDG_STATE_HOME` and neutralises git config. |
+| `helpers.lua` | Fixture builders, notification capture, extmark filters, anchor lookups. |
+| `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
+| `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
+| `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
+| `codereview/interactive_init.lua` | The composer stub `interactive_spec` drives — deliberately not a spec. |
+| `perf.lua` | Open-time report on a 60-file diff. Not part of `make test`. |
+
+| Spec | Covers |
+| --- | --- |
+| `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
+| `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
+| `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
+| `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
+| `state_spec` | Persistence across a real restart, blob invalidation, corrupt files |
+| `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
+| `focus_spec` | Queue-float focus across the async picker, submit closing the float |
+| `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |
+
+## Fixtures
+
+Three repositories, each rebuilt from scratch by its script. They are not
+interchangeable, and the assertions know which one they are looking at.
+
+- **`mkfixture.sh`** — flat `src/`-only repo covering every file status at once:
+  modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
+  binary, gitignored, and a file with no trailing newline on either side. Used by
+  `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`
+  and `interactive_spec`.
+- **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
+  `packages/shared/src` are single-child chains that must compact, `apps` has two children
+  so it must not. Used by `panel_spec` and `focus_spec`.
+- **`mkbig.sh`** — 60 files, 12k changed lines, for `perf.lua` only.
+
+The sources are Lua and Markdown rather than TypeScript because Neovim core ships both
+parsers **and** their `highlights` queries. `syntax_spec` therefore exercises the real
+parse → capture → anchor → byte-column path on a bare Neovim, with no nvim-treesitter and
+no compiler in CI. One typescript case marks itself `pending` when the parser is absent,
+so the out-of-core language path is still checked locally without ever failing CI.
+
+## Things that bite
+
+- **Never reuse a state directory.** `minimal_init.lua` mints a fresh `XDG_STATE_HOME` per
+  process, unconditionally. Reusing one makes assertions pass because a *previous run's*
+  state was restored, and inheriting the real one writes into
+  `~/.local/state/nvim/codereview/`, where you have genuine review state. Nothing in the
+  suite writes outside a temporary directory.
+- **`state_spec` is two processes on purpose.** Persistence is only meaningfully tested
+  across a genuine restart; calling `state.load()` twice in one process proves nothing
+  about what reached the disk. `state_child.lua` writes, the spec restarts and reads. Do
+  not collapse it into one process.
+- **git config is neutralised.** Both the fixture scripts and `minimal_init.lua` set
+  `GIT_CONFIG_GLOBAL=/dev/null`. Inherited settings quietly change what a fixture means:
+  `diff.renames = false` turns the rename case into an unrelated add plus delete, and
+  `commit.gpgsign` makes building a fixture depend on a gpg agent.
+- **Counts are derived from git, not hardcoded.** `diff_spec` cross-checks every file
+  against `git diff --numstat` at runtime. Hardcoded totals went stale three times while
+  this was being written. Keep them derived.
+- **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
+  tallies, so adding or omitting one file changes what it expects. Regenerate with
+  `mktree.sh` rather than hand-editing a fixture repo.
+- **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
+  remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
+  `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
+  version of that test passes whether or not the fix exists, which is why it drives a pty.
+
+## Deliberately not covered
+
+- **Rendering as pixels.** Assertions are against the buffer, the anchor map and extmark
+  metadata — never a screenshot. Highlight *groups* are checked; the colours a colorscheme
+  resolves them to are not.
+- **The `git diff` long tail.** Submodules, mode-only changes and combined (merge) diffs
+  are not handled by the plugin and are not tested either way. They should degrade to a
+  visible "unsupported entry" row rather than a stack trace; today neither behaviour is
+  pinned down.
+- **Real adapters.** `send`, `pick_target` and `compose` are injected stubs throughout.
+  That is the point of the seam — the plugin carries no opinion about the transport — but
+  it means no test exercises a real agent handoff.
+- **Timing and wall clock.** `perf.lua` reports numbers and fails only past a deliberately
+  loose ceiling. It is a report you read, not a gate; it is not in CI, where a shared
+  runner would make it noise.
+- **Windows.** The fixture scripts are bash and the suite assumes POSIX paths.

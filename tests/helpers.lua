@@ -1,0 +1,143 @@
+---Shared plumbing for the spec files.
+---
+---Each spec runs in its own Neovim (PlenaryBustedDirectory spawns one process per file),
+---so a fixture built here is private to that spec and nothing needs to reset between
+---files. Fixtures land under Neovim's own tempdir, which it removes on exit.
+local M = {}
+
+M.root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
+
+---Build a fixture repository and return its path.
+---@param script "mkfixture"|"mktree"
+---@return string dir
+function M.fixture(script)
+  local dir = vim.fn.tempname() .. "-" .. script
+  local sh = vim.fs.joinpath(M.root, "tests", "fixtures", script .. ".sh")
+  local res = vim.system({ "bash", sh, dir }, { text = true }):wait(60000)
+  assert(res.code == 0, ("%s failed (%d): %s"):format(script, res.code, res.stderr or ""))
+  return dir
+end
+
+---Build a fixture and make it the current directory.
+---@param script "mkfixture"|"mktree"
+---@return string dir
+function M.cd_fixture(script)
+  local dir = M.fixture(script)
+  vim.cmd("cd " .. vim.fn.fnameescape(dir))
+  return dir
+end
+
+---A window big enough that rendering and the viewport-bounded syntax pass behave as they
+---do interactively. Headless Neovim defaults to 80x24, which is small enough to change
+---which files get parsed.
+---@param columns? integer
+---@param lines? integer
+function M.ui(columns, lines)
+  vim.o.columns = columns or 110
+  vim.o.lines = lines or 40
+end
+
+---Run git in `root` and return its stdout split into lines.
+---@param root string
+---@param args string[]
+---@return string[]
+function M.git_lines(root, args)
+  local res = vim.system(vim.list_extend({ "git" }, args), { text = true, cwd = root }):wait()
+  return vim.split(vim.trim(res.stdout or ""), "\n", { trimempty = true })
+end
+
+---Collect everything `vim.notify` is handed until `restore()` is called.
+---@return string[] messages, fun() restore
+function M.capture_notify()
+  local messages = {}
+  local orig = vim.notify
+  vim.notify = function(msg, ...)
+    messages[#messages + 1] = msg
+    return orig(msg, ...)
+  end
+  return messages, function()
+    vim.notify = orig
+  end
+end
+
+---@param messages string[]
+---@param needle string
+---@return boolean
+function M.notified(messages, needle)
+  for _, m in ipairs(messages) do
+    if type(m) == "string" and m:find(needle, 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
+---Feed keys and let them run to completion.
+---@param keys string
+function M.feed(keys)
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
+end
+
+---Index of a file in the view, by path.
+---@param view CRView
+---@param path string
+---@return integer|nil
+function M.file_index(view, path)
+  for i, f in ipairs(view.files) do
+    if f.path == path then
+      return i
+    end
+  end
+end
+
+---First buffer row anchored to `path` that satisfies `pred`.
+---@param view CRView
+---@param path string
+---@param pred fun(anchor: table, row: integer): boolean
+---@return integer|nil
+function M.row_of(view, path, pred)
+  for row, a in pairs(view.render.anchors) do
+    if view.files[a.file].path == path and pred(a, row) then
+      return row
+    end
+  end
+end
+
+---First row anchored to any diff line of `path`.
+---@param view CRView
+---@param path string
+---@return integer|nil
+function M.line_row(view, path)
+  return M.row_of(view, path, function(a)
+    return a.kind == "line"
+  end)
+end
+
+M.NS = vim.api.nvim_create_namespace("codereview")
+
+---@param view CRView
+---@return table[]
+function M.extmarks(view)
+  return vim.api.nvim_buf_get_extmarks(view.buf, M.NS, 0, -1, { details = true })
+end
+
+---Extmarks carrying an annotation's virtual lines.
+---@param view CRView
+---@return table[]
+function M.virt_marks(view)
+  return vim.tbl_filter(function(m)
+    return m[4].virt_lines ~= nil
+  end, M.extmarks(view))
+end
+
+---Extmarks emitted by the treesitter replay.
+---@param view CRView
+---@return table[]
+function M.syntax_marks(view)
+  local priority = require("codereview.render").PRIORITY.syntax
+  return vim.tbl_filter(function(m)
+    return m[4].priority == priority
+  end, M.extmarks(view))
+end
+
+return M
