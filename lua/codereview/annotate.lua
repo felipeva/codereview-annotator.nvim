@@ -233,30 +233,65 @@ local function leave_insert()
   end)
 end
 
+---Put focus back in the window an annotation was started from.
+---
+---Closing a floating composer hands focus to whichever window Neovim recorded last, and
+---falls through to the *first* window in the tab when that one has since been closed. A
+---composer that opened a picker while it was up -- an `@file` reference, a change of
+---target -- is precisely that case, and the first window is the tree. So the diff only ever
+---kept focus by luck; this is the plugin asserting it instead.
+---
+---Scheduled rather than immediate: a composer is free to call back before closing its own
+---window, and focusing inline would leave that close to re-run the very fallback this
+---exists to defeat.
+---
+---Never constructive. With the original window gone the review's diff will do -- but only
+---when it is in the tab the user is looking at, because dragging them into a different one
+---is worse than leaving them where they landed.
+---@param win integer
+local function restore_focus(win)
+  vim.schedule(function()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_set_current_win(win)
+      return
+    end
+    local V = require("codereview.view").current()
+    if V and vim.api.nvim_win_get_tabpage(V.win) == vim.api.nvim_get_current_tabpage() then
+      vim.api.nvim_set_current_win(V.win)
+    end
+  end)
+end
+
 ---Collect note text, through the injected composer when one is wired.
 ---@param ctx table
 ---@param label string
 ---@param cb fun(text: string)
 local function collect(ctx, label, cb)
   local cfg = config.get()
+  -- Read before anything opens: this is the window that asked for the composer -- the diff
+  -- on the review path, an ordinary buffer's window on the capture one.
+  local origin = vim.api.nvim_get_current_win()
+
+  ---Runs whether or not a note came back. A composer submitted from an insert-mode mapping
+  ---leaks insert mode either way, and a note abandoned halfway should still leave the
+  ---cursor where it was started from.
+  ---@param text string|nil
+  local function done(text)
+    leave_insert()
+    restore_focus(origin)
+    if text and vim.trim(text) ~= "" then
+      cb(vim.trim(text))
+    end
+  end
+
   if cfg.compose then
     cfg.compose(ctx, function(_, text)
-      -- Before the early return: a composer submitted from an insert-mode mapping leaks
-      -- insert mode whether or not the note turned out to be empty.
-      leave_insert()
-      if text and vim.trim(text) ~= "" then
-        cb(vim.trim(text))
-      end
+      done(text)
     end, label)
     return
   end
   -- Fallback so the plugin is useful with nothing wired at all.
-  vim.ui.input({ prompt = ("%s > "):format(ctx.label) }, function(text)
-    leave_insert()
-    if text and vim.trim(text) ~= "" then
-      cb(vim.trim(text))
-    end
-  end)
+  vim.ui.input({ prompt = ("%s > "):format(ctx.label) }, done)
 end
 
 ---Annotate whatever the cursor or selection points at.
@@ -321,7 +356,7 @@ end
 ---Shared by the review path and by buffer capture, rather than each growing its own tail:
 ---an annotation has to be indistinguishable once queued regardless of how it was
 ---captured, and that is only true if one piece of code decides the composer context, the
----persistence call and the wording of the confirmation.
+---persistence call, the wording of the confirmation and where focus lands afterwards.
 ---@param entry CRAnnotation
 ---@param type_def CRType
 ---@param opts? { note_suffix?: string } Appended below the collected note. Buffer capture
