@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Reject commit messages that are not Conventional Commits.
+#
+# Installed by `make hooks`, which points core.hooksPath at this directory. Hooks are not
+# version-controlled by git itself, so a tracked directory plus a one-line config is the
+# only way a convention survives a fresh clone.
+#
+# Deliberately checks the subject line only. The body is free-form prose and the trailers
+# (Co-Authored-By, Claude-Session) must pass through untouched.
+set -euo pipefail
+
+TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
+MAX_SUBJECT=72
+
+msg_file="$1"
+
+# Mirror git's own cleanup: drop the scissors block first (its marker is itself a
+# comment), then every remaining comment line, then any leading blank lines.
+clean=$(
+  sed -e '/^#[[:space:]]*-\{5,\}[[:space:]]*>8/,$d' -e '/^#/d' "$msg_file" |
+    awk 'NF { seen = 1 } seen { print }'
+)
+
+subject=$(printf '%s\n' "$clean" | head -n 1)
+second=$(printf '%s\n' "$clean" | sed -n '2p')
+
+die() {
+  echo "commit-msg: $1" >&2
+  echo >&2
+  echo "  subject: ${subject:-(empty)}" >&2
+  echo >&2
+  echo "  Conventional Commits: <type>(<optional scope>)!: <description>" >&2
+  echo "  types: ${TYPES//|/ }" >&2
+  echo "  description: lowercase imperative, no trailing period, subject <= ${MAX_SUBJECT} chars" >&2
+  echo "  body: separated from the subject by one blank line" >&2
+  echo >&2
+  echo "  e.g.  test: port the scratch suites to plenary" >&2
+  echo "        fix(panel): find a file's parent by depth, not proximity" >&2
+  exit 1
+}
+
+# git generates these itself, or rewrites them on rebase. Not ours to validate.
+case "$subject" in
+  "Merge "* | "Revert "* | "fixup!"* | "squash!"* | "amend!"*) exit 0 ;;
+esac
+
+# An empty message aborts the commit anyway; let git report that, not us.
+[ -z "$subject" ] && exit 0
+
+if ! printf '%s' "$subject" | grep -qE "^(${TYPES})(\([a-z0-9._/-]+\))?!?: .+$"; then
+  die "subject does not start with a known type"
+fi
+
+description=${subject#*: }
+
+if [ "${#subject}" -gt "$MAX_SUBJECT" ]; then
+  die "subject is ${#subject} characters, over the ${MAX_SUBJECT} limit"
+fi
+
+# [[:upper:]] rather than [A-Z]: under a UTF-8 collation the range form matches almost
+# every lowercase letter too, so it rejects every message.
+case "$description" in
+  [[:upper:]]*) die "description starts with a capital" ;;
+  *.) die "description ends with a period" ;;
+esac
+
+if [ -n "$second" ]; then
+  die "the body must be separated from the subject by a blank line"
+fi
+
+exit 0
