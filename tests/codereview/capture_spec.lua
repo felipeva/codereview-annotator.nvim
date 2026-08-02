@@ -129,12 +129,14 @@ describe("an unrecognised type", function()
   end)
 end)
 
--- The review view's own buffer is one of these, which is what the user hits by calling
--- the entry point while focused inside a review. A bare thought with no file is a real
--- capture shape, but it is a later slice; refusing beats queueing something malformed.
-describe("a buffer with no file behind it", function()
+-- An *unnamed* buffer is a bare thought, and queues one -- see `norepo_spec`. A buffer
+-- whose name is not a file on disk is a different thing: it claims to be something, and
+-- the review view's own buffer is one of them. Turning `aa` inside a review into a bare
+-- note would be a worse answer than saying so.
+describe("a buffer whose name is not a file on disk", function()
   queue.clear()
   vim.cmd("enew")
+  vim.api.nvim_buf_set_name(0, "codereview://not-a-real-file")
   local msgs, restore = h.capture_notify()
   codereview.annotate("bug")
   restore()
@@ -143,8 +145,8 @@ describe("a buffer with no file behind it", function()
     assert.same(0, queue.count())
   end)
 
-  it("says there is no file", function()
-    assert.is_true(h.notified(msgs, "no file in this buffer"))
+  it("says so rather than inventing a note", function()
+    assert.is_true(h.notified(msgs, "is not a file on disk"), vim.inspect(msgs))
   end)
 end)
 

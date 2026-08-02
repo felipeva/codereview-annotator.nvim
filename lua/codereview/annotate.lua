@@ -201,11 +201,19 @@ end
 ---@param entry CRAnnotation
 ---@return string
 function M.describe(entry)
+  -- Nothing to name. Every branch below reads a path, and a bare thought has none, so
+  -- without this the composer title and the confirmation both say "nil:nil".
+  if entry.kind == "note" then
+    return "(no file)"
+  end
+  -- Outside a checkout there is no repository-relative path, and the absolute one is the
+  -- only name the file has.
+  local where = entry.path or entry.abs_path
   if entry.kind == "file" then
-    return ("%s (%s)"):format(entry.path, entry.tag or "whole file")
+    return ("%s (%s)"):format(where, entry.tag or "whole file")
   end
   local range = entry.first == entry.last and tostring(entry.first) or ("%d-%d"):format(entry.first, entry.last)
-  return entry.tag and ("%s:%s (%s)"):format(entry.path, range, entry.tag) or ("%s:%s"):format(entry.path, range)
+  return entry.tag and ("%s:%s (%s)"):format(where, range, entry.tag) or ("%s:%s"):format(where, range)
 end
 
 ---Leave insert mode once a composer hands control back.
