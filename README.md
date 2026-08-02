@@ -24,12 +24,7 @@ The tree collapses single-child directory chains (`apps/api/src`, not three nest
 sorts directories before files, and carries a reviewed tally on every directory so you can
 see which packages are done without opening them.
 
-## Why not diffs.com
-
-The obvious way to build this would be to embed [`@pierre/diffs`](https://diffs.com) and get
-Shiki-grade diff rendering for free. It is not usable here: it is a React library that
-renders DOM, with no CLI, no ANSI output and no headless renderer. Everything is drawn
-natively instead, and the syntax highlighting is recovered with
+Everything is drawn natively, and the syntax highlighting is recovered with
 `vim.treesitter.get_string_parser` — see [Design notes](#design-notes).
 
 ## Requirements
