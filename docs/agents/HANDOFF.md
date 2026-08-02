@@ -1,28 +1,37 @@
 # Handoff — codereview-annotator.nvim
 
-**The test suite is in.** `tests/_scratch/` is gone; everything it proved now lives in
-`tests/codereview/*_spec.lua` under plenary, with CI. Features are a ranked backlog at the
-bottom — **do not start them without grilling the item first.**
+**The test suite is in, and the host cutover is done.** `tests/_scratch/` is gone;
+everything it proved now lives in `tests/codereview/*_spec.lua` under plenary, with CI.
+Features are a ranked backlog at the bottom — **do not start them without grilling the item
+first.**
 
 ## Where things are
 
 | What | Where |
 | --- | --- |
-| Plugin repo | `~/Codes/lua/codereview-annotator.nvim` (private, `master`) |
+| Plugin repo | `~/Codes/lua/codereview-annotator.nvim` (`master`) |
 | GitHub | https://github.com/felipeva/codereview-annotator.nvim |
 | Neovim config wiring | `~/.config/nvim/lua/plugins/codereview.lua` (`dir =` spec + 3 adapters) |
 | Design rationale | `README.md` § *Design notes* — read this before changing anything |
 | User-facing docs | `doc/codereview.txt` |
+| Contributor workflow | `CLAUDE.md` for agents, `CONTRIBUTING.md` for humans — change both together |
 | **Tests** | `tests/README.md` — layout, fixtures, what is deliberately not covered |
 
-The plugin is ~3,900 lines across 14 modules. It renders a unified syntax-highlighted git
+The plugin is ~4,500 lines across 15 modules. It renders a unified syntax-highlighted git
 diff with a folder-tree panel, typed annotations that queue up, reviewed-file collapsing,
 and a batch submit through injected adapters. It works and is in daily use.
 
+Capture is the second entry point: `require("codereview").annotate(type)` queues an
+annotation about the current buffer with no review open, and it is the **only** public
+capture seam — extend it rather than adding a sibling. The host cutover deleted
+`claude_queue.lua` and `claude_review.lua`; `<leader>aq` and `<leader>aR` now call
+`annotate()` and `queue()`.
+
 ## What the port ended up as
 
-245 cases, ~310 assertions, ~5 seconds. `make test` runs `PlenaryBustedDirectory` over
-`tests/codereview/`, one Neovim per spec file, each building its own throwaway fixture.
+377 cases across 14 spec files, ~540 assertions, under five seconds. `make test` runs
+`PlenaryBustedDirectory` over `tests/codereview/`, one Neovim per spec file, each building
+its own throwaway fixture.
 
 | Spec | From | Covers |
 | --- | --- | --- |
@@ -35,8 +44,17 @@ and a batch submit through injected adapters. It works and is in daily use.
 | `state_spec` | `t6a`+`t6b` | persistence across processes, blob invalidation, corrupt files |
 | `panel_spec` | `t8` | tree build, chain compaction, folding, subtree review, navigation |
 | `focus_spec` | `t10` | queue-float focus across the async picker, submit closing the float |
+| `viewless_spec` | new (#7) | queue persists and restores with no review view; reviewed marks for unopened scopes |
+| `capture_spec` | new (#9, #10) | buffer capture: whole file, selection, command range, diagnostics riding along |
+| `staleness_spec` | new (#11) | a buffer capture judged against the file on disk, not the diff on screen |
+| `norepo_spec` | new (#13) | the `note` kind, files outside a checkout, the global store and its sweep |
 | `interactive_spec` | `pty_test.py` | the insert-mode leak, in a real pty-backed Neovim |
 | `perf.lua` | `perf2.lua` | open-time report on a 60-file diff — deliberately not in CI |
+
+Four of those drive a second Neovim rather than asserting in-process —
+`viewless_child.lua`, `capture_child.lua`, `norepo_child.lua`, `state_child.lua`. The queue
+restores **once per session** (`view.ensure_queue` latches), so anything testing restore or
+clobbering needs a second *process*, not an in-process reset.
 
 Decisions worth not re-litigating, and the four things that changed along the way:
 
@@ -99,13 +117,22 @@ post-image). Do not start this alongside anything else.
   code. Not a crash, and arguably the safe direction, but it means `@refs` can quietly stop
   being emitted. Worth a `vim.uv.fs_realpath()` on both sides. The suite runs from
   `$TMPDIR` and so hits this constantly; `diff_spec` resolves both paths.
-- **Two annotation systems coexist.** `<leader>a` (`~/.config/nvim/lua/util/claude*.lua`,
-  buffer-based) and `<leader>r` (this plugin) keep **separate queues**. Deliberate, so the
-  old flow kept working; worth retiring `claude_review.lua`'s `start()`/`annotate_hunk()`
-  once this has proven itself. Those files are unmodified and documented in
-  `~/.config/nvim/docs/claude-annotate.md`.
-- **Private repo**: if the config ever switches from the local `dir =` spec to the GitHub
-  one, lazy.nvim will need SSH auth. The current `dir =` spec never touches the network.
+- **The gitsigns diff base is gone.** The host's `claude_review.start()` also called
+  `gitsigns.change_base(merge_base, true)`, which made `]h`/`[h` walk branch-relative hunks
+  in ordinary buffers. The plugin never touched gitsigns, so the cutover removed that with
+  nothing replacing it. Deliberate, but it is the one behaviour the cutover lost — if `]h`
+  feels wrong outside a review, this is why.
+- **The local delivery path still needs claudecode.nvim.** `util.claude.deliver` falls back
+  to `deliver_local` when no target is chosen, and that requires `claudecode`. Picking a
+  herdr target avoids it entirely, and since #16 a picked target sticks with no review view
+  open. Removing claudecode.nvim was considered and deferred; doing it later means either
+  always picking a target or changing that fallback.
+- **The no-repository store bounds growth, not staleness.** Accepted in the PRD and
+  documented in both the README and `:help codereview-persistence-norepo`. An old note about
+  a scratch file can still claim a line span that has moved, and nothing will ever flag it.
+- **Everything here is world-readable.** The repo is open source under MIT, so commits,
+  issues and PRs are public. External PRs are a triage surface — see
+  `docs/agents/issue-tracker.md`.
 - **Perf budget**: opening a 60-file / 12k-line diff is ~120 ms on a bare Neovim (the
   ~290–400 ms figure was with nvim-treesitter loaded). Two things keep it there —
   viewport-bounded syntax harvesting and batched blob hashing. `make perf` reports it and
