@@ -25,10 +25,15 @@ function M.setup(opts)
   })
 
   vim.api.nvim_create_user_command("CodeReviewAnnotate", function(cmd)
-    M.annotate(cmd.args ~= "" and cmd.args or nil)
+    -- `cmd.range` counts the addresses given, not the lines covered. Reading line1/line2
+    -- unconditionally would turn a bare `:CodeReviewAnnotate` into a one-line capture of
+    -- wherever the cursor happened to be, instead of the whole file.
+    local range = cmd.range > 0 and { first = cmd.line1, last = cmd.line2 } or nil
+    M.annotate(cmd.args ~= "" and cmd.args or nil, range)
   end, {
     nargs = "?",
-    desc = "Annotate the current file (annotation type, or the picker with none)",
+    range = true,
+    desc = "Annotate the current file, or a given range (type, or the picker with none)",
     -- Completed from the configured list, not the built-in five: a host that replaced the
     -- vocabulary would otherwise be offered types that no longer exist.
     complete = function(lead)
@@ -56,9 +61,11 @@ end
 ---
 ---The one entry point a host config needs for capture: no review view has to be open, and
 ---nothing reaches into the queue, annotate or state modules to do it.
+---With a visual selection live, captures those lines; otherwise the whole file.
 ---@param type_name string|nil Falls back to the type picker
-function M.annotate(type_name)
-  require("codereview.capture").annotate(type_name)
+---@param range { first: integer, last: integer }|nil Explicit lines, overriding both
+function M.annotate(type_name, range)
+  require("codereview.capture").annotate(type_name, range)
 end
 
 ---Open the queue for review, with drop / route / submit.

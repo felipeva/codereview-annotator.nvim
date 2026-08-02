@@ -316,7 +316,9 @@ end
 ---persistence call and the wording of the confirmation.
 ---@param entry CRAnnotation
 ---@param type_def CRType
-function M.queue_entry(entry, type_def)
+---@param opts? { note_suffix?: string } Appended below the collected note. Buffer capture
+---       uses it to carry diagnostics; the review path has nothing to add.
+function M.queue_entry(entry, type_def, opts)
   entry.type = type_def.name
   -- Before anything is added, not after: persisting writes the in-memory queue over the
   -- document, so queueing into a queue this session has never read back would drop
@@ -332,7 +334,8 @@ function M.queue_entry(entry, type_def)
     },
     "queue",
     function(text)
-      entry.note = text
+      local suffix = opts and opts.note_suffix
+      entry.note = (suffix and suffix ~= "") and (text .. "\n\n" .. suffix) or text
       queue.add(entry)
       local view = require("codereview.view")
       view.paint()

@@ -21,7 +21,9 @@ local sent = {}
 codereview.setup({
   syntax = false,
   compose = function(ctx, on_accept, label)
-    composed[#composed + 1] = { ctx = ctx, label = label }
+    -- The mode the composer is entered in is part of its contract: a composer opened with
+    -- a selection still active gets a buffer it cannot type into cleanly.
+    composed[#composed + 1] = { ctx = ctx, label = label, mode = vim.fn.mode() }
     on_accept(nil, "the note")
   end,
   pick_target = function(cb)
@@ -356,6 +358,205 @@ describe("what the composer is handed", function()
     assert.is_true(h.notified(msgs, "Queued suggestion"), vim.inspect(msgs))
     assert.is_true(h.notified(msgs, "src/routes.lua"), vim.inspect(msgs))
     assert.is_true(h.notified(msgs, "(1 in queue)"), vim.inspect(msgs))
+  end)
+end)
+
+-- Fired from a mapping rather than called directly, because the selection has to still be
+-- live when capture reads it -- which is only true from inside a visual-mode mapping.
+vim.keymap.set({ "n", "x" }, "<F5>", function()
+  codereview.annotate("bug")
+end, { desc = "capture_spec: annotate as bug" })
+
+describe("annotating a visual selection", function()
+  queue.clear()
+  edit("src/main.lua")
+  h.feed("1GVj<F5>")
+  local e = queue.all()[1]
+
+  it("queues one annotation", function()
+    assert.same(1, queue.count())
+  end)
+
+  it("records it as a range", function()
+    assert.same("range", e.kind)
+  end)
+
+  it("spans exactly the selected lines", function()
+    assert.same(1, e.first)
+    assert.same(2, e.last)
+  end)
+
+  it("carries the selected lines themselves", function()
+    local source = vim.fn.readfile(vim.fs.joinpath(root, "src/main.lua"))
+    assert.same({ " " .. source[1], " " .. source[2] }, e.lines)
+  end)
+
+  -- The review path escapes visual mode before opening the composer. Capture has to do
+  -- the same, or the composer is entered with a selection still live.
+  it("leaves visual mode before the composer opens", function()
+    assert.same("n", composed[#composed].mode)
+  end)
+
+  it("travels as a reference the target can resolve", function()
+    local text = require("codereview.payload").render(queue.all(), root, {
+      types = require("codereview.config").get().types,
+    })
+    assert.is_truthy(text:find("@src/main.lua#L1-2", 1, true), text)
+  end)
+
+  -- An agent whose cwd does not contain the file cannot follow a ref at all, so the code
+  -- has to travel with the note instead.
+  it("inlines its code when the file is outside the target's tree", function()
+    local text = require("codereview.payload").render(queue.all(), "/nowhere/else", {
+      types = require("codereview.config").get().types,
+    })
+    assert.is_nil(text:find("@src/main.lua", 1, true), text)
+    assert.is_truthy(text:find("```diff", 1, true), text)
+    local source = vim.fn.readfile(vim.fs.joinpath(root, "src/main.lua"))
+    assert.is_truthy(text:find(source[1], 1, true), text)
+  end)
+end)
+
+-- The command line drops visual mode before running the command, so `:'<,'>` has to come
+-- through as a range or the selection is silently lost and the whole file captured.
+describe("the user command given a range", function()
+  queue.clear()
+  edit("src/main.lua")
+  vim.cmd("1,2CodeReviewAnnotate nitpick")
+  local e = queue.all()[1]
+
+  it("captures exactly those lines", function()
+    assert.same("range", e.kind)
+    assert.same(1, e.first)
+    assert.same(2, e.last)
+  end)
+
+  it("captures a single-line range as a line, as the review path does", function()
+    queue.clear()
+    vim.cmd("2CodeReviewAnnotate nitpick")
+    local one = queue.all()[1]
+    assert.same("line", one.kind)
+    assert.same(2, one.first)
+    assert.same(2, one.last)
+  end)
+
+  it("still captures the whole file when given no range", function()
+    queue.clear()
+    vim.cmd("CodeReviewAnnotate nitpick")
+    assert.same("file", queue.all()[1].kind)
+  end)
+end)
+
+describe("diagnostics riding along", function()
+  local ns = vim.api.nvim_create_namespace("capture_spec_diagnostics")
+  local buf = edit("src/main.lua")
+  local S = vim.diagnostic.severity
+
+  ---@param lnum integer 0-based, as `vim.diagnostic` reports them
+  local function diag(lnum, severity, message)
+    return { lnum = lnum, col = 0, severity = severity, message = message, source = "lua_ls" }
+  end
+
+  vim.diagnostic.set(ns, buf, {
+    diag(0, S.ERROR, "undefined global `app`"),
+    diag(1, S.WARN, "unused local `cfg`"),
+    diag(2, S.ERROR, "past the selection"),
+    -- Inside the selection on purpose, so the severity filter is what excludes these and
+    -- not the line range. Parked on line 3 they passed either way, measuring nothing.
+    diag(0, S.HINT, "a hint nobody asked for"),
+    diag(1, S.INFO, "merely informational"),
+  })
+
+  queue.clear()
+  h.feed("1GVj<F5>")
+  local ranged = queue.all()[1].note
+
+  it("keeps the note the composer collected first", function()
+    assert.is_truthy(ranged:find("^the note"), ranged)
+  end)
+
+  it("appends the errors and warnings overlapping the selection", function()
+    assert.is_truthy(ranged:find("Diagnostics:", 1, true), ranged)
+    assert.is_truthy(ranged:find("ERROR", 1, true), ranged)
+    assert.is_truthy(ranged:find("undefined global `app`", 1, true), ranged)
+    assert.is_truthy(ranged:find("WARN", 1, true), ranged)
+    assert.is_truthy(ranged:find("unused local `cfg`", 1, true), ranged)
+  end)
+
+  it("names the line and the source of each", function()
+    assert.is_truthy(ranged:find("L1", 1, true), ranged)
+    assert.is_truthy(ranged:find("L2", 1, true), ranged)
+    assert.is_truthy(ranged:find("(lua_ls)", 1, true), ranged)
+  end)
+
+  it("leaves out one that does not overlap the selection", function()
+    assert.is_nil(ranged:find("past the selection", 1, true), ranged)
+  end)
+
+  it("leaves out hints and info", function()
+    assert.is_nil(ranged:find("a hint nobody asked for", 1, true), ranged)
+    assert.is_nil(ranged:find("merely informational", 1, true), ranged)
+  end)
+
+  queue.clear()
+  codereview.annotate("bug")
+  local whole = queue.all()[1].note
+
+  it("rides along with a whole-file capture too", function()
+    assert.is_truthy(whole:find("undefined global `app`", 1, true), whole)
+    assert.is_truthy(whole:find("unused local `cfg`", 1, true), whole)
+    assert.is_truthy(whole:find("past the selection", 1, true), whole)
+  end)
+
+  it("still leaves out hints and info for a whole file", function()
+    assert.is_nil(whole:find("a hint nobody asked for", 1, true), whole)
+    assert.is_nil(whole:find("merely informational", 1, true), whole)
+  end)
+
+  -- A clean buffer must not grow an empty heading.
+  it("adds nothing when there is nothing to add", function()
+    vim.diagnostic.reset(ns, buf)
+    queue.clear()
+    codereview.annotate("bug")
+    assert.same("the note", queue.all()[1].note)
+  end)
+end)
+
+describe("a range and a whole file together", function()
+  local view = require("codereview.view")
+  queue.clear()
+  local before_sent = #sent
+
+  local buf = edit("src/main.lua")
+  local before_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  h.feed("1GVj<F5>")
+  vim.cmd("CodeReviewAnnotate nitpick")
+
+  it("queues both shapes", function()
+    assert.same(2, queue.count())
+    assert.same({ "range", "file" }, { queue.all()[1].kind, queue.all()[2].kind })
+  end)
+
+  -- Capturing a selection escapes visual mode, which is the one thing in either path that
+  -- touches the buffer's state at all.
+  it("leaves the source buffer untouched", function()
+    assert.same(before_lines, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    assert.is_false(vim.bo[buf].modified)
+  end)
+
+  view.submit()
+
+  it("submits them in a single batch", function()
+    assert.same(before_sent + 1, #sent)
+    assert.same(0, queue.count())
+  end)
+
+  it("carries both in that one payload, each under its own type", function()
+    local text = sent[#sent].text
+    assert.is_truthy(text:find("@src/main.lua#L1%-2"), text)
+    assert.is_truthy(text:find("## Bugs", 1, true), text)
+    assert.is_truthy(text:find("## Nitpicks", 1, true), text)
+    assert.is_truthy(text:find("2 annotations", 1, true), text)
   end)
 end)
 

@@ -40,7 +40,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit |
-| `capture_spec` | Annotating from an ordinary buffer: types, blob, composer, restart, one queue |
+| `capture_spec` | Annotating from an ordinary buffer: scope, types, blob, composer, diagnostics, restart, one queue |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |
@@ -77,6 +77,17 @@ so the out-of-core language path is still checked locally without ever failing C
   across a genuine restart; calling `state.load()` twice in one process proves nothing
   about what reached the disk. `state_child.lua` writes, the spec restarts and reads. Do
   not collapse it into one process.
+- **A filter test needs a fixture only that filter can reject.** `capture_spec` asserts
+  that hints and info never ride along with an annotation. Those diagnostics originally sat
+  on a line *outside* the captured range, so the range filter rejected them and the
+  assertion passed with the severity filter deleted — it was measuring the wrong thing.
+  They now sit inside the selection. Where two filters could reject the same fixture, place
+  it so only the one under test can.
+- **Visual-mode capture has to be driven through a mapping.** `capture` reads `mode()` and
+  `line("v")` while the selection is still live, because `'<`/`'>` are only rewritten once
+  visual mode exits. Calling the entry point directly after a selection therefore captures
+  the whole file instead. Feed the keys and the mapping together (`h.feed("1GVj<F5>")`), as
+  `annotate_spec` does for the review path.
 - **The queue is restored once per session, so a second session means a second process.**
   `view.ensure_queue()` latches after the first read, which is what stops a statusline
   calling `count()` from hitting the disk on every redraw. Clearing the queue in-process
