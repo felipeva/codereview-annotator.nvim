@@ -5,10 +5,13 @@ Headless Neovim never enters the interactive input loop, so `startinsert` is a n
 and `mode()` always reports "n" -- a headless test of this bug passes whether or not the
 fix exists. Driving a real terminal is the only way to actually exercise it.
 """
+import atexit
 import os
 import pty
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 SOCK = "/tmp/cr-pty-test.sock"
@@ -34,12 +37,12 @@ def send(keys):
 if os.path.exists(SOCK):
     os.unlink(SOCK)
 
-# Redirect persistence into a scratch directory. Without this the run writes review
-# progress into the user's real ~/.local/state/nvim, and restores it on the next run --
-# which silently makes the queue assertions non-idempotent.
-STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pty_state")
-subprocess.run(["rm", "-rf", STATE], check=False)
-os.makedirs(STATE, exist_ok=True)
+# Redirect persistence into a throwaway directory. Two reasons, both learned the hard way:
+# without it the run writes review progress into the user's real ~/.local/state/nvim and
+# restores it on the next run, silently making the queue assertions non-idempotent; and a
+# path next to this file lands inside the repository, where it gets committed as junk.
+STATE = tempfile.mkdtemp(prefix="codereview-pty-state-")
+atexit.register(shutil.rmtree, STATE, True)
 
 primary, secondary = pty.openpty()
 os.set_blocking(primary, False)
