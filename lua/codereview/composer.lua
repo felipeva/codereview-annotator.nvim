@@ -3,6 +3,8 @@
 ---Deliberately the same shape as the `compose` adapter a host injects -- it *is* the
 ---default implementation of that contract, not a lesser path beside it. Anything a host
 ---composer is handed, this one is handed; anything it must do, this one does.
+local config = require("codereview.config")
+
 local M = {}
 
 ---Open the composer.
@@ -83,6 +85,54 @@ function M.open(ctx, on_accept, label)
   vim.keymap.set({ "i", "n" }, "<C-t>", function()
     require("codereview.view").pick_target(refresh)
   end, { buffer = buf, desc = "Choose target" })
+  -- The sentinel is written *before* the picker opens, so cancelling leaves the literal
+  -- character that was just pressed. The position is remembered rather than re-derived for
+  -- the same reason a host composer has to remember it: the picker takes focus, and the
+  -- cursor with it, so by the time it answers the composer's cursor means nothing.
+  vim.keymap.set("i", "@", function()
+    local row, col = unpack(vim.api.nvim_win_get_cursor(win))
+    vim.api.nvim_buf_set_text(buf, row - 1, col, row - 1, col, { "@" })
+    col = col + 1
+    vim.api.nvim_win_set_cursor(win, { row, col })
+
+    -- Only where a word begins. Notes contain email addresses, and an `@` that continues a
+    -- word is a character the user typed, not a request for a picker. Whitespace-or-start
+    -- rather than anything cleverer, because the rule has to be predictable while typing:
+    -- you should never be surprised by a picker.
+    local before = col > 1 and vim.api.nvim_buf_get_text(buf, row - 1, col - 2, row - 1, col - 1, {})[1]
+    if before and not before:match("%s") then
+      return
+    end
+
+    local pick_file = config.get().pick_file
+    if not pick_file then
+      return
+    end
+    pick_file(function(chosen)
+      if not (chosen and chosen.path) then
+        return
+      end
+      local payload = require("codereview.payload")
+      -- A picker is entitled to answer with an absolute path, but a reference in a note
+      -- should read the way every other reference in the batch reads. Resolved through the
+      -- same helpers the payload uses, so a symlinked working directory does not turn a
+      -- perfectly relative path into an absolute one. Outside the tree there is nothing to
+      -- be relative to, and the absolute path is the only name the file has.
+      local path = chosen.path
+      if path:sub(1, 1) == "/" then
+        local root = payload.resolve_base(vim.uv.cwd())
+        path = payload.relative_to(vim.uv.fs_realpath(path) or path, root) or path
+      end
+      -- Rendered by the module that reads references, not spelled out again here. Lines are
+      -- optional: a picker that cannot select them omits both, and the reference is then to
+      -- the file rather than to a range in it.
+      local ref = payload.ref(path, chosen.first, chosen.last)
+      -- Past the `@`: the sentinel is already in the buffer, and re-writing it would either
+      -- double it or mean re-deriving where it went.
+      vim.api.nvim_buf_set_text(buf, row - 1, col, row - 1, col, { ref:sub(2) .. " " })
+    end)
+  end, { buffer = buf, desc = "Reference a file" })
+
   -- Normal mode only. In insert both are the keys you actually want -- `q` is a letter and
   -- <Esc> is how you leave insert to reread what you wrote.
   vim.keymap.set("n", "q", close, { buffer = buf, desc = "Abandon" })

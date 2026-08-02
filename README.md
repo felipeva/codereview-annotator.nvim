@@ -240,7 +240,8 @@ was this dropped on purpose?
 
 ## Adapters
 
-The plugin has no opinion about where a review goes. Three optional functions inject that:
+The plugin has no opinion about where a review goes, or about which pickers you use. Four
+optional functions inject that:
 
 ```lua
 opts = {
@@ -250,6 +251,11 @@ opts = {
   -- Choose a delivery target; call back with anything carrying `short` and `cwd`.
   -- `cwd` matters: refs are re-resolved against it at submit time.
   pick_target = function(cb) cb({ short = "agent", cwd = "/path" }) end,
+
+  -- Choose a file to reference from `@` inside the composer. The plugin ships no picker,
+  -- so without this `@` stays a literal `@`. `first`/`last` are optional — omit them and
+  -- the reference is to the file rather than to a range in it.
+  pick_file = function(cb) cb({ path = "src/main.lua", first = 12, last = 20 }) end,
 
   -- Collect note text. Without it you get the composer the plugin ships, which implements
   -- this same contract — wiring one replaces that composer rather than upgrading a prompt.

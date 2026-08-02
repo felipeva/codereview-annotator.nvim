@@ -12,4 +12,10 @@ vim.opt.runtimepath:prepend(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(
 require("codereview").setup({
   syntax = false,
   send = function() end,
+  -- Answers immediately with a fixed file. A real picker is a window that takes focus, and
+  -- what that costs the splice position is covered headless; what cannot be covered there
+  -- is that `@` is an insert-mode key at all.
+  pick_file = function(cb)
+    cb({ path = "src/routes.lua", first = 2, last = 4 })
+  end,
 })

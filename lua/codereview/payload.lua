@@ -49,6 +49,25 @@ function M.relative_to(path, base)
   return nil
 end
 
+---An `@ref`: the one syntax this plugin speaks for "look at this code".
+---
+---Here rather than at either call site because there are two of them now -- the payload
+---renders an annotation's own location, and the composer splices a reference to somewhere
+---else -- and a note that says `@path#L12-12` where the payload says `@path#L12` is a
+---composer authoring a dialect of its reader's language.
+---@param rel string Path, relative to whoever will resolve it
+---@param first integer|nil Omit both for a reference to the whole file
+---@param last integer|nil
+---@return string
+function M.ref(rel, first, last)
+  if not first then
+    return ("@%s"):format(rel)
+  end
+  last = last or first
+  local suffix = first == last and ("#L%d"):format(first) or ("#L%d-%d"):format(first, last)
+  return ("@%s%s"):format(rel, suffix)
+end
+
 ---@param entry CRAnnotation
 ---@return string
 local function range_text(entry)
@@ -86,15 +105,13 @@ local function describe(entry, base)
 
   if entry.kind == "file" then
     if rel and not entry.stale then
-      return ("@%s"):format(rel), nil
+      return M.ref(rel), nil
     end
     return ("%s (%s)"):format(where, entry.tag or "whole file"), nil
   end
 
   if not must_inline then
-    local suffix = entry.first == entry.last and ("#L%d"):format(entry.first)
-      or ("#L%d-%d"):format(entry.first, entry.last)
-    return ("@%s%s"):format(rel, suffix), nil
+    return M.ref(rel, entry.first, entry.last), nil
   end
 
   local tags = {}

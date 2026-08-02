@@ -42,6 +42,12 @@ M.defaults = {
   ---Choose a delivery target, calling back with it (or nil for the default).
   ---@type fun(cb: fun(target: table|nil))|nil
   pick_target = nil,
+  ---Choose a file to reference from inside the composer, calling back with it. The plugin
+  ---ships no picker -- every config already has one -- so without this `@` stays a literal
+  ---`@`. `first`/`last` are optional: a picker that cannot select lines omits them, and the
+  ---reference is then to the file rather than to a range in it.
+  ---@type fun(cb: fun(chosen: { path: string, first: integer?, last: integer? }|nil))|nil
+  pick_file = nil,
   ---Collect note text. Replaces the composer the plugin ships, which is the default
   ---implementation of this same contract rather than a fallback beside it -- both are
   ---handed exactly the same arguments.

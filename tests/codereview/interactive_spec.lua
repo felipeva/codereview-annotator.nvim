@@ -151,6 +151,35 @@ describe("annotating from insert mode", function()
   end)
 end)
 
+-- `@` is bound in insert mode, so this is the only place it can be pressed the way a user
+-- presses it. Headless the mapping is reachable only by feeding an `i` first, which is not
+-- what a composer opened in insert mode does.
+describe("referencing a file while typing", function()
+  it("opens the composer again", function()
+    send("ab", function()
+      return expr("mode()"):sub(1, 1) == "i"
+    end)
+    assert.same("i", expr("mode()"):sub(1, 1))
+  end)
+
+  it("splices the reference as the @ is typed", function()
+    send("compare with @", function()
+      return expr("getline('.')"):find("routes", 1, true) ~= nil
+    end)
+    -- Without its trailing space: `expr` trims what comes back over the socket, so the
+    -- space the splice leaves for you to keep typing is not observable from here. That it
+    -- is there at all is a headless assertion.
+    assert.same("compare with @src/routes.lua#L2-4", expr("getline('.')"))
+  end)
+
+  it("queues the note with its reference", function()
+    send("<C-s>", function()
+      return expr("&filetype") == "codereview"
+    end)
+    assert.same("compare with @src/routes.lua#L2-4", expr("luaeval(\"require('codereview.queue').all()[2].note\")"))
+  end)
+end)
+
 describe("the review buffer after submitting", function()
   -- The reported symptom: navigation keys typed text instead of moving.
   it("treats ]h as a motion, not as input", function()
