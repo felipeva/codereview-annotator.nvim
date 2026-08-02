@@ -221,6 +221,10 @@ opts = {
 }
 ```
 
+`scope = "none"` and `prerendered = true` are both load-bearing, and `pick_target`'s `cwd`
+is what decides whether refs survive. [`docs/herdr.md`](docs/herdr.md) explains why, and
+spells out which queue is which.
+
 </details>
 
 ## Configuration
