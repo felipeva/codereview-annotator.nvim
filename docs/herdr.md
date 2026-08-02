@@ -82,8 +82,10 @@ both sides fixes it.
 Collect note text and call `on_accept(target, text)`. Without it the plugin falls back to
 `vim.ui.input`.
 
-`ctx` carries `scope = "none"`, a `label` for the prompt (`"Bug · src/main.lua:12"`),
-`rel_path` and `file_path`.
+`ctx` describes what is being annotated; `:help codereview-opt-compose` lists the fields.
+The one a herdr composer should not ignore is `origin_win`, the window the annotation was
+started from. The plugin restores focus there itself once `on_accept` runs — but a float
+the user dismisses never calls it, and on that path only the composer can put focus back.
 
 **The plugin ignores the `target` argument you pass to `on_accept`.** If your composer
 offers its own routing picker, that choice does not survive — routing is a property of the

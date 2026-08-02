@@ -266,6 +266,25 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
         Collect note text and call {on_accept}(target, text). Falls back to
         |vim.ui.input()|.
 
+        {ctx} describes what is being annotated: >
+            scope       always "none" -- a note carries its own code, so
+                        there is no separate context to attach
+            label       title for the composer, from the type and the target
+            rel_path    repository-relative path; nil outside a checkout
+            file_path   absolute path; nil for a note with no file
+            origin_win  window the annotation was started from
+<
+        `origin_win` is there for composers that can be dismissed. Once
+        {on_accept} is called the plugin puts focus back there itself, so a
+        composer that always submits can ignore it. One the user can cancel
+        never calls {on_accept} at all, and on that path nothing but the
+        composer can put focus back.
+
+        It has to be told rather than restoring "wherever it came from",
+        because closing a floating window focuses whichever window Neovim
+        recorded last -- and that stops being the annotation's window the
+        moment the composer opens a picker of its own.
+
 ==============================================================================
 8. CONFIGURATION                                  *codereview-configuration*
 

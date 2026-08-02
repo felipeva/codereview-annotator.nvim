@@ -43,6 +43,10 @@ M.defaults = {
   ---@type fun(cb: fun(target: table|nil))|nil
   pick_target = nil,
   ---Collect note text. Falls back to `vim.ui.input` when not wired.
+  ---
+  ---`ctx` carries `scope`, `label`, `rel_path`, `file_path` and `origin_win` -- the window
+  ---the annotation was started from. The plugin restores focus there once `on_accept`
+  ---runs; a composer that can be dismissed without calling it owns that path itself.
   ---@type fun(ctx: table, on_accept: fun(target: table|nil, text: string), label: string)|nil
   compose = nil,
 }
