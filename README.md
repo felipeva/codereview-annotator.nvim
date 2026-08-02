@@ -63,23 +63,43 @@ Annotating does not need a review open. `:CodeReviewAnnotate bug` queues a note 
 file you are looking at; with no type it offers the same picker `aa` does.
 
 ```lua
-require("codereview").annotate("bug")  -- the whole current file
+require("codereview").annotate("bug")  -- the selection, or the whole file
 require("codereview").annotate()       -- pick the type from a menu
 ```
 
 That is the entry point to bind a key to — nothing needs to reach into the plugin's
-internal modules to capture:
+internal modules to capture. Bind it in both modes and the selection decides the scope:
 
 ```lua
-vim.keymap.set("n", "<leader>ab", function()
+vim.keymap.set({ "n", "x" }, "<leader>ab", function()
   require("codereview").annotate("bug")
-end, { desc = "Annotate this file as a bug" })
+end, { desc = "Annotate as a bug" })
+```
+
+| Where you are | What gets captured |
+| --- | --- |
+| Normal mode | The whole file |
+| A visual selection | Exactly those lines |
+| `:'<,'>CodeReviewAnnotate bug` | Exactly those lines |
+| `:12,20CodeReviewAnnotate bug` | Lines 12 to 20 |
+
+Errors and warnings overlapping what you captured ride along with the note, so they stop
+being retyped by hand. Hints and info are left out — they are rarely why you are
+annotating, and they bury the diagnostic that is.
+
+```
+why is this branch unreachable?
+
+Diagnostics:
+- ERROR L12 undefined global `foo` (lua_ls)
+- WARN  L14 unused local `bar` (lua_ls)
 ```
 
 What it queues is an ordinary annotation: it records the file's blob, so it goes stale the
 same way, it appears in the same queue float next to anything captured during a review, it
 groups under its type in the same payload, and it goes out in the same batch to the same
-target. The buffer itself is never touched.
+target. A selection travels as `@path#L12-20` when the delivery target can resolve the
+path, and inlines its code when it cannot. The buffer itself is never touched.
 
 ### Inside the view
 
