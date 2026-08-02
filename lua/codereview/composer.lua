@@ -4,6 +4,7 @@
 ---default implementation of that contract, not a lesser path beside it. Anything a host
 ---composer is handed, this one is handed; anything it must do, this one does.
 local config = require("codereview.config")
+local drafts = require("codereview.drafts")
 
 local M = {}
 
@@ -16,6 +17,9 @@ function M.open(ctx, on_accept, label)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "markdown"
+
+  local draft_key = drafts.key(ctx)
+  local restored = drafts.get(draft_key)
 
   local width = math.min(84, math.max(40, math.floor(vim.o.columns * 0.7)))
   local height = 6
@@ -50,11 +54,19 @@ function M.open(ctx, on_accept, label)
     if #name > 16 then
       name = name:sub(1, 15) .. "…"
     end
-    cfg_win.footer = (" ^T %s · ^S %s · q abandon "):format(name, label)
+    -- `^D` only while there is something to discard. A key named in the footer that does
+    -- nothing is worse than one that is not named at all.
+    local drop = restored and " · ^D drop" or ""
+    cfg_win.footer = (" ^T %s%s · ^S %s · q abandon "):format(name, drop, label)
     vim.api.nvim_win_set_config(win, cfg_win)
   end
 
-  local function close()
+  ---@param keep_draft boolean Stash what is written for next time
+  local function close(keep_draft)
+    -- Read before the window goes: `bufhidden = "wipe"` takes the buffer with it.
+    if keep_draft and vim.api.nvim_buf_is_valid(buf) then
+      drafts.set(draft_key, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"))
+    end
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_close(win, true)
     end
@@ -71,7 +83,9 @@ function M.open(ctx, on_accept, label)
   ---Read before closing: `bufhidden = "wipe"` takes the buffer with the window.
   local function submit()
     local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
-    close()
+    close(false)
+    -- Committed: there is nothing left worth restoring for this file.
+    drafts.set(draft_key, nil)
     -- The target argument is the adapter contract's, not this composer's: routing is a
     -- property of the batch and the plugin already holds it.
     on_accept(nil, text)
@@ -135,8 +149,31 @@ function M.open(ctx, on_accept, label)
 
   -- Normal mode only. In insert both are the keys you actually want -- `q` is a letter and
   -- <Esc> is how you leave insert to reread what you wrote.
-  vim.keymap.set("n", "q", close, { buffer = buf, desc = "Abandon" })
-  vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Abandon" })
+  -- Discarding is not the same as writing an empty note: it says "forget what I left here",
+  -- and without it the only way to be rid of a draft is to submit it.
+  vim.keymap.set({ "i", "n" }, "<C-d>", function()
+    if not restored then
+      return
+    end
+    restored = nil
+    drafts.set(draft_key, nil)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+    refresh()
+  end, { buffer = buf, desc = "Discard the restored draft" })
+
+  local function abandon()
+    close(true)
+  end
+  vim.keymap.set("n", "q", abandon, { buffer = buf, desc = "Abandon (keeps a draft)" })
+  vim.keymap.set("n", "<Esc>", abandon, { buffer = buf, desc = "Abandon (keeps a draft)" })
+
+  if restored then
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(restored, "\n"))
+    vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(buf), 0 })
+    -- Said out loud, because text you did not just type appearing in a buffer you are about
+    -- to write in is otherwise a small mystery.
+    vim.notify("Draft restored — ^D to discard", vim.log.levels.INFO, { title = "Code review" })
+  end
 
   refresh()
   -- You opened this to write something, so start writing. Leaving insert mode again is

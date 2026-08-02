@@ -196,7 +196,8 @@ and what is being annotated:
     ^S              queue the note and close
     ^T              choose where the batch goes
     @               reference another file (|codereview-opt-pick_file|)
-    q  <Esc>        abandon without queueing
+    ^D              discard a restored draft
+    q  <Esc>        abandon, keeping what you wrote as a draft
 
 It opens in insert mode, because you opened it to write something. `^S` and
 `^T` work in insert and normal alike -- you may well have pressed <Esc> to
@@ -214,6 +215,26 @@ same choice: a target belongs to the batch, not to the window that asked.
 into the note before the picker opens, so cancelling leaves the character you
 typed -- and it only opens a picker where a word begins, so an email address in
 a note is an email address.
+
+Drafts                                                  *codereview-drafts*
+
+Abandon the composer with something in it and the text is kept. Annotate that
+file again and it is offered back, with `^D` to discard it and start clean. A
+note you actually submit clears its draft, so what you have already said never
+comes back.
+
+Drafts are keyed by the file the note is about, not by the window it was
+started in: annotating a file in the review and capturing it from an ordinary
+buffer are the same thought about the same code, and meet the same draft. A
+draft for one file never surfaces while you annotate another.
+
+They live in `stdpath("state")/codereview/drafts.json`, separate from review
+progress because a draft is not review progress -- that document is rewritten
+whenever the queue changes, and a draft has nothing to do with the queue.
+Anything untouched for a week is dropped when the store is next read. A store
+that cannot be read is treated as no drafts at all: failing there would cost
+you the note you were about to write in order to report one you had already
+abandoned.
 
 Wire |codereview-opt-compose| to replace this composer with your own.
 
@@ -386,6 +407,8 @@ defines, so overriding any of them works without the plugin fighting back: >
 
 Reviewed marks and the queue are written to
 `stdpath("state")/codereview/{repo}.json`, keyed by scope and diff base.
+Half-written notes are kept separately, in `drafts.json` -- see
+|codereview-drafts|.
 
 Each entry records the git blob it was captured against, which is what makes
 persisting safe. On reload:

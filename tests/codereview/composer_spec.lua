@@ -33,11 +33,22 @@ require("codereview").setup({
 
 local view = require("codereview.view")
 local queue = require("codereview.queue")
+local drafts = require("codereview.drafts")
 local annotate = require("codereview.annotate")
 
 view.open("branch")
 local V = view.current()
 queue.clear()
+
+---Start a block from nothing.
+---
+---Drafts outlive a composer on purpose, so a block that abandons a note leaves one behind
+---for the next block to open into. Anything that assumes an empty composer has to say so,
+---exactly as it already says it wants an empty queue.
+local function reset()
+  queue.clear()
+  drafts.clear()
+end
 
 ---@param kind "line"|"hunk"|"file"
 ---@return integer row
@@ -83,6 +94,22 @@ local function annotate_line(type_name)
   annotate.annotate(type_name or "bug")
 end
 
+---Annotate a line in a different file from the one `annotate_line` lands on.
+---@return string path The file annotated
+local function annotate_other_file()
+  local first = V.render.anchors[row_of("line")].file
+  for row = 1, vim.api.nvim_buf_line_count(V.buf) do
+    local a = V.render.anchors[row]
+    if a and a.kind == "line" and a.file ~= first then
+      vim.api.nvim_set_current_win(V.win)
+      vim.api.nvim_win_set_cursor(V.win, { row, 0 })
+      annotate.annotate("bug")
+      return V.files[a.file].path
+    end
+  end
+  error("the render has only one file")
+end
+
 describe("annotating with no composer wired", function()
   -- Stubbed rather than left alone: the built-in prompt blocks headless Neovim, so a
   -- regression here would hang the suite instead of failing it.
@@ -114,7 +141,7 @@ describe("annotating with no composer wired", function()
 end)
 
 describe("submitting a note", function()
-  queue.clear()
+  reset()
   annotate_line()
   local win = floating()
 
@@ -138,7 +165,7 @@ end)
 
 describe("abandoning a note", function()
   for _, key in ipairs({ "q", "<Esc>" }) do
-    queue.clear()
+    reset()
     annotate_line()
     local win = floating()
     vim.api.nvim_buf_set_lines(0, 0, -1, false, { "half a thought" })
@@ -157,7 +184,7 @@ end)
 -- Opening the composer by accident should cost nothing, and submitting an empty one is
 -- how that gets undone by someone who has already forgotten which key aborts.
 describe("submitting an empty note", function()
-  queue.clear()
+  reset()
   local msgs, restore = h.capture_notify()
   annotate_line()
   local win = floating()
@@ -201,7 +228,7 @@ describe("where focus lands afterwards", function()
     vim.api.nvim_set_current_win(composer_win)
   end
 
-  queue.clear()
+  reset()
   annotate_line()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "a note" })
   picker_flicker()
@@ -224,7 +251,7 @@ describe("where focus lands afterwards", function()
 end)
 
 describe("the composer's chrome", function()
-  queue.clear()
+  reset()
   local row = row_of("line")
   local path = V.files[V.render.anchors[row].file].path
   annotate_line()
@@ -251,7 +278,7 @@ describe("the composer's chrome", function()
 end)
 
 describe("routing from the composer", function()
-  queue.clear()
+  reset()
   annotate_line()
   local win = floating()
   h.feed("<C-t>")
@@ -294,7 +321,7 @@ describe("routing from the composer", function()
 end)
 
 describe("referencing a file", function()
-  queue.clear()
+  reset()
   file_answer = { path = "apps/web/src/index.lua" }
   annotate_line()
   local composer_win = floating()
@@ -322,7 +349,7 @@ end)
 -- A real picker takes focus and the cursor with it, and can leave the composer's cursor
 -- anywhere at all by the time it answers. The splice belongs where the `@` was typed.
 describe("referencing a file mid-sentence", function()
-  queue.clear()
+  reset()
   file_answer = { path = "docs/guide.md" }
   annotate_line()
   local composer_win = floating()
@@ -365,7 +392,7 @@ describe("referencing lines in a file", function()
     { answer = { path = "docs/guide.md", first = 12, last = 12 }, expect = "@docs/guide.md#L12 " },
     { answer = { path = "docs/guide.md" }, expect = "@docs/guide.md " },
   }) do
-    queue.clear()
+    reset()
     file_answer = case.answer
     annotate_line()
     local composer_win = floating()
@@ -385,7 +412,7 @@ end)
 -- Notes contain email addresses. An `@` that continues a word is a character, not a
 -- request for a picker.
 describe("an @ that does not begin a word", function()
-  queue.clear()
+  reset()
   file_answer = { path = "docs/guide.md" }
   local before = file_picks
   annotate_line()
@@ -409,7 +436,7 @@ end)
 -- A picker is entitled to answer with an absolute path. What lands in the note should read
 -- the way every other reference in the batch reads.
 describe("a picker that answers with an absolute path", function()
-  queue.clear()
+  reset()
   file_answer = { path = vim.fs.joinpath(vim.uv.cwd(), "docs/guide.md"), first = 3 }
   annotate_line()
   local composer_win = floating()
@@ -428,7 +455,7 @@ end)
 -- Outside the tree there is nothing to be relative to, and an absolute path is the only
 -- name the file has.
 describe("a picker that answers with a path outside the tree", function()
-  queue.clear()
+  reset()
   file_answer = { path = "/etc/hosts" }
   annotate_line()
   local composer_win = floating()
@@ -447,7 +474,7 @@ end)
 -- The sentinel is written before the picker opens precisely so that this is what cancelling
 -- costs you: nothing.
 describe("cancelling the file picker", function()
-  queue.clear()
+  reset()
   file_answer = nil
   annotate_line()
   local composer_win = floating()
@@ -464,7 +491,7 @@ describe("cancelling the file picker", function()
 end)
 
 describe("a note carrying a reference", function()
-  queue.clear()
+  reset()
   file_answer = { path = "docs/guide.md", first = 3 }
   annotate_line()
   h.feed("icompare with @<Esc>")
@@ -476,12 +503,261 @@ describe("a note carrying a reference", function()
   end)
 end)
 
+-- A note you walked away from is worth more than the keystrokes it took, which is the whole
+-- argument for keeping one.
+describe("abandoning a note with text in it", function()
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "half a thought" })
+  h.feed("q")
+
+  annotate_line()
+  local reopened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local composer_win = floating()
+  h.feed("q")
+
+  it("offers the text back the next time that file is annotated", function()
+    assert.same({ "half a thought" }, reopened)
+  end)
+
+  it("queued nothing on the way", function()
+    assert.same(0, queue.count())
+  end)
+
+  if composer_win and vim.api.nvim_win_is_valid(composer_win) then
+    vim.api.nvim_win_close(composer_win, true)
+  end
+end)
+
+describe("a restored draft", function()
+  local function footer_of(win)
+    local cfg_win = vim.api.nvim_win_get_config(win)
+    return cfg_win.footer and tostring(cfg_win.footer[1][1]) or ""
+  end
+
+  reset()
+  annotate_line()
+  local fresh_footer = footer_of(floating())
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "half a thought" })
+  h.feed("q")
+
+  local msgs, restore = h.capture_notify()
+  annotate_line()
+  restore()
+  local win = floating()
+  local restored_footer = footer_of(win)
+
+  it("is not advertised when there is nothing to discard", function()
+    assert.is_falsy(fresh_footer:find("^D", 1, true), fresh_footer)
+  end)
+
+  it("says that it restored one", function()
+    assert.is_true(h.notified(msgs, "Draft restored"), vim.inspect(msgs))
+  end)
+
+  it("offers the discard key while there is one", function()
+    assert.is_truthy(restored_footer:find("^D", 1, true), restored_footer)
+  end)
+
+  h.feed("<C-d>")
+  local emptied = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local discarded_footer = footer_of(win)
+
+  it("empties the composer when discarded", function()
+    assert.same({ "" }, emptied)
+  end)
+
+  it("stops offering the discard key once there is nothing to discard", function()
+    assert.is_falsy(discarded_footer:find("^D", 1, true), discarded_footer)
+  end)
+
+  -- The point of discarding: it is gone, not merely off screen.
+  h.feed("q")
+  annotate_line()
+  local reopened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local last = floating()
+  h.feed("q")
+
+  it("does not come back after being discarded", function()
+    assert.same({ "" }, reopened)
+  end)
+
+  if last and vim.api.nvim_win_is_valid(last) then
+    vim.api.nvim_win_close(last, true)
+  end
+end)
+
+describe("a draft picked up and put down again", function()
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "first thought" })
+  h.feed("q")
+
+  annotate_line() -- restores it
+  h.feed("q") -- and abandons it again, untouched
+
+  annotate_line()
+  local twice = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+
+  it("is still there the third time", function()
+    assert.same({ "first thought" }, twice)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
+describe("a draft whose note gets submitted", function()
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "not finished yet" })
+  h.feed("q")
+
+  annotate_line() -- restores it
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "finished now" })
+  h.feed("<C-s>")
+
+  annotate_line()
+  local after = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+
+  it("queued the note that was actually sent", function()
+    assert.same(1, queue.count())
+    assert.same("finished now", queue.all()[1].note)
+  end)
+
+  -- A note you have already made must never come back as a draft.
+  it("leaves nothing behind to restore", function()
+    assert.same({ "" }, after)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
+-- A note about one file surfacing while you annotate another would be worse than losing it.
+describe("a draft belonging to another file", function()
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "about the first file" })
+  h.feed("q")
+
+  annotate_other_file()
+  local other = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  h.feed("q")
+
+  annotate_line()
+  local original = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+
+  it("does not surface on a different file", function()
+    assert.same({ "" }, other)
+  end)
+
+  it("is still waiting on the file it belongs to", function()
+    assert.same({ "about the first file" }, original)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
+-- Annotating a file in the review and capturing it from an ordinary buffer are the same
+-- thought about the same code. They meet the same draft, which is only true because the key
+-- is the absolute path -- the one name both paths already agree on.
+describe("a draft started in the review and reopened from the buffer", function()
+  reset()
+  local path = V.files[V.render.anchors[row_of("line")].file].path
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "same thought, either way" })
+  h.feed("q")
+
+  vim.cmd("tabedit " .. vim.fn.fnameescape(path))
+  require("codereview").annotate("bug")
+  local captured = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+  vim.cmd("tabclose")
+
+  it("is offered back to capture, not just to the review", function()
+    assert.same({ "same thought, either way" }, captured)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
+-- The two below write the store directly. Neither state can be reached through the
+-- composer: you cannot corrupt a file by annotating, and you cannot wait a week.
+describe("a draft store that cannot be read", function()
+  reset()
+  vim.fn.mkdir(vim.fs.dirname(drafts.path()), "p")
+  vim.fn.writefile({ "{ this is not json" }, drafts.path())
+
+  local msgs, restore = h.capture_notify()
+  annotate_line()
+  local opened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  restore()
+  local win = floating()
+  h.feed("q")
+
+  -- Failing here would cost the note you were about to write in order to report one you
+  -- had already abandoned, which is the wrong way round.
+  it("opens an empty composer instead of erroring", function()
+    assert.is_truthy(win, "the composer never opened")
+    assert.same({ "" }, opened)
+  end)
+
+  it("says nothing about a draft", function()
+    assert.is_false(h.notified(msgs, "Draft restored"), vim.inspect(msgs))
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
+describe("a draft old enough to have aged out", function()
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "long forgotten" })
+  h.feed("q")
+
+  -- Backdate what was just written, rather than wait a week for it.
+  local raw = vim.json.decode(table.concat(vim.fn.readfile(drafts.path()), "\n"))
+  for _, entry in pairs(raw.drafts) do
+    entry.at = os.time() - 30 * 24 * 60 * 60
+  end
+  vim.fn.writefile({ vim.json.encode(raw) }, drafts.path())
+
+  annotate_line()
+  local opened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+
+  it("is pruned rather than restored", function()
+    assert.same({ "" }, opened)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
 -- Reconfigures, so it comes after everything that wants a picker. The plugin ships none:
 -- every config already has one, and `@` staying a literal `@` is what "the composer is
 -- still fully usable without it" means.
 describe("with no file picker wired", function()
   require("codereview").setup({ syntax = false })
-  queue.clear()
+  reset()
   annotate_line()
   local composer_win = floating()
   h.feed("ilook at @")
@@ -507,7 +783,7 @@ describe("with a composer wired", function()
       on_accept(nil, "from the host's composer")
     end,
   })
-  queue.clear()
+  reset()
   annotate_line()
 
   it("does not open the built-in composer", function()
