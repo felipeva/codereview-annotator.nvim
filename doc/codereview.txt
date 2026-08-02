@@ -251,7 +251,10 @@ pick_target({cb})                                 *codereview-opt-pick_target*
         Choose a delivery target and call {cb} with it. The target may carry
         `short` (shown in the winbar) and `cwd`. `cwd` matters: references are
         re-resolved against it at submit time, because an `@ref` only resolves
-        relative to whoever reads it.
+        relative to whoever reads it. Report it in either form -- it is
+        realpath'd before the comparison, so a directory named through a
+        symlink still matches, and one that does not exist on this machine is
+        compared as given.
 
         A chosen target is held for the session, not for the view: it survives
         closing the review, and picking one with nothing open works. It is

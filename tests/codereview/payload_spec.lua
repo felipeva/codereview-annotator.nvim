@@ -6,7 +6,10 @@
 local h = require("tests.helpers")
 
 h.ui(110, 40)
-h.cd_fixture("mkfixture")
+-- Kept: this is the path the fixture was *created* under, before anything resolved it.
+-- On macOS $TMPDIR is /var/folders/..., a symlink into /private/var/folders/..., so this
+-- differs from the root git reports and is what a target reporting its own cwd looks like.
+local fixture_dir = h.cd_fixture("mkfixture")
 
 local sent = {}
 require("codereview").setup({
@@ -52,6 +55,32 @@ describe("relative_to", function()
   -- refs the target cannot resolve.
   it("refuses a sibling that merely shares a prefix", function()
     assert.is_nil(payload.relative_to("/about/c.lua", "/a"))
+  end)
+end)
+
+describe("resolve_base", function()
+  -- `fixture_dir`, not `vim.fn.getcwd()`: getcwd already answers in resolved form, so
+  -- feeding it here would assert the same thing as the canonical case below and the
+  -- symlink would never be exercised. The path the fixture was created under is the only
+  -- unresolved one to hand.
+  local canonical = vim.uv.fs_realpath(fixture_dir)
+
+  it("canonicalises a directory reached through a symlink", function()
+    assert.same(canonical, payload.resolve_base(fixture_dir))
+  end)
+
+  it("leaves an already-canonical path alone", function()
+    assert.same(canonical, payload.resolve_base(canonical))
+  end)
+
+  -- A routed agent can report a working directory that does not exist here at all.
+  -- Dropping it would be worse than prefix-matching the string it gave us.
+  it("returns a path that does not exist unchanged", function()
+    assert.same("/no/such/place", payload.resolve_base("/no/such/place"))
+  end)
+
+  it("returns an empty base unchanged", function()
+    assert.same("", payload.resolve_base(""))
   end)
 end)
 
@@ -258,5 +287,48 @@ describe("the queue float", function()
 
   it("closes itself once nothing is left", function()
     assert.is_false(vim.api.nvim_win_is_valid(qwin))
+  end)
+end)
+
+describe("rendering for a target that names the root through a symlink", function()
+  -- Same directory, different string. Every abs_path in the queue is canonical, because
+  -- the review path joins `V.root` and git reports that resolved -- so a target that
+  -- reports the unresolved form of its own cwd fails the prefix match, and the batch
+  -- silently loses every @ref to an absolute path with the code pasted after it.
+  queue.clear()
+  at(assert(h.line_row(V, "src/fresh.lua")))
+  annotate.annotate("bug")
+
+  local text = payload.render(queue.all(), fixture_dir, { types = config.get().types })
+
+  if fixture_dir == V.root then
+    -- Linux CI: $TMPDIR is not a symlink, so there is no unresolved form to report and
+    -- this asserts nothing. Say so rather than pass green and look like coverage.
+    pending("$TMPDIR is not a symlink here, so the two forms are the same string")
+  else
+    it("resolves a cwd git would have reported differently", function()
+      assert.same(V.root, vim.uv.fs_realpath(fixture_dir))
+      assert.are_not.same(V.root, fixture_dir)
+    end)
+
+    it("still emits an @ref", function()
+      assert.is_truthy(text:find("@src/fresh.lua#L1", 1, true))
+    end)
+
+    it("does not fall back to an absolute path", function()
+      assert.is_nil(text:find(V.root .. "/src/fresh.lua", 1, true))
+    end)
+
+    it("does not inline the code an @ref carries for free", function()
+      assert.is_nil(text:find("+local function fresh() end", 1, true))
+    end)
+  end
+
+  -- A target genuinely elsewhere must still degrade. Resolving the base cannot become a
+  -- way to emit refs the reader has no hope of opening.
+  it("still refuses an @ref for a target actually outside the tree", function()
+    local elsewhere = payload.render(queue.all(), "/somewhere/else", { types = config.get().types })
+    assert.is_nil(elsewhere:find("@src/", 1, true))
+    assert.is_truthy(elsewhere:find("+local function fresh() end", 1, true))
   end)
 end)
