@@ -271,6 +271,12 @@ local function collect(ctx, label, cb)
   -- Read before anything opens: this is the window that asked for the composer -- the diff
   -- on the review path, an ordinary buffer's window on the capture one.
   local origin = vim.api.nvim_get_current_win()
+  -- Handed on rather than kept private. A composer the user dismisses never calls back, so
+  -- there is no path on which the plugin could restore focus itself, and only the composer
+  -- can -- which it cannot do without being told where the annotation came from. Stamped
+  -- here and not by the caller, so the window the composer is told about and the window
+  -- focus returns to cannot drift into being two different windows.
+  ctx.origin_win = origin
 
   ---Runs whether or not a note came back. A composer submitted from an insert-mode mapping
   ---leaks insert mode either way, and a note abandoned halfway should still leave the

@@ -330,6 +330,7 @@ end)
 describe("what the composer is handed", function()
   queue.clear()
   edit("src/routes.lua")
+  local win = vim.api.nvim_get_current_win()
   local before = #composed
   local msgs, restore = h.capture_notify()
   codereview.annotate("suggestion")
@@ -354,6 +355,12 @@ describe("what the composer is handed", function()
 
   it("passes the same `queue` label the review path passes", function()
     assert.same("queue", call.label)
+  end)
+
+  -- Here that is the buffer's own window, not the review view's -- which is the whole
+  -- reason the composer is told rather than left to assume.
+  it("names the window the annotation was started from", function()
+    assert.same(win, call.ctx.origin_win)
   end)
 
   it("reports what was queued and how many are now in the batch", function()

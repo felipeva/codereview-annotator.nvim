@@ -252,6 +252,10 @@ opts = {
   pick_target = function(cb) cb({ short = "agent", cwd = "/path" }) end,
 
   -- Collect note text. Without it, falls back to vim.ui.input.
+  -- `ctx` describes what is being annotated: `scope`, `label`, `rel_path`, `file_path`,
+  -- and `origin_win` — the window the annotation was started from. Focus goes back there
+  -- once `on_accept` runs; a composer the user can *cancel* never calls it, so that path
+  -- is the composer's to restore.
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
 }
 ```

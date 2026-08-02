@@ -62,6 +62,12 @@ describe("annotating an added line", function()
   it("hands the composer a titled context", function()
     assert.same("Bug · src/fresh.lua:1", last_ctx.label)
   end)
+
+  -- What a composer needs to put focus back when the user dismisses it, which is the one
+  -- path that never reaches the plugin.
+  it("tells the composer which window the annotation came from", function()
+    assert.same(V.win, last_ctx.origin_win)
+  end)
 end)
 
 describe("annotating a deleted line", function()
