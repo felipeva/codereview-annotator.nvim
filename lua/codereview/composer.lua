@@ -175,7 +175,11 @@ function M.open(ctx, on_accept, label)
 
   if restored then
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(restored, "\n"))
-    vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(buf), 0 })
+    -- The end of the draft, not the start of its last line. A draft comes back to be
+    -- carried on with, and column zero puts the next word before the reviewer's own words
+    -- rather than after them.
+    local last = vim.api.nvim_buf_line_count(buf)
+    vim.api.nvim_win_set_cursor(win, { last, #vim.api.nvim_buf_get_lines(buf, last - 1, last, false)[1] })
     -- Said out loud, because text you did not just type appearing in a buffer you are about
     -- to write in is otherwise a small mystery.
     vim.notify("Draft restored — ^D to discard", vim.log.levels.INFO, { title = "Code review" })
@@ -185,7 +189,12 @@ function M.open(ctx, on_accept, label)
   -- You opened this to write something, so start writing. Leaving insert mode again is
   -- `collect`'s job, not this one's: closing a window does not end insert by itself, and
   -- the review buffer is `nomodifiable`, where every motion would land as a failed edit.
-  vim.cmd("startinsert")
+  --
+  -- With the bang, because normal mode cannot hold a cursor past the last character of a
+  -- line: the end-of-draft position set above arrives one column short, and only the bang
+  -- makes entering insert mean the end of the line rather than that clamped column. On an
+  -- empty composer the two are the same thing.
+  vim.cmd("startinsert!")
   return win
 end
 

@@ -594,6 +594,36 @@ describe("a restored draft", function()
   end
 end)
 
+-- Restoring a draft is an invitation to carry on writing it, so the cursor belongs at the
+-- end of what came back. Column zero of the last line puts the next word *before* the
+-- reviewer's own draft. Insert mode is unreachable headless, but where the cursor sits is
+-- not, which is why this half lives here and the reference half lives in interactive_spec.
+describe("where a restored draft leaves the cursor", function()
+  local tail = "and the rest of it"
+
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "half a thought", tail })
+  h.feed("q")
+
+  annotate_line()
+  local win = floating()
+  local cursor = vim.api.nvim_win_get_cursor(win)
+  h.feed("q")
+
+  it("lands on the last line of the draft", function()
+    assert.same(2, cursor[1])
+  end)
+
+  -- Past the last character, which normal mode cannot hold a cursor at and which is
+  -- therefore the position insert mode will be entered at rather than the one normal mode
+  -- clamped it to. Observable headless despite insert mode not being: it is the pending
+  -- insert that carries the column, not the mode. Column zero is where this used to land.
+  it("lands past the end of the draft, where the next word continues it", function()
+    assert.same(#tail, cursor[2])
+  end)
+end)
+
 describe("a draft picked up and put down again", function()
   reset()
   annotate_line()
