@@ -13,12 +13,19 @@ local pending_pick -- the picker's callback, held so it answers on a later tick 
 local file_answer -- what the file picker answers with; nil is a cancel
 local file_picks = 0 -- how many times it was opened at all
 local file_pick_hook -- runs inside the picker, before it answers
+local sent = {} -- what reached the delivery adapter
+-- What the target picker answers with next. Reassigned by the cases that need the batch's
+-- target and a note's target to be different things.
+local pick_answer = { short = "janus · api", pane_id = "wV:p3", cwd = "/elsewhere" }
 require("codereview").setup({
   syntax = false,
   pick_target = function(cb)
     pending_pick = function()
-      cb({ short = "janus · api", pane_id = "wV:p3", cwd = "/elsewhere" })
+      cb(pick_answer)
     end
+  end,
+  send = function(text, to)
+    sent[#sent + 1] = { text = text, target = to }
   end,
   -- Answers inline. A real picker takes focus and gives it back; `file_pick_hook` is how a
   -- test makes it behave like one -- moving the cursor, say -- before it answers.
@@ -752,6 +759,142 @@ describe("a draft old enough to have aged out", function()
   end
 end)
 
+--- Immediate sends ------------------------------------------------------------
+
+---@param win integer
+---@return string
+local function footer_of(win)
+  local cfg_win = vim.api.nvim_win_get_config(win)
+  return cfg_win.footer and tostring(cfg_win.footer[1][1]) or ""
+end
+
+---Start an immediate send from an ordinary buffer, in a tab of its own.
+---
+---Through the public capture seam, because that is the only way in: there is no "open the
+---composer" API and no sibling entry point for sending.
+---@param answer table|nil What the target picker answers with
+---@return integer origin The window it was started from
+local function send_from_buffer(answer)
+  local path = V.files[V.render.anchors[row_of("line")].file].path
+  vim.cmd("tabedit " .. vim.fn.fnameescape(path))
+  local origin = vim.api.nvim_get_current_win()
+  pending_pick = nil
+  pick_answer = answer
+  require("codereview").annotate("bug", nil, { immediate = true })
+  return origin
+end
+
+-- The note carries its own target here, so the footer has to name *that* one and `^T` has
+-- to change it. Both are wrong on the host's equivalent path today: the footer names the
+-- batch's target while the note goes somewhere else entirely.
+describe("the composer on an immediate send", function()
+  reset()
+  local before = #sent
+
+  -- A batch target first, and a different one, so a footer naming the wrong choice is
+  -- visible rather than coincidentally right.
+  pick_answer = { short = "janus · api", pane_id = "wV:p3", cwd = "/elsewhere" }
+  view.pick_target()
+  if pending_pick then
+    pending_pick()
+  end
+
+  local origin = send_from_buffer({ short = "shell", pane_id = "wV:p7", cwd = vim.uv.cwd() })
+
+  it("asks for a target before the composer opens", function()
+    assert.is_nil(floating(), "the composer opened before a target was chosen")
+    assert.is_truthy(pending_pick, "the target picker was never opened")
+  end)
+
+  if pending_pick then
+    pending_pick()
+  end
+  local win = floating()
+  local chosen_footer = win and footer_of(win) or ""
+
+  it("opens the composer once a target is chosen", function()
+    assert.is_truthy(win, "no composer window was opened")
+  end)
+
+  it("names the note's target, not the batch's", function()
+    assert.is_truthy(chosen_footer:find("shell", 1, true), chosen_footer)
+    assert.is_falsy(chosen_footer:find("janus", 1, true), chosen_footer)
+  end)
+
+  it("names the submit key with the verb this path passes", function()
+    assert.is_truthy(chosen_footer:find("send", 1, true), chosen_footer)
+  end)
+
+  pending_pick = nil
+  pick_answer = { short = "third", pane_id = "wV:p9", cwd = vim.uv.cwd() }
+  h.feed("<C-t>")
+  if pending_pick then
+    pending_pick()
+  end
+  local rerouted_footer = win and footer_of(win) or ""
+
+  it("reroutes this note when ^T is pressed, and says where to", function()
+    assert.is_truthy(rerouted_footer:find("third", 1, true), rerouted_footer)
+  end)
+
+  it("leaves the batch pointing where it was", function()
+    assert.same("janus · api", view.target_label())
+  end)
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "send this one now" })
+  h.feed("<C-s>")
+
+  it("delivers to the target the note was rerouted to", function()
+    assert.same(before + 1, #sent)
+    assert.same("third", sent[#sent].target.short)
+    assert.is_truthy(sent[#sent].text:find("send this one now", 1, true), sent[#sent].text)
+  end)
+
+  it("queues nothing on the way", function()
+    assert.same(0, queue.count())
+  end)
+
+  vim.cmd("tabclose")
+end)
+
+-- Walking away from an immediate send costs no more than walking away from a queued one.
+describe("abandoning an immediate send", function()
+  reset()
+  local before = #sent
+  local origin = send_from_buffer({ short = "shell", pane_id = "wV:p7", cwd = vim.uv.cwd() })
+  if pending_pick then
+    pending_pick()
+  end
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "half a thought, sent nowhere" })
+  h.feed("q")
+  local landed = settled(origin)
+
+  it("delivers nothing", function()
+    assert.same(before, #sent)
+  end)
+
+  it("returns focus to the window it was started from", function()
+    assert.same(origin, landed)
+  end)
+
+  require("codereview").annotate("bug", nil, { immediate = true })
+  if pending_pick then
+    pending_pick()
+  end
+  local reopened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+
+  it("keeps what was written as a draft", function()
+    assert.same({ "half a thought, sent nowhere" }, reopened)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+  vim.cmd("tabclose")
+end)
+
 -- Reconfigures, so it comes after everything that wants a picker. The plugin ships none:
 -- every config already has one, and `@` staying a literal `@` is what "the composer is
 -- still fully usable without it" means.
@@ -805,4 +948,83 @@ describe("with a composer wired", function()
     assert.is_truthy(seen.ctx.file_path)
     assert.same(V.win, seen.ctx.origin_win)
   end)
+end)
+
+-- Routing is part of the compose contract, not a private arrangement with the composer the
+-- plugin ships. A host composer has to be able to name this note's target and change it
+-- too, or "the footer names where the note goes" is only true of one composer.
+describe("a host composer on an immediate send", function()
+  local seen
+  local named = {}
+  local host_sent = {}
+  require("codereview").setup({
+    syntax = false,
+    pick_target = function(cb)
+      pending_pick = function()
+        cb(pick_answer)
+      end
+    end,
+    send = function(text, to)
+      host_sent[#host_sent + 1] = { text = text, target = to }
+    end,
+    compose = function(ctx, on_accept, composer_label)
+      seen = { ctx = ctx, label = composer_label }
+      -- A note joining the queue is routed by the batch, so it is handed nothing: a host
+      -- composer written before any of this keeps working untouched.
+      if not ctx.routing then
+        on_accept(nil, "queued through the host's composer")
+        return
+      end
+      named[#named + 1] = ctx.routing.label()
+      pick_answer = { short = "elsewhere", pane_id = "wV:p8", cwd = vim.uv.cwd() }
+      ctx.routing.pick(function()
+        named[#named + 1] = ctx.routing.label()
+        on_accept(nil, "sent through the host's composer")
+      end)
+      -- The picker answers on a later tick, as a real one does.
+      pending_pick()
+    end,
+  })
+
+  reset()
+  send_from_buffer({ short = "first", pane_id = "wV:p1", cwd = vim.uv.cwd() })
+  if pending_pick then
+    pending_pick()
+  end
+
+  it("passes the `send` verb rather than `queue`", function()
+    assert.same("send", seen.label)
+  end)
+
+  it("hands it the rest of the context unchanged", function()
+    assert.same("none", seen.ctx.scope)
+    assert.is_truthy(seen.ctx.label)
+    assert.is_truthy(seen.ctx.rel_path)
+    assert.is_truthy(seen.ctx.file_path)
+    assert.is_truthy(seen.ctx.origin_win)
+  end)
+
+  it("lets it name the target before and after rerouting", function()
+    assert.same({ "first", "elsewhere" }, named)
+  end)
+
+  it("delivers where the host composer rerouted it", function()
+    assert.same(1, #host_sent)
+    assert.same("elsewhere", host_sent[1].target.short)
+    assert.is_truthy(host_sent[1].text:find("sent through the host's composer", 1, true), host_sent[1].text)
+  end)
+
+  it("queues nothing", function()
+    assert.same(0, queue.count())
+  end)
+
+  require("codereview").annotate("bug")
+
+  it("hands no routing to a note that joins the queue", function()
+    assert.is_nil(seen.ctx.routing)
+    assert.same(1, queue.count())
+    assert.same("queued through the host's composer", queue.all()[1].note)
+  end)
+
+  vim.cmd("tabclose")
 end)

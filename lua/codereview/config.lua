@@ -55,6 +55,10 @@ M.defaults = {
   ---`ctx` carries `scope`, `label`, `rel_path`, `file_path` and `origin_win` -- the window
   ---the annotation was started from. The plugin restores focus there once `on_accept`
   ---runs; a composer that can be dismissed without calling it owns that path itself.
+  ---
+  ---On an immediate send it also carries `routing`: `{ label(), pick(on_done) }` for the
+  ---target *this note* will reach. Name it in the chrome, and change it with `pick`. It is
+  ---absent for a note joining the queue, which is routed by the batch it joins.
   ---@type fun(ctx: table, on_accept: fun(target: table|nil, text: string), label: string)|nil
   compose = nil,
 }

@@ -21,6 +21,11 @@ function M.open(ctx, on_accept, label)
   local draft_key = drafts.key(ctx)
   local restored = drafts.get(draft_key)
 
+  -- The batch's routing by default, because a note written here joins the batch. An
+  -- immediate send hands its own on the context: that note has a target of its own, and
+  -- naming the batch's would name a destination this note is not going to.
+  local routing = ctx.routing or require("codereview.view").routing()
+
   local width = math.min(84, math.max(40, math.floor(vim.o.columns * 0.7)))
   local height = 6
   local cfg_win = {
@@ -43,14 +48,14 @@ function M.open(ctx, on_accept, label)
   vim.wo[win].linebreak = true
 
   ---Redraw the footer. The target is the only part that changes while the composer is
-  ---open, and it is worth showing: it is what decides where the batch ends up.
+  ---open, and it is worth showing: it is what decides where this note ends up.
   local function refresh()
     if not vim.api.nvim_win_is_valid(win) then
       return
     end
     -- Truncated because a target name can be long ("janus · Analyze RUM patterns") and a
     -- footer wider than the float is silently clipped, taking the keys with it.
-    local name = require("codereview.view").target_label()
+    local name = routing.label()
     if #name > 16 then
       name = name:sub(1, 15) .. "…"
     end
@@ -95,9 +100,10 @@ function M.open(ctx, on_accept, label)
   -- reread the note first, and a submit key that only works in one of those is a trap.
   vim.keymap.set({ "i", "n" }, "<C-s>", submit, { buffer = buf, desc = label })
   -- Routing without abandoning the note. The picker answers on a later tick and puts focus
-  -- back here itself, so there is nothing to restore -- only a footer to redraw.
+  -- back here itself, so there is nothing to restore -- only a footer to redraw. What it
+  -- changes is whatever this composer is routing: the batch, or this one note.
   vim.keymap.set({ "i", "n" }, "<C-t>", function()
-    require("codereview.view").pick_target(refresh)
+    routing.pick(refresh)
   end, { buffer = buf, desc = "Choose target" })
   -- The sentinel is written *before* the picker opens, so cancelling leaves the literal
   -- character that was just pressed. The position is remembered rather than re-derived for

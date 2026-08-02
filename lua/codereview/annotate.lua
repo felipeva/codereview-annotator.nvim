@@ -374,6 +374,33 @@ function M.annotate_pick()
   end)
 end
 
+---The note as it reaches an entry: what was written, plus whatever rides along under it.
+---@param text string
+---@param opts { note_suffix?: string }|nil
+---@return string
+local function note_with(text, opts)
+  local suffix = opts and opts.note_suffix
+  return (suffix and suffix ~= "") and (text .. "\n\n" .. suffix) or text
+end
+
+---The composer context both tails hand over.
+---@param entry CRAnnotation
+---@param type_def CRType|nil nil for an untyped annotation
+---@param routing table|nil What the composer's footer names and its routing key changes.
+---       Absent for a note joining the queue, which is routed by the batch it joins.
+---@return table
+local function compose_ctx(entry, type_def, routing)
+  -- The untyped group stands in wherever the annotation still has to be named.
+  local type_label = (type_def or types.UNTYPED).label
+  return {
+    scope = "none",
+    label = ("%s · %s"):format(type_label:gsub("s$", ""), M.describe(entry)),
+    rel_path = entry.path,
+    file_path = entry.abs_path,
+    routing = routing,
+  }
+end
+
 ---Collect a note for an already-built entry, queue it, and report.
 ---
 ---Shared by the review path and by buffer capture, rather than each growing its own tail:
@@ -389,31 +416,105 @@ function M.queue_entry(entry, type_def, opts)
   -- it carries gets the honest answer -- and so no configurable name can ever collide with
   -- one the plugin reserved.
   entry.type = type_def and type_def.name
-  -- The untyped group stands in wherever the annotation still has to be named.
-  local type_label = (type_def or types.UNTYPED).label
   -- Before anything is added, not after: persisting writes the in-memory queue over the
   -- document, so queueing into a queue this session has never read back would drop
   -- whatever the last session left. A review view has already restored by the time it
   -- gets here; capture from a buffer can be the very first thing a session does.
   require("codereview.view").ensure_queue()
-  collect(
-    {
-      scope = "none",
-      label = ("%s · %s"):format(type_label:gsub("s$", ""), M.describe(entry)),
-      rel_path = entry.path,
-      file_path = entry.abs_path,
-    },
-    "queue",
-    function(text)
-      local suffix = opts and opts.note_suffix
-      entry.note = (suffix and suffix ~= "") and (text .. "\n\n" .. suffix) or text
-      queue.add(entry)
-      local view = require("codereview.view")
-      view.paint()
-      view.persist()
-      info(("Queued %s %s (%d in queue)"):format(entry.type or "untyped", M.describe(entry), queue.count()))
+  collect(compose_ctx(entry, type_def), "queue", function(text)
+    entry.note = note_with(text, opts)
+    queue.add(entry)
+    local view = require("codereview.view")
+    view.paint()
+    view.persist()
+    info(("Queued %s %s (%d in queue)"):format(entry.type or "untyped", M.describe(entry), queue.count()))
+  end)
+end
+
+---Collect a note for an already-built entry and deliver it on its own.
+---
+---The queued path's twin, and deliberately the same shape: the same composer context, the
+---same note suffix, the same focus restore. What differs is the tail -- this one renders a
+---batch of one through the payload renderer (ADR-0004) and hands it to the send adapter,
+---never touching the queue. An errand does not disturb a batch you are still assembling.
+---@param entry CRAnnotation
+---@param type_def CRType|nil nil for an untyped annotation. The reason a type became
+---       optional at all (ADR-0004): a batch of one must not be the one interaction that
+---       forces a type onto a remark that carries no instruction.
+---@param opts? { note_suffix?: string }
+function M.send_entry(entry, type_def, opts)
+  entry.type = type_def and type_def.name
+  local view = require("codereview.view")
+
+  -- Said the same way from both places the absence can be discovered: before the composer
+  -- opens, and from the routing key once it is.
+  local NO_PICKER = "No pick_target adapter configured — sending to the default target"
+
+  ---Where this one note goes. Held here rather than in the view because it belongs to the
+  ---note: an errand must not redirect the batch you are still assembling.
+  ---@type table|nil
+  local to = nil
+
+  ---What the composer names in its footer and changes with its routing key. The batch's
+  ---equivalent is `view.routing()`; this is the same shape for a note that owns its own
+  ---destination, which is what lets one composer tell the truth on both paths.
+  local routing = {
+    label = function()
+      return view.label_of(to)
+    end,
+    pick = function(on_done)
+      local asked = view.choose_target(function(picked)
+        -- Declining a reroute is "never mind", not "send it nowhere". The note is written
+        -- by now, and dropping the target it already had would redirect it in the one
+        -- direction nobody asked for.
+        if picked then
+          to = picked
+        end
+        if on_done then
+          on_done()
+        end
+      end)
+      if not asked then
+        info(NO_PICKER)
+      end
+    end,
+  }
+
+  local function compose_and_send()
+    collect(compose_ctx(entry, type_def, routing), "send", function(text)
+      entry.note = note_with(text, opts)
+      if view.deliver({ entry }, to) then
+        info(
+          ("Sent %s %s to %s"):format(
+            entry.type or "untyped",
+            M.describe(entry),
+            to and (to.short or "agent") or "local"
+          )
+        )
+      end
+    end)
+  end
+
+  -- Asked before the composer opens, not after it closes: declining then costs nothing,
+  -- where declining after the note is written costs the note.
+  local asked = view.choose_target(function(picked)
+    -- A picker that ran and came back empty is a reviewer who chose not to send. Said out
+    -- loud, because a note that goes nowhere in silence looks exactly like one that was
+    -- delivered.
+    if not picked then
+      warn("No target chosen — nothing sent")
+      return
     end
-  )
+    to = picked
+    compose_and_send()
+  end)
+  -- Nothing to choose between, and no way to decline. The plugin has no opinion about
+  -- where a payload goes (ADR-0001), so it hands this one over with no target and lets
+  -- the send adapter decide what that means, exactly as a batch does.
+  if not asked then
+    info(NO_PICKER)
+    compose_and_send()
+  end
 end
 
 ---Annotate a target that was resolved earlier.

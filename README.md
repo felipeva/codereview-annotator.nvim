@@ -105,6 +105,36 @@ groups under its type in the same payload, and it goes out in the same batch to 
 target. A selection travels as `@path#L12-20` when the delivery target can resolve the
 path, and inlines its code when it cannot. The buffer itself is never touched.
 
+### Sending one annotation now
+
+A thought you want acted on should not have to wait for a batch you have not finished
+assembling. The same entry point sends one annotation on its own instead of queueing it:
+
+```lua
+require("codereview").annotate("bug", nil, { immediate = true })
+require("codereview").annotate(nil, nil, { immediate = true })  -- or pick the type, or decline one
+```
+
+Delivery is a property of the call, not a different door: everything above still applies —
+the same paths, the same blob, the same diagnostics, the same drafts and `@` references,
+and the same picker with its `no type` entry. It renders through the same renderer a batch
+does, so what arrives is an ordinary review payload that happens to hold one annotation
+([ADR-0004](docs/adr/0004-an-immediate-send-is-a-batch-of-one.md)) — untyped, if that is
+what you chose, in the group that carries no directive.
+
+That a type is optional at all is a consequence of this: a batch of one would otherwise
+force one onto the fastest interaction there is.
+
+The queue is untouched: an annotation sent this way never joins it, and whatever is already
+queued is neither delivered nor cleared.
+
+You are asked where it goes **before** the composer opens, through `pick_target` — so
+declining costs no typing. Decline and nothing is sent. With no `pick_target` wired there
+is nothing to choose between, so it goes with no target and `send` decides what that means.
+Because the note owns that choice rather than the batch, the composer's footer names the
+target *this note* will reach, and `^T` in the composer reroutes the note, leaving the
+batch pointing where it was.
+
 ### Inside the view
 
 | Key | Action |
@@ -280,6 +310,10 @@ opts = {
   -- and `origin_win` — the window the annotation was started from. Focus goes back there
   -- once `on_accept` runs; a composer the user can *cancel* never calls it, so that path
   -- is the composer's to restore.
+  --
+  -- On an immediate send `ctx.routing` is also there — `{ label(), pick(on_done) }` for
+  -- the target *this note* will reach. Name it, and change it with `pick`. It is absent
+  -- for a note joining the queue, which the batch routes.
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
 }
 ```
