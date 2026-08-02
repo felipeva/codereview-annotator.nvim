@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    name: nvim ${{ matrix.nvim }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 0.12 is the floor: the syntax replay needs vim.treesitter.get_string_parser.
+        nvim: [stable, nightly]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: ${{ matrix.nvim }}
+
+      # plenary is the only dependency. No nvim-treesitter and no compiler: the fixtures
+      # are Lua and Markdown, whose parsers and highlights queries ship with Neovim.
+      - run: make deps
+
+      - run: make test
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: JohnnyMorganz/stylua-action@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          # stylua.toml sets syntax = "Lua52", which is what allows goto/::label::.
+          args: --check lua/ tests/
