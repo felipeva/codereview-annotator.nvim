@@ -795,6 +795,15 @@ end
 
 --- Delivery -------------------------------------------------------------------
 
+---Short name of where the batch is going, or what to call the adapter's own default.
+---
+---Exposed because the queue float and the composer both name this choice, and it is the
+---same choice: routing is a property of the batch, not of whichever window asked.
+---@return string
+function M.target_label()
+  return (target and target.short) or "local"
+end
+
 ---Choose where the batch goes, through the injected picker.
 ---@param on_done fun()|nil Runs after a target is chosen, once the picker has closed
 function M.pick_target(on_done)
@@ -973,7 +982,7 @@ function M.review_queue()
     vim.bo[buf].modifiable = false
 
     local n, stale = queue.count(), queue.stale_count()
-    local name = (target and target.short) or "local"
+    local name = M.target_label()
     cfg_win.title = (" Review queue · %d annotation%s%s "):format(
       n,
       n == 1 and "" or "s",

@@ -142,6 +142,13 @@ describe("annotating from insert mode", function()
   it("queued the annotation", function()
     assert.same("1", expr("luaeval(\"require('codereview').count()\")"))
   end)
+
+  -- Only meaningful now that the composer is genuinely entered in insert mode. Typed in
+  -- normal mode those keystrokes would have been motions, and the note would have been
+  -- something else entirely -- which is what this asserted nothing about before.
+  it("queued what was actually typed", function()
+    assert.same("why the rename", expr("luaeval(\"require('codereview.queue').all()[1].note\")"))
+  end)
 end)
 
 describe("the review buffer after submitting", function()

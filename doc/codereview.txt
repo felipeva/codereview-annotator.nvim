@@ -188,6 +188,29 @@ that caused it: a missing or duplicated `name` or `key`, a `key` of "a" (which
 would shadow the `aa` type picker), or a field of the wrong type. Start from
 the shipped set with `require("codereview.types").defaults`.
 
+The composer                                          *codereview-composer*
+
+Annotating opens a floating buffer to write the note in, titled with the type
+and what is being annotated:
+
+    ^S              queue the note and close
+    ^T              choose where the batch goes
+    q  <Esc>        abandon without queueing
+
+It opens in insert mode, because you opened it to write something. `^S` and
+`^T` work in insert and normal alike -- you may well have pressed <Esc> to
+reread the note first, and a submit key that works in only one of those is a
+trap.
+
+The note is whatever the buffer holds, newlines and all. An empty one queues
+nothing, so opening the composer by accident costs nothing. Either way focus
+returns to the window the annotation was started from.
+
+Routing from here is the same choice the queue float offers, because it is the
+same choice: a target belongs to the batch, not to the window that asked.
+
+Wire |codereview-opt-compose| to replace this composer with your own.
+
 ==============================================================================
 6. CAPTURE                                              *codereview-capture*
 
@@ -263,8 +286,11 @@ pick_target({cb})                                 *codereview-opt-pick_target*
         restoring a dead one would route a batch into nothing.
 
 compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
-        Collect note text and call {on_accept}(target, text). Falls back to
-        |vim.ui.input()|.
+        Collect note text and call {on_accept}(target, text). Replaces the
+        composer the plugin ships (|codereview-composer|), which is the default
+        implementation of this same contract rather than a lesser path beside
+        it: both are handed exactly the same arguments, and neither is a
+        fallback for the other.
 
         {ctx} describes what is being annotated: >
             scope       always "none" -- a note carries its own code, so

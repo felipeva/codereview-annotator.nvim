@@ -290,14 +290,13 @@ local function collect(ctx, label, cb)
     end
   end
 
-  if cfg.compose then
-    cfg.compose(ctx, function(_, text)
-      done(text)
-    end, label)
-    return
-  end
-  -- Fallback so the plugin is useful with nothing wired at all.
-  vim.ui.input({ prompt = ("%s > "):format(ctx.label) }, done)
+  -- The plugin's own composer is the *default implementation of the adapter*, not a lesser
+  -- path beside it: a host that injects one replaces it, and both are handed exactly the
+  -- same thing. There is no third behaviour to keep in step.
+  local compose = cfg.compose or require("codereview.composer").open
+  compose(ctx, function(_, text)
+    done(text)
+  end, label)
 end
 
 ---Annotate whatever the cursor or selection points at.
