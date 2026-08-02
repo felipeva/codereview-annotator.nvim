@@ -819,6 +819,85 @@ describe("declining to choose a target", function()
   end)
 end)
 
+-- Why a type became optional at all (ADR-0004): a batch of one would otherwise force one
+-- onto the fastest interaction there is, and a remark with no instruction behind it would
+-- have to invent a directive to be sendable.
+describe("sending one annotation with no type", function()
+  queue.clear()
+  steps = {}
+  local before = #sent
+  local orig = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    steps[#steps + 1] = "type"
+    -- One past the configured types is the decline entry, which is not a dismissal.
+    cb(items[#items], #items)
+  end
+  edit("src/main.lua")
+  codereview.annotate(nil, nil, { immediate = true })
+  vim.ui.select = orig
+  local order = table.concat(steps, " ")
+  local text = sent[#sent].text
+
+  it("delivers it rather than making a type the price of sending", function()
+    assert.same(before + 1, #sent)
+  end)
+
+  -- Both pickers are answered before a word is written; neither hides inside the
+  -- composer's callback, where the answer would arrive too late to matter.
+  it("asks for the type, then the target, then opens the composer", function()
+    assert.same("type target compose", order)
+  end)
+
+  it("lands its one annotation in the untyped group", function()
+    assert.is_truthy(text:find("Code review — 1 annotation", 1, true), text)
+    assert.is_truthy(text:find("## Untyped (1)", 1, true), text)
+    assert.is_truthy(text:find("@src/main.lua", 1, true), text)
+    assert.is_truthy(text:find("the note", 1, true), text)
+  end)
+
+  -- A group with nothing to instruct should not pretend otherwise.
+  it("gives that group no directive", function()
+    assert.is_truthy(text:find("## Untyped (1)\n", 1, true), text)
+  end)
+
+  it("still leaves the queue alone", function()
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- Declining and dismissing were the same gesture until the picker grew a way to say "no
+-- type", and the send path must not quietly put them back together: one delivers an
+-- untyped annotation, the other abandons the send entirely.
+describe("dismissing the type picker on an immediate send", function()
+  queue.clear()
+  steps = {}
+  local before, composed_before = #sent, #composed
+  local orig = vim.ui.select
+  vim.ui.select = function(_, _, cb)
+    steps[#steps + 1] = "type"
+    cb(nil, nil)
+  end
+  edit("src/main.lua")
+  codereview.annotate(nil, nil, { immediate = true })
+  vim.ui.select = orig
+  local order = table.concat(steps, " ")
+
+  it("delivers nothing", function()
+    assert.same(before, #sent)
+  end)
+
+  it("queues nothing either", function()
+    assert.same(0, queue.count())
+  end)
+
+  -- Neither the composer nor the target picker: abandoning before a type is chosen costs
+  -- nothing at all, not even the question of where it would have gone.
+  it("asks nothing further", function()
+    assert.same("type", order)
+    assert.same(composed_before, #composed)
+  end)
+end)
+
 -- The promise the queue makes to a batch half assembled: an errand does not disturb it.
 describe("an immediate send beside a queue with something in it", function()
   queue.clear()
