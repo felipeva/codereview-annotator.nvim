@@ -155,6 +155,39 @@ describe("rendering a mixed queue in-tree", function()
   end)
 end)
 
+-- A remark worth reading with no instruction attached. It used to be dropped here: the
+-- renderer collected the entries matching each configured type, so one matching none never
+-- reached the agent at all.
+describe("rendering an untyped annotation", function()
+  -- Straight into the renderer, with a list built by hand: a payload is a pure function of
+  -- its arguments, so pinning this group needs neither a queue nor a review view.
+  local text = payload.render({
+    { kind = "note", type = "bug", note = "typed" },
+    { kind = "note", note = "no instruction attached" },
+  }, V.root, { types = config.get().types })
+
+  it("gives it a group of its own", function()
+    assert.is_truthy(text:find("## Untyped (1)", 1, true), text)
+  end)
+
+  it("renders it after every typed group", function()
+    assert.is_true(text:find("## Bugs", 1, true) < text:find("## Untyped", 1, true))
+  end)
+
+  -- A group with nothing to instruct should not pretend otherwise.
+  it("attaches no directive to the heading", function()
+    assert.is_truthy(text:find("## Untyped (1)\n", 1, true), text)
+  end)
+
+  it("numbers it in sequence with the typed entries", function()
+    assert.is_truthy(text:match("### 2%. %(no file%)"), text)
+  end)
+
+  it("carries its note", function()
+    assert.is_truthy(text:find("no instruction attached", 1, true), text)
+  end)
+end)
+
 describe("rendering for an out-of-tree target", function()
   -- The reader's cwd is somewhere else entirely, so `@src/...` would resolve against
   -- their tree, not ours. Every ref has to degrade to an absolute path plus the code.

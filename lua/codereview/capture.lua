@@ -219,14 +219,10 @@ function M.annotate(type_name, range)
     return
   end
 
-  local labels = vim.tbl_map(function(t)
-    return ("%s  %s"):format(t.icon, t.name)
-  end, cfg.types)
-  vim.ui.select(labels, { prompt = "Annotation type:" }, function(_, index)
-    if not index then
-      return
-    end
-    annotate.queue_entry(entry, cfg.types[index], opts)
+  -- The same menu the review view offers, including its way of declining a type outright:
+  -- which types exist, and how you say "none of them", cannot depend on where you asked.
+  annotate.pick_type(cfg.types, function(chosen)
+    annotate.queue_entry(entry, chosen, opts)
   end)
 end
 

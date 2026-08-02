@@ -153,6 +153,24 @@ describe("grouping annotations", function()
   it("groups nothing when there is nothing to group", function()
     assert.same({}, types.group({}, list))
   end)
+
+  it("collects annotations with no type into a group of their own, last", function()
+    local groups = types.group({ {}, { type = "bug" }, {} }, list)
+    assert.same({ "Bugs:1", "Untyped:2" }, shape(groups))
+  end)
+
+  -- A queue persisted before a host dropped a type from its list restores entries naming
+  -- one that no longer exists. They are still annotations someone wrote; the group with no
+  -- directive is where an entry the type list cannot account for belongs.
+  it("treats a type the list no longer configures as untyped", function()
+    assert.same({ "Untyped:1" }, shape(types.group({ { type = "retired" } }, list)))
+  end)
+
+  it("leaves the untyped group without a directive", function()
+    local group = types.group({ {} }, list)[1]
+    assert.is_nil(group.type.directive)
+    assert.is_nil(group.type.name)
+  end)
 end)
 
 describe("a custom type end to end", function()

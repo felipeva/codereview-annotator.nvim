@@ -104,12 +104,68 @@ describe("with no type given", function()
 
   it("offers the type picker", function()
     assert.is_truthy(prompt, "no picker was offered")
-    assert.same(#require("codereview.config").get().types, #offered)
+    assert.same(#require("codereview.config").get().types + 1, #offered)
   end)
 
   it("queues with the type that was picked", function()
     assert.same(1, queue.count())
     assert.same("fix", queue.all()[1].type)
+  end)
+end)
+
+-- A reviewer with no instruction to attach should not have to invent one. Declining is an
+-- answer, so it is an entry in the picker rather than a way of dismissing it.
+describe("declining a type", function()
+  local offered
+  local orig = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    offered = items
+    cb(items[#items], #items)
+  end
+
+  queue.clear()
+  edit("src/main.lua")
+  codereview.annotate()
+  vim.ui.select = orig
+
+  it("offers declining after every type, never before one", function()
+    assert.is_truthy(offered[#offered]:find("no type", 1, true), vim.inspect(offered))
+    for i = 1, #offered - 1 do
+      assert.is_nil(offered[i]:find("no type", 1, true), vim.inspect(offered))
+    end
+  end)
+
+  it("queues the annotation carrying no type", function()
+    assert.same(1, queue.count())
+    assert.is_nil(queue.all()[1].type)
+  end)
+
+  it("costs the type and nothing else", function()
+    assert.same("the note", queue.all()[1].note)
+    assert.same("src/main.lua", queue.all()[1].path)
+  end)
+end)
+
+-- Dismissing the picker still abandons the annotation entirely. The two were the same
+-- outcome while cancelling was the only way out of the picker without choosing.
+describe("cancelling the picker", function()
+  local orig = vim.ui.select
+  vim.ui.select = function(_, _, cb)
+    cb(nil, nil)
+  end
+
+  queue.clear()
+  local before = #composed
+  edit("src/main.lua")
+  codereview.annotate()
+  vim.ui.select = orig
+
+  it("queues nothing", function()
+    assert.same(0, queue.count())
+  end)
+
+  it("never opens the composer", function()
+    assert.same(before, #composed)
   end)
 end)
 
@@ -569,6 +625,61 @@ describe("a range and a whole file together", function()
   end)
 end)
 
+-- An untyped annotation is a first-class entry: it appears wherever an entry appears. Both
+-- surfaces used to drop it, each through its own copy of the same grouping loop.
+describe("an untyped annotation in the queue and in the batch", function()
+  local view = require("codereview.view")
+  queue.clear()
+  local before_sent = #sent
+
+  local orig = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    cb(items[#items], #items)
+  end
+  edit("src/main.lua")
+  codereview.annotate()
+  vim.ui.select = orig
+
+  edit("src/routes.lua")
+  codereview.annotate("bug")
+
+  local float
+  view.review_queue()
+  do
+    local win = vim.api.nvim_get_current_win()
+    float = table.concat(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false), "\n")
+    vim.api.nvim_win_close(win, true)
+  end
+
+  it("is listed in the queue float", function()
+    assert.is_truthy(float:find("## Untyped", 1, true), float)
+    assert.is_truthy(float:find("src/main.lua", 1, true), float)
+  end)
+
+  it("is listed after every typed group there", function()
+    assert.is_true(float:find("## Bugs", 1, true) < float:find("## Untyped", 1, true), float)
+  end)
+
+  it("carries no directive on its heading", function()
+    assert.is_truthy(float:find("## Untyped\n", 1, true), float)
+  end)
+
+  view.submit()
+
+  it("reaches the delivered payload, grouped and last", function()
+    assert.same(before_sent + 1, #sent)
+    local text = sent[#sent].text
+    assert.is_truthy(text:find("## Untyped (1)\n", 1, true), text)
+    assert.is_true(text:find("## Bugs", 1, true) < text:find("## Untyped", 1, true), text)
+  end)
+
+  it("travels with everything a typed annotation would have carried", function()
+    local text = sent[#sent].text
+    assert.is_truthy(text:find("@src/main.lua", 1, true), text)
+    assert.is_truthy(text:find("2 annotations", 1, true), text)
+  end)
+end)
+
 -- The two cases below reconfigure the plugin, so they come last.
 
 -- What a host that wires nothing gets is the plugin's own composer -- from capture exactly
@@ -675,7 +786,10 @@ describe("with a custom type vocabulary", function()
     codereview.annotate()
     vim.ui.select = orig
 
-    assert.same(2, #offered)
+    -- The host's two, then declining. Nothing the host did not configure is offered as a
+    -- type, and the way out of the menu without one does not depend on the vocabulary.
+    assert.same(3, #offered)
     assert.is_truthy(offered[1]:find("blocker", 1, true), vim.inspect(offered))
+    assert.is_truthy(offered[3]:find("no type", 1, true), vim.inspect(offered))
   end)
 end)

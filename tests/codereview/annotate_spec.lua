@@ -316,6 +316,62 @@ describe("dropping annotations", function()
   end)
 end)
 
+-- The review path offers the same menu and the same way out of it: an annotation made over
+-- the diff has no more need to invent a type than one captured from a buffer.
+describe("declining a type over the diff", function()
+  queue.clear()
+  at(add_row)
+
+  local orig = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    cb(items[#items], #items)
+  end
+  annotate.annotate_pick()
+  vim.ui.select = orig
+
+  it("queues the annotation carrying no type", function()
+    assert.same(1, queue.count())
+    assert.is_nil(queue.all()[1].type)
+  end)
+
+  it("anchors it exactly as a typed annotation would be", function()
+    assert.same({ "src/fresh.lua:n:1", "line" }, { queue.all()[1].key, queue.all()[1].kind })
+  end)
+
+  it("titles the composer without inventing a type", function()
+    assert.same("Untyped · src/fresh.lua:1", last_ctx.label)
+  end)
+
+  -- The inline renderer already had a fallback for an annotation whose type it cannot
+  -- resolve. Until now nothing could produce one, so this is the first thing to reach it.
+  it("still projects onto the diff", function()
+    view.paint()
+    assert.same(1, #h.virt_marks(V))
+  end)
+
+  it("says what it dropped without naming a type it never had", function()
+    local msgs, restore = h.capture_notify()
+    at(add_row)
+    annotate.drop()
+    restore()
+    assert.same(0, queue.count())
+    assert.is_true(h.notified(msgs, "Dropped untyped note"), vim.inspect(msgs))
+  end)
+
+  -- Escape still means never mind, on this path as on the other.
+  it("abandons the annotation when the picker is dismissed instead", function()
+    queue.clear()
+    at(add_row)
+    local dismiss = vim.ui.select
+    vim.ui.select = function(_, _, cb)
+      cb(nil, nil)
+    end
+    annotate.annotate_pick()
+    vim.ui.select = dismiss
+    assert.same(0, queue.count())
+  end)
+end)
+
 describe("grouping the queue", function()
   queue.clear()
   for _, t in ipairs({ "nitpick", "bug", "issue", "bug" }) do

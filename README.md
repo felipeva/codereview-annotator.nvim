@@ -63,7 +63,7 @@ file you are looking at; with no type it offers the same picker `aa` does.
 
 ```lua
 require("codereview").annotate("bug")  -- the selection, or the whole file
-require("codereview").annotate()       -- pick the type from a menu
+require("codereview").annotate()       -- pick the type from a menu, or decline one
 ```
 
 That is the entry point to bind a key to — nothing needs to reach into the plugin's
@@ -110,7 +110,7 @@ path, and inlines its code when it cannot. The buffer itself is never touched.
 | Key | Action |
 | --- | --- |
 | `ab` `af` `as` `an` `ai` | Annotate as bug / fix / suggestion / nitpick / issue |
-| `aa` | Annotate, picking the type from a menu |
+| `aa` | Annotate, picking the type from a menu or declining one |
 | `x` | Drop the annotation under the cursor |
 | `R` | Toggle reviewed on this file (collapses it) |
 | `za` | Toggle expansion without marking reviewed |
@@ -214,9 +214,20 @@ missing `name` or `key`, a duplicate of either, a `key` of `a` (which would shad
 `aa` type picker), or a field of the wrong type. Start from the shipped set with
 `require("codereview.types").defaults`.
 
+### No type
+
+The picker's last entry, after every configured type, is `no type`. It queues an untyped
+annotation: a remark worth reading with no instruction attached. It is an entry like any
+other — it shows on the diff, it is listed in the queue and it goes out with the batch —
+and its group renders last, under a bare `## Untyped (n)` heading, because a group with
+nothing to instruct has no directive to state.
+
+Declining is not dismissing. Pressing escape still abandons the annotation entirely.
+
 ## The payload
 
-Grouped by type, in the configured order, most actionable first:
+Grouped by type, in the configured order, most actionable first, with anything untyped
+last:
 
 ````markdown
 Code review — 4 annotations on branch vs origin/master (8 files, 6 reviewed)
@@ -236,6 +247,12 @@ was this dropped on purpose?
 
 ## Nitpicks (1) — low priority — batch these together
 ...
+
+## Untyped (1)
+
+### 4. @apps/api/src/db.ts#L8
+
+worth a look before we ship this
 ````
 
 ## Adapters
