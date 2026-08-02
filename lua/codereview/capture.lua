@@ -117,6 +117,10 @@ function M.target(buf, range)
     -- Hashed at capture time, exactly as the review path hashes a diffed file. This is
     -- what buys staleness detection later; an entry without it can go quietly wrong.
     blob = git.blob(rel, nil, root),
+    -- Records *what* that blob is: the working tree, not a ref. A review annotation's blob
+    -- can be an index or commit blob depending on the scope it was captured in, so this is
+    -- what lets staleness judge each kind against the thing it was actually taken from.
+    worktree = true,
     inline = false,
   }
 
