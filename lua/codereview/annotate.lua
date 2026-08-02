@@ -308,21 +308,21 @@ function M.annotate_pick()
   end)
 end
 
----Annotate a target that was resolved earlier.
----@param V CRView
----@param target CRTarget
----@param type_name string
-function M.annotate_target(V, target, type_name)
-  local cfg = config.get()
-  local type_def = types.get(cfg.types, type_name)
-  if not type_def then
-    return
-  end
-  if target.clamped then
-    info(("Selection spans more than one file — clamped to %s"):format(target.file.path))
-  end
-  local entry = build(V, target)
+---Collect a note for an already-built entry, queue it, and report.
+---
+---Shared by the review path and by buffer capture, rather than each growing its own tail:
+---an annotation has to be indistinguishable once queued regardless of how it was
+---captured, and that is only true if one piece of code decides the composer context, the
+---persistence call and the wording of the confirmation.
+---@param entry CRAnnotation
+---@param type_def CRType
+function M.queue_entry(entry, type_def)
   entry.type = type_def.name
+  -- Before anything is added, not after: persisting writes the in-memory queue over the
+  -- document, so queueing into a queue this session has never read back would drop
+  -- whatever the last session left. A review view has already restored by the time it
+  -- gets here; capture from a buffer can be the very first thing a session does.
+  require("codereview.view").ensure_queue()
   collect(
     {
       scope = "none",
@@ -340,6 +340,22 @@ function M.annotate_target(V, target, type_name)
       info(("Queued %s %s (%d in queue)"):format(type_def.name, M.describe(entry), queue.count()))
     end
   )
+end
+
+---Annotate a target that was resolved earlier.
+---@param V CRView
+---@param target CRTarget
+---@param type_name string
+function M.annotate_target(V, target, type_name)
+  local cfg = config.get()
+  local type_def = types.get(cfg.types, type_name)
+  if not type_def then
+    return
+  end
+  if target.clamped then
+    info(("Selection spans more than one file — clamped to %s"):format(target.file.path))
+  end
+  M.queue_entry(build(V, target), type_def)
 end
 
 ---Drop the annotation the cursor is sitting on.

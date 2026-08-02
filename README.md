@@ -57,6 +57,30 @@ only delivery falls back (the batch lands in the `+` register).
 `:CodeReview` opens the branch review. `:CodeReview staged`, `unstaged`, `worktree`, or any
 git revspec (`:CodeReview HEAD~3`, `:CodeReview main...feature`) opens that instead.
 
+### From any buffer
+
+Annotating does not need a review open. `:CodeReviewAnnotate bug` queues a note about the
+file you are looking at; with no type it offers the same picker `aa` does.
+
+```lua
+require("codereview").annotate("bug")  -- the whole current file
+require("codereview").annotate()       -- pick the type from a menu
+```
+
+That is the entry point to bind a key to — nothing needs to reach into the plugin's
+internal modules to capture:
+
+```lua
+vim.keymap.set("n", "<leader>ab", function()
+  require("codereview").annotate("bug")
+end, { desc = "Annotate this file as a bug" })
+```
+
+What it queues is an ordinary annotation: it records the file's blob, so it goes stale the
+same way, it appears in the same queue float next to anything captured during a review, it
+groups under its type in the same payload, and it goes out in the same batch to the same
+target. The buffer itself is never touched.
+
 ### Inside the view
 
 | Key | Action |

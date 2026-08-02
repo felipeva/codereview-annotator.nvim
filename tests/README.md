@@ -26,6 +26,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
+| `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The composer stub `interactive_spec` drives — deliberately not a spec. |
 | `perf.lua` | Open-time report on a 60-file diff. Not part of `make test`. |
 
@@ -39,6 +40,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit |
+| `capture_spec` | Annotating from an ordinary buffer: types, blob, composer, restart, one queue |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |
@@ -51,8 +53,8 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mkfixture.sh`** — flat `src/`-only repo covering every file status at once:
   modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
   binary, gitignored, and a file with no trailing newline on either side. Used by
-  `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`
-  and `interactive_spec`.
+  `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
+  `viewless_spec`, `capture_spec` and `interactive_spec`.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec` and `focus_spec`.
@@ -75,6 +77,15 @@ so the out-of-core language path is still checked locally without ever failing C
   across a genuine restart; calling `state.load()` twice in one process proves nothing
   about what reached the disk. `state_child.lua` writes, the spec restarts and reads. Do
   not collapse it into one process.
+- **The queue is restored once per session, so a second session means a second process.**
+  `view.ensure_queue()` latches after the first read, which is what stops a statusline
+  calling `count()` from hitting the disk on every redraw. Clearing the queue in-process
+  therefore does *not* simulate a restart — the latch is still set, nothing reloads, and an
+  assertion about restoring is measuring nothing. `capture_spec` spawns
+  `capture_child.lua` twice for this reason.
+- **`nvim -l` sends `print` to stderr, not stdout.** A child spawned with `-l` that reports
+  its result through `print` has to be read from `stderr`, or from both streams. Asserting
+  against `stdout` alone silently never matches.
 - **git config is neutralised.** Both the fixture scripts and `minimal_init.lua` set
   `GIT_CONFIG_GLOBAL=/dev/null`. Inherited settings quietly change what a fixture means:
   `diff.renames = false` turns the rename case into an unrelated add plus delete, and

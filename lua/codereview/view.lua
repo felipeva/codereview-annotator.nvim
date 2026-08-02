@@ -222,7 +222,12 @@ end
 local queue_restored = false
 
 ---Load the persisted queue if this session has not seen it yet.
-local function ensure_queue()
+---
+---Public because adding to the queue has to be able to demand it, not just reading it:
+---`persist_queue` writes memory over the document, so anything that queues an annotation
+---before the session has read the queue back would silently drop what the last session
+---left. Capture makes that reachable as the very first thing a session does.
+function M.ensure_queue()
   if queue_restored then
     return
   end
@@ -813,7 +818,7 @@ function M.submit()
   local queue = require("codereview.queue")
   local cfg = config.get()
 
-  ensure_queue()
+  M.ensure_queue()
   if queue.count() == 0 then
     info("Queue is empty — annotate something first")
     return
@@ -875,7 +880,7 @@ end
 ---List the queued annotations, drop any of them, then submit the batch.
 function M.review_queue()
   local queue = require("codereview.queue")
-  ensure_queue()
+  M.ensure_queue()
   if queue.count() == 0 then
     info("Queue is empty — annotate something first")
     return
