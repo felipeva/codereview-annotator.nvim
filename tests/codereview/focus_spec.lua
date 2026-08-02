@@ -1,4 +1,4 @@
--- Where the cursor ends up around the queue float.
+-- Where the cursor ends up around the queue float, and after an annotation.
 --
 -- The regression these guard: routing a batch opens an asynchronous picker, and by the
 -- time it answers the float has lost focus to the diff underneath. Anything that fires a
@@ -11,23 +11,38 @@ h.cd_fixture("mktree")
 local sent = {}
 local pending_pick -- the picker's callback, held so it fires asynchronously like a real one
 
-require("codereview").setup({
-  syntax = false,
-  -- Synchronous. Insert mode is unreachable in headless Neovim, so the insert-mode leak
-  -- and its fix cannot be exercised here at all -- that is interactive_spec's job.
-  compose = function(ctx, on_accept, _)
-    on_accept(nil, "note on " .. ctx.rel_path)
-  end,
-  -- Mimics vim.ui.select: the callback lands on a later tick, not inline.
-  pick_target = function(cb)
-    pending_pick = function()
-      cb({ short = "janus · api", pane_id = "wV:p3", cwd = "/elsewhere" })
-    end
-  end,
-  send = function(text, target)
-    sent[#sent + 1] = { text = text, target = target }
-  end,
-})
+-- Swapped per block. The queue float's cases want a composer that answers and gets out of
+-- the way; the annotation cases at the bottom want one shaped like a host's, which is a
+-- different thing entirely.
+--
+-- Synchronous either way. Insert mode is unreachable in headless Neovim, so the
+-- insert-mode leak and its fix cannot be exercised here at all -- that is
+-- interactive_spec's job.
+local composer = function(ctx, on_accept, _)
+  on_accept(nil, "note on " .. ctx.rel_path)
+end
+
+---@param panel table|nil Panel options, or nil for the default: enabled, on the left
+local function setup(panel)
+  require("codereview").setup({
+    syntax = false,
+    panel = panel,
+    compose = function(ctx, on_accept, label)
+      composer(ctx, on_accept, label)
+    end,
+    -- Mimics vim.ui.select: the callback lands on a later tick, not inline.
+    pick_target = function(cb)
+      pending_pick = function()
+        cb({ short = "janus · api", pane_id = "wV:p3", cwd = "/elsewhere" })
+      end
+    end,
+    send = function(text, target)
+      sent[#sent + 1] = { text = text, target = target }
+    end,
+  })
+end
+
+setup(nil)
 
 local view = require("codereview.view")
 local queue = require("codereview.queue")
@@ -37,12 +52,20 @@ view.open("branch")
 local V = view.current()
 queue.clear()
 
-local function first_line_row()
-  for row, a in pairs(V.render.anchors) do
-    if a.kind == "line" then
+---@param kind "line"|"hunk"|"file"
+---@return integer row
+local function row_of(kind)
+  for row = 1, vim.api.nvim_buf_line_count(V.buf) do
+    local a = V.render.anchors[row]
+    if a and a.kind == kind then
       return row
     end
   end
+  error("no " .. kind .. " row in the render")
+end
+
+local function first_line_row()
+  return row_of("line")
 end
 
 local function annotate_something(kind)
@@ -157,5 +180,224 @@ describe("routing from the diff", function()
 
   it("shows the target in the winbar", function()
     assert.is_truthy(vim.wo[V.win].winbar:find("janus", 1, true))
+  end)
+end)
+
+--- After an annotation ----------------------------------------------------------
+
+local function float()
+  local buf = vim.api.nvim_create_buf(false, true)
+  return vim.api.nvim_open_win(buf, true, {
+    relative = "editor",
+    width = 40,
+    height = 6,
+    row = 5,
+    col = 5,
+    style = "minimal",
+  })
+end
+
+---A composer shaped like a host's: a float that takes focus, opens a picker while it is up
+---(an `@file` reference, a change of target), takes focus back from it, and closes.
+---
+---The nested window is the point of this stand-in, not decoration. Closing a float hands
+---focus to whatever window Neovim last recorded, and what gets recorded here is the picker
+----- which is gone by the time the composer closes, so focus falls through to the first
+---window in the tab instead. With the tree on the left, that is the tree.
+---
+---A stand-in without the nested window keeps focus on the diff by luck and passes against
+---the bug. Change this and the tests below stop guarding anything.
+---@param text string Note the composer comes back with
+---@return fun(ctx: table, on_accept: fun(target: table|nil, text: string))
+local function host_composer(text)
+  return function(_, on_accept)
+    local win = float()
+    local picker = float()
+    vim.api.nvim_win_close(picker, true)
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_close(win, true)
+    on_accept(nil, text)
+  end
+end
+
+---Focus is restored on the tick after the composer hands back, so give it one.
+---
+---Bounded rather than fixed: this returns the moment focus settles where it should, and
+---only spends the whole wait when the assertion after it is going to fail anyway.
+---@param win integer Window focus is expected to settle on
+---@return integer focused
+local function settled(win)
+  vim.wait(200, function()
+    return vim.api.nvim_get_current_win() == win
+  end)
+  return vim.api.nvim_get_current_win()
+end
+
+describe("annotating from the diff", function()
+  composer = host_composer("a note")
+
+  for _, kind in ipairs({ "line", "hunk", "file" }) do
+    local row = row_of(kind)
+    local before = queue.count()
+    vim.api.nvim_set_current_win(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { row, 0 })
+    annotate.annotate("bug")
+    local focused = settled(V.win)
+    local cursor = vim.api.nvim_win_get_cursor(V.win)[1]
+
+    it(("queues the %s annotation"):format(kind), function()
+      assert.same(before + 1, queue.count())
+    end)
+
+    it(("keeps focus in the diff, not the tree, for a %s annotation"):format(kind), function()
+      assert.same(V.win, focused)
+    end)
+
+    it(("leaves the cursor where the %s annotation was made"):format(kind), function()
+      assert.same(row, cursor)
+    end)
+  end
+end)
+
+describe("annotating through the type picker", function()
+  local orig = vim.ui.select
+  -- A real picker is a window in its own right: it takes focus, and gives it back.
+  vim.ui.select = function(items, _, cb)
+    local win = float()
+    vim.api.nvim_win_close(win, true)
+    cb(items[1], 1)
+  end
+
+  local before = queue.count()
+  vim.api.nvim_set_current_win(V.win)
+  vim.api.nvim_win_set_cursor(V.win, { row_of("line"), 0 })
+  annotate.annotate_pick()
+  local focused = settled(V.win)
+  vim.ui.select = orig
+
+  it("queues the annotation", function()
+    assert.same(before + 1, queue.count())
+  end)
+
+  it("keeps focus in the diff", function()
+    assert.same(V.win, focused)
+  end)
+end)
+
+describe("annotating a visual selection", function()
+  local before = queue.count()
+  vim.api.nvim_set_current_win(V.win)
+  vim.api.nvim_win_set_cursor(V.win, { row_of("line"), 0 })
+  -- Through the real mapping: the selection has to be live when the annotation resolves,
+  -- which calling the function directly cannot reproduce.
+  h.feed("Vjab")
+  local focused = settled(V.win)
+
+  -- Guards the test itself. A selection that resolved to nothing would open no composer,
+  -- move no focus, and pass the assertion below without exercising anything.
+  it("queues the annotation", function()
+    assert.same(before + 1, queue.count())
+  end)
+
+  it("keeps focus in the diff", function()
+    assert.same(V.win, focused)
+  end)
+end)
+
+describe("a composer that comes back empty", function()
+  composer = host_composer("")
+  local before = queue.count()
+  vim.api.nvim_set_current_win(V.win)
+  vim.api.nvim_win_set_cursor(V.win, { row_of("line"), 0 })
+  annotate.annotate("bug")
+  local focused = settled(V.win)
+  composer = host_composer("a note")
+
+  it("queues nothing", function()
+    assert.same(before, queue.count())
+  end)
+
+  it("still puts focus back in the diff", function()
+    assert.same(V.win, focused)
+  end)
+end)
+
+-- Which side the tree is on is what made this bug visible or invisible: focus fell through
+-- to the first window in the tab, which is the tree only when the tree is on the left.
+-- Neither layout should depend on that any more.
+for _, layout in ipairs({
+  { label = "with the tree on the right", panel = { position = "right" } },
+  { label = "with no tree at all", panel = { enabled = false } },
+}) do
+  describe(("annotating %s"):format(layout.label), function()
+    view.close()
+    setup(layout.panel)
+    view.open("branch")
+    V = view.current()
+    composer = host_composer("a note")
+
+    local before = queue.count()
+    vim.api.nvim_set_current_win(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { row_of("line"), 0 })
+    annotate.annotate("bug")
+    local focused = settled(V.win)
+
+    it("queues the annotation", function()
+      assert.same(before + 1, queue.count())
+    end)
+
+    it("keeps focus in the diff", function()
+      assert.same(V.win, focused)
+    end)
+  end)
+end
+
+-- Capture, where the window that asked is not the review view's and never could be.
+describe("capturing from a buffer in a split", function()
+  vim.cmd("tabnew " .. vim.fn.fnameescape("apps/api/src/main.lua"))
+  local first = vim.api.nvim_get_current_win()
+  vim.cmd("belowright split " .. vim.fn.fnameescape("docs/guide.md"))
+  local second = vim.api.nvim_get_current_win()
+  composer = host_composer("a note")
+
+  local before = queue.count()
+  require("codereview").annotate("bug")
+  local focused = settled(second)
+
+  it("queues the annotation", function()
+    assert.same(before + 1, queue.count())
+  end)
+
+  it("stays in the window it was started from, not the first one in the tab", function()
+    assert.is_true(first ~= second)
+    assert.same(second, focused)
+  end)
+end)
+
+describe("when the window it was started from is gone", function()
+  local pending
+  composer = function(_, on_accept)
+    pending = function()
+      on_accept(nil, "a note")
+    end
+  end
+
+  local before = queue.count()
+  local tab = vim.api.nvim_get_current_tabpage()
+  require("codereview").annotate("bug")
+  vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
+  local landed = vim.api.nvim_get_current_win()
+  pending()
+  vim.wait(50, function()
+    return false
+  end)
+
+  it("still queues the note", function()
+    assert.same(before + 1, queue.count())
+  end)
+
+  it("leaves focus alone rather than dragging it into the review", function()
+    assert.same(landed, vim.api.nvim_get_current_win())
+    assert.same(tab, vim.api.nvim_get_current_tabpage())
   end)
 end)
