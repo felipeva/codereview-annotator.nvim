@@ -16,10 +16,15 @@ local queue = require("codereview.queue")
 local state = require("codereview.state")
 
 local sent = {}
+local offered = 0
 require("codereview").setup({
   syntax = false,
   send = function(text, target)
     sent[#sent + 1] = { text = text, target = target }
+  end,
+  pick_target = function(cb)
+    offered = offered + 1
+    cb({ short = "agent", pane_id = "wV:p9", cwd = fixture })
   end,
 })
 
@@ -129,5 +134,81 @@ describe("submitting with no review view", function()
 
   it("still leaves the reviewed marks alone", function()
     assert.is_truthy(next(state.load(root).scopes))
+  end)
+end)
+
+-- The queue moved off the view because it is what you submit, not what you are looking at.
+-- The target is what you submit *to*, and it stayed behind: the picker ran, the answer was
+-- thrown away, and the batch went to the default destination having just asked.
+describe("choosing a delivery target with no review view", function()
+  local before_sent = #sent
+
+  queue.clear()
+  queue.add({
+    type = "bug",
+    kind = "file",
+    path = "src/routes.lua",
+    abs_path = vim.fs.joinpath(root, "src/routes.lua"),
+    key = "src/routes.lua:f:0",
+    note = "routed with nothing open",
+  })
+
+  assert(view.current() == nil, "this case is about having no view")
+  view.pick_target()
+
+  it("asked the configured picker", function()
+    assert.same(1, offered)
+  end)
+
+  it("names the chosen target in the queue float", function()
+    view.review_queue()
+    local win = vim.api.nvim_get_current_win()
+    local footer = vim.api.nvim_win_get_config(win).footer
+    local text = type(footer) == "table" and footer[1][1] or tostring(footer)
+    vim.api.nvim_win_close(win, true)
+    assert.is_truthy(text:find("agent", 1, true), text)
+  end)
+
+  it("submits to it rather than to the default", function()
+    view.submit()
+    assert.same(before_sent + 1, #sent)
+    assert.is_not_nil(sent[#sent].target, "the chosen target was discarded")
+    assert.same("wV:p9", sent[#sent].target.pane_id)
+  end)
+end)
+
+describe("a target chosen while a review was open", function()
+  local cfg = require("codereview.config").get()
+  local chooses_agent = cfg.pick_target
+  local before_sent = #sent
+
+  -- Cleared first, so nothing below can pass on what the previous case left behind.
+  cfg.pick_target = function(cb)
+    cb(nil)
+  end
+  view.pick_target()
+  cfg.pick_target = chooses_agent
+
+  queue.clear()
+  queue.add({
+    type = "bug",
+    kind = "file",
+    path = "src/fresh.lua",
+    abs_path = vim.fs.joinpath(root, "src/fresh.lua"),
+    key = "src/fresh.lua:f:0",
+    note = "routed from inside a review",
+  })
+
+  view.open("branch")
+  assert(view.current(), "the review did not open")
+  view.pick_target()
+  view.close()
+
+  it("outlives the review view, the way the queue does", function()
+    assert.is_nil(view.current())
+    view.submit()
+    assert.same(before_sent + 1, #sent)
+    assert.is_not_nil(sent[#sent].target, "closing the review dropped the target")
+    assert.same("wV:p9", sent[#sent].target.pane_id)
   end)
 end)

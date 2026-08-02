@@ -32,6 +32,18 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@type CRView|nil
 local V = nil
 
+---Where the next batch goes, or nil for the adapter's default.
+---
+---Module-level for the reason the queue is: it describes what you are submitting to, not
+---what you are looking at. Held on the view, choosing a target with nothing open ran the
+---picker and discarded the answer, and the batch went to the default having just asked.
+---
+---Deliberately not persisted. The queue is worth keeping across a restart; a target
+---identifies a live destination -- a herdr pane id, say -- and restoring a dead one would
+---route a batch into nothing, which is worse than asking again.
+---@type table|nil
+local target = nil
+
 ---@param msg string
 local function warn(msg)
   vim.notify(msg, vim.log.levels.WARN, { title = "Code review" })
@@ -140,8 +152,8 @@ local function update_winbar()
   if notes > 0 then
     bar = bar .. (" · %d note%s"):format(notes, notes == 1 and "" or "s")
   end
-  if V.target and V.target.short then
-    bar = bar .. (" · → %s"):format(V.target.short)
+  if target and target.short then
+    bar = bar .. (" · → %s"):format(target.short)
   end
   vim.wo[V.win].winbar = bar:gsub("%%", "%%%%")
 end
@@ -798,14 +810,15 @@ function M.pick_target(on_done)
   local return_win = vim.api.nvim_get_current_win()
 
   cfg.pick_target(function(picked)
-    if not V then
-      return
+    -- Recorded before anything view-shaped is touched. This used to return early with no
+    -- view, which meant the picker ran, the user answered, and the answer was dropped.
+    target = picked
+    if V then
+      update_winbar()
     end
-    V.target = picked
-    update_winbar()
     if vim.api.nvim_win_is_valid(return_win) then
       vim.api.nvim_set_current_win(return_win)
-    elseif vim.api.nvim_win_is_valid(V.win) then
+    elseif V and vim.api.nvim_win_is_valid(V.win) then
       vim.api.nvim_set_current_win(V.win)
     end
     -- The picker is asynchronous, so anything that has to reflect the new target has to
@@ -835,7 +848,7 @@ function M.submit()
 
   local V_ = M.current()
   local root = V_ and V_.root or (git.root(vim.fn.getcwd()) or vim.fn.getcwd())
-  local target = V_ and V_.target or nil
+  -- Read unconditionally: the target outlives any view, and there may not be one.
   -- Resolve refs against the directory the batch is actually going to: a routed agent
   -- reads `@path` relative to its own cwd, not this Neovim's.
   local base = (target and target.cwd and target.cwd ~= "") and target.cwd or root
@@ -960,7 +973,7 @@ function M.review_queue()
     vim.bo[buf].modifiable = false
 
     local n, stale = queue.count(), queue.stale_count()
-    local name = (V and V.target and V.target.short) or "local"
+    local name = (target and target.short) or "local"
     cfg_win.title = (" Review queue · %d annotation%s%s "):format(
       n,
       n == 1 and "" or "s",

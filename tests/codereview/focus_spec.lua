@@ -88,8 +88,10 @@ describe("opening the queue float", function()
 
     pending_pick()
 
+    -- Asserted through the winbar rather than the field behind it: where the target is
+    -- stored is the plugin's business, and it has already moved once.
     it("records the target", function()
-      assert.same("janus · api", V.target.short)
+      assert.is_truthy(vim.wo[V.win].winbar:find("→ janus · api", 1, true), vim.wo[V.win].winbar)
     end)
 
     it("returns focus to the float, not the diff underneath", function()
