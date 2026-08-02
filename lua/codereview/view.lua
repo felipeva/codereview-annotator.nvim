@@ -192,11 +192,44 @@ function M.paint(keep_file)
   end
 end
 
+---The repository the queue belongs to when no view is open.
+---@return string|nil
+local function ambient_root()
+  return git.root(vim.fn.getcwd())
+end
+
 ---Write progress to disk. Called from every mutation rather than from `paint`, which
 ---also runs on resize and would turn a window drag into a stream of file writes.
+---
+---With a view, that means the reviewed marks and the queue together. Without one, only
+---the queue -- there are no marks to write, and writing the document anyway would blank
+---the ones a review left behind.
 function M.persist()
   if V then
     require("codereview.state").persist(V)
+    return
+  end
+  local root = ambient_root()
+  if root then
+    require("codereview.state").persist_queue(root)
+  end
+end
+
+-- Restored lazily, and once. `count()` is the sort of thing a statusline calls on every
+-- redraw, so reading the state file each time is not an option; and eagerly at startup is
+-- worse, because the working directory that decides which repository's queue to load may
+-- not be the one the user ends up in.
+local queue_restored = false
+
+---Load the persisted queue if this session has not seen it yet.
+local function ensure_queue()
+  if queue_restored then
+    return
+  end
+  queue_restored = true
+  local root = ambient_root()
+  if root then
+    require("codereview.state").restore_queue(root)
   end
 end
 
@@ -522,6 +555,7 @@ function M.set_scope(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
+  queue_restored = true
   M.reconcile()
 
   if #files == 0 then
@@ -779,6 +813,7 @@ function M.submit()
   local queue = require("codereview.queue")
   local cfg = config.get()
 
+  ensure_queue()
   if queue.count() == 0 then
     info("Queue is empty — annotate something first")
     return
@@ -822,8 +857,10 @@ function M.submit()
   queue.clear()
   if M.current() then
     M.paint()
-    M.persist()
   end
+  -- Outside the `M.current()` guard: a batch submitted with no view still has to write the
+  -- emptied queue, or the entries it just sent come back on the next start.
+  M.persist()
   info(
     ("Submitted %d annotation%s to %s"):format(
       count,
@@ -838,6 +875,7 @@ end
 ---List the queued annotations, drop any of them, then submit the batch.
 function M.review_queue()
   local queue = require("codereview.queue")
+  ensure_queue()
   if queue.count() == 0 then
     info("Queue is empty — annotate something first")
     return
@@ -1226,6 +1264,7 @@ function M.open(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
+  queue_restored = true
   M.reconcile()
 
   if cfg.panel.enabled then

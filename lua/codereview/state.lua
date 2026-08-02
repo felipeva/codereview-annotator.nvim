@@ -75,6 +75,34 @@ function M.persist(view)
   M.save(view.root, data)
 end
 
+---Write just the queue, leaving the rest of the document alone.
+---
+---For a capture made with no review view open. Such a capture has no `per_scope` to build
+---a scopes table from, so writing a whole document the way `persist` does would blank the
+---reviewed marks a review saved -- the queue would survive at the cost of the progress
+---next to it.
+---@param root string
+function M.persist_queue(root)
+  local data = M.load(root)
+  data.queue = queue.all()
+  M.save(root, data)
+end
+
+---Load the queue from disk when nothing has been captured in this session yet.
+---
+---Separate from `restore`, which needs a view and a scope to put reviewed marks back.
+---The queue needs neither: it is what you submit, not what you are looking at.
+---@param root string
+function M.restore_queue(root)
+  if queue.count() > 0 then
+    return
+  end
+  local data = M.load(root)
+  if data.queue and #data.queue > 0 then
+    queue.replace(data.queue)
+  end
+end
+
 ---Restore saved progress into a freshly opened view.
 ---@param view CRView
 ---@param scope_key string

@@ -11,7 +11,7 @@ make perf                                             # open-time report, not a 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 245 cases in ~5 seconds.
+The whole suite is about 258 cases in ~5 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -25,6 +25,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
+| `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The composer stub `interactive_spec` drives — deliberately not a spec. |
 | `perf.lua` | Open-time report on a 60-file diff. Not part of `make test`. |
 
@@ -37,6 +38,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files |
+| `viewless_spec` | The queue with no review view open: persist, restore, submit |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |
