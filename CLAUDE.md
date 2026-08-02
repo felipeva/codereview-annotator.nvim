@@ -25,6 +25,9 @@ Both PRD skills are `disable-model-invocation: true` — **the user invokes them
 Straight-to-`master` is only for what has no issue behind it: docs corrections,
 formatting, CI plumbing. Anything a PRD was written for gets a branch and a PR.
 
+`CONTRIBUTING.md` is the same workflow written for outside contributors. Change both when
+one moves, or they drift.
+
 ## Commits
 
 **Conventional Commits, enforced by `.githooks/commit-msg`.** Install it once per clone —
@@ -53,7 +56,7 @@ five seconds. See `tests/README.md` for the layout and the traps.
 
 ### Issue tracker
 
-Issues live in this repo's GitHub Issues (`felipeva/codereview-annotator.nvim`), via the `gh` CLI. External PRs are **not** a triage surface. See `docs/agents/issue-tracker.md`.
+Issues live in this repo's GitHub Issues (`felipeva/codereview-annotator.nvim`), via the `gh` CLI. The repo is public, so external PRs **are** a triage surface — an outside contributor often states a request as a PR and never files an issue. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

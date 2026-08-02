@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or usage help
+    url: https://github.com/felipeva/codereview-annotator.nvim/discussions
+    about: Ask here rather than opening an issue — how to configure, wire an adapter, or bind a key.
+  - name: Report a security issue
+    url: https://github.com/felipeva/codereview-annotator.nvim/security/advisories/new
+    about: Report privately as a draft advisory. Do not open a public issue.

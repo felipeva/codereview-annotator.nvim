@@ -17,7 +17,9 @@ Infer the repo from `git remote -v` — `gh` does this automatically when run in
 
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
+**PRs as a request surface: yes.** _(Set to `no` if this repo does not treat external PRs as feature requests; `/triage` reads this flag.)_
+
+The repo is public, so an external PR is often the first and only statement of a request. Triage it like an issue rather than waiting for one to be filed separately.
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 

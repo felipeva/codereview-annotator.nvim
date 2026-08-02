@@ -1,5 +1,9 @@
 # codereview-annotator.nvim
 
+[![test](https://github.com/felipeva/codereview-annotator.nvim/actions/workflows/test.yml/badge.svg?branch=master&event=push)](https://github.com/felipeva/codereview-annotator.nvim/actions/workflows/test.yml?query=branch%3Amaster)
+[![Neovim 0.12+](https://img.shields.io/badge/Neovim-0.12%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A code review surface for Neovim: one unified, syntax-highlighted diff of everything a
 branch changed, with vim-native navigation, typed annotations that queue up, reviewed-file
 collapsing, and a batch submit that hands the whole review to an agent as a single message.
@@ -331,6 +335,9 @@ git fixture. CI runs them on Neovim stable and nightly with plenary as the only 
 parsers ship with Neovim. See [`tests/README.md`](tests/README.md) for the layout, what is
 deliberately not covered, and the traps worth knowing before changing a fixture.
 
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the rest: the commit convention, the branch and
+PR shape, and how to run a single spec.
+
 ## Design notes
 
 Things that are non-obvious and cost real debugging time.
@@ -417,3 +424,36 @@ back to the diff window, so choosing an agent from the queue float dumped the cu
 the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
 leaves the float open behind it. It also has to drive its own repaint: the picker is
 asynchronous, so anything run after the call returns paints before a target exists.
+
+## Built with Claude Code
+
+This plugin was written with [Claude Code](https://claude.com/claude-code), and it is set
+up so anyone can keep working on it that way. Said plainly for two reasons: so you know
+what you are reading, and so you know agent-assisted contributions are welcome here rather
+than merely tolerated.
+
+The repo carries what an agent needs to be useful in it rather than merely fast:
+[`CLAUDE.md`](CLAUDE.md) holds the workflow in imperative form, [`docs/agents/`](docs/agents/)
+records where issues live and how they are labelled, and the *Design notes* above exist
+because several obvious-looking approaches here are wrong for reasons no amount of reading
+the code reveals. Point an agent at `CLAUDE.md` and it will follow the same branch, commit
+and PR conventions a human contributor does.
+
+The bar is the same either way — the tests pass, the design notes were read, and you can
+answer questions about the change in review. There is no requirement to disclose tool use,
+and no penalty for it.
+
+## Contributing
+
+Issues and pull requests are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) —
+setup is `make hooks && make deps && make all`, and it takes about five seconds to know
+whether the suite is green.
+
+Open an issue first for anything with a design decision behind it; typo fixes and
+obviously-correct one-liners can go straight to a PR. Participation is under the
+[Code of Conduct](CODE_OF_CONDUCT.md); security reports go through
+[`SECURITY.md`](SECURITY.md), not the issue tracker.
+
+## License
+
+[MIT](LICENSE) © Felipe Valencia
