@@ -167,10 +167,6 @@ end)
 describe("submitting to a routed target", function()
   view.pick_target()
 
-  it("records the target", function()
-    assert.same("janus · api", V.target.short)
-  end)
-
   it("shows it in the winbar", function()
     assert.is_truthy(vim.wo[V.win].winbar:find("→ janus · api", 1, true))
   end)
@@ -197,7 +193,14 @@ describe("submitting to a routed target", function()
 end)
 
 describe("submitting locally", function()
-  V.target = nil
+  -- Cleared the way a user clears it: the picker's own "local" entry answers with nil.
+  -- Reaching in to blank a field stopped working when the target moved off the view, and
+  -- the field was never the interface anyway.
+  require("codereview.config").get().pick_target = function(cb)
+    cb(nil)
+  end
+  view.pick_target()
+
   at(assert(h.line_row(V, "src/fresh.lua")))
   annotate.annotate("fix")
   view.submit()
