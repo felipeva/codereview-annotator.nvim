@@ -16,14 +16,15 @@ When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the 
 
 ## Which of these exist on the repo
 
-Only `wontfix` exists so far (it ships with GitHub's default label set). The other four have not been created yet.
+`wontfix` (from GitHub's default set) and `ready-for-agent` exist. `needs-triage`,
+`needs-info` and `ready-for-human` have not been created yet.
 
-`gh issue edit --add-label` errors on an unknown label rather than creating it — so before first applying one of the missing four, create it:
+`gh issue edit --add-label` errors on an unknown label rather than creating it — so before
+first applying one of the missing three, create it:
 
 ```sh
 gh label create needs-triage    --description "Maintainer needs to evaluate this issue"
 gh label create needs-info      --description "Waiting on reporter for more information"
-gh label create ready-for-agent --description "Fully specified, ready for an AFK agent"
 gh label create ready-for-human --description "Requires human implementation"
 ```
 
