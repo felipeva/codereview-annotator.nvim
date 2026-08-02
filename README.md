@@ -490,6 +490,18 @@ input loop, so `mode()` always reports `n` under `--headless` and a headless tes
 bug above passes whether or not the fix exists. That one is verified by driving a real
 Neovim over a pty and querying it with `--remote-expr`.
 
+**`startinsert` does nothing on the tick a picker answers on.** A picker that closes with
+`stopinsert` leaves the editor still reporting insert mode with the exit merely pending, so
+the composer's request to start inserting is dropped as redundant and the exit lands
+anyway. Reading `mode()` there is no help either — it reports the mode being left. The
+composer feeds `<C-\><C-n>` and then `i` or `A` instead, which the input loop applies once
+everything has settled, whichever mode the picker really left behind.
+
+**Normal mode cannot hold a cursor past the last character of a line.** Both places the
+composer positions a reviewer to keep typing — the end of a restored draft, the space after
+a spliced reference — are exactly that column, so setting it arrives one short. Entering
+insert with the bang (`startinsert!`, or `A` as a fed key) is what recovers it.
+
 **A picker must return focus to whoever opened it.** `pick_target` used to hardcode focus
 back to the diff window, so choosing an agent from the queue float dumped the cursor into
 the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
