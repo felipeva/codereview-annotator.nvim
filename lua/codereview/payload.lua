@@ -5,6 +5,31 @@
 ---resolves relative to whoever reads it.
 local M = {}
 
+---Canonical form of a directory refs will be resolved against.
+---
+---Every `abs_path` in the queue is already canonical: the review path joins `V.root`,
+---which is `git rev-parse --show-toplevel` and answers with symlinks resolved, and capture
+---realpaths the buffer name for the same reason. A delivery target's `cwd` is whatever the
+---adapter reported and went through neither. On macOS a directory reached through /var is
+---a symlink into /private/var, so comparing the two unresolved makes every file look like
+---it lives outside the target's own tree -- and every `@ref` in the batch degrades to an
+---absolute path with the code pasted after it. Silently, and in the direction that looks
+---fine: nothing errors, the reader just stops getting refs they can open.
+---
+---Resolved here rather than inside `relative_to`, which stays a pure string predicate: one
+---syscall per submit instead of one per entry, and the comparison stays testable.
+---@param base string
+---@return string
+function M.resolve_base(base)
+  if not base or base == "" then
+    return base
+  end
+  -- Falls back to the input. A routed agent can report a working directory that does not
+  -- exist on this machine at all, and a path that cannot be resolved is still worth
+  -- prefix-matching -- dropping it would break remote targets to fix local symlinks.
+  return vim.uv.fs_realpath(base) or base
+end
+
 ---Path relative to `base`, or nil when it is not underneath it.
 ---@param path string
 ---@param base string
@@ -90,6 +115,10 @@ end
 ---@return string
 function M.render(items, base, opts)
   local out = {}
+
+  -- Once, before the entries: the comparison below is against paths that are already
+  -- canonical, and `base` is the only side that never went through git or a realpath.
+  base = M.resolve_base(base)
 
   -- Grouped here rather than through queue.lua so this stays a pure function of its
   -- arguments: the same list always renders the same message, which is what makes the

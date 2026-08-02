@@ -386,6 +386,15 @@ number now belongs to unrelated code. A hunk is always inlined for the same reas
 to an agent whose working directory is not this one; anything outside its tree falls back
 to an absolute path with the code inlined.
 
+**That cwd is realpath'd first, and only that side.** Every `abs_path` in the queue is
+already canonical — `git rev-parse --show-toplevel` answers with symlinks resolved, and
+buffer capture realpaths for the same reason — but a target's `cwd` is whatever the adapter
+reported. On macOS a directory reached through `/var` is a symlink into `/private/var`, so
+comparing the two unresolved makes every file look like it lives outside the target's own
+tree, and the whole batch silently degrades to absolute paths with pasted snippets. It
+resolves once per submit rather than per entry, and falls back to the string it was given:
+a routed agent can name a directory that does not exist on this machine at all.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.

@@ -109,14 +109,13 @@ post-image). Do not start this alongside anything else.
 - **`git diff` long tail**: submodules, mode-only changes, and combined (merge) diffs are
   not handled. They should degrade to a visible "unsupported entry" row rather than a stack
   trace — currently untested either way, and called out as such in `tests/README.md`.
-- **Symlinked roots.** `git rev-parse --show-toplevel` returns the *canonical* path, so on
-  macOS a repo reached through `/var/...` yields a root of `/private/var/...`. Internally
-  consistent (every `abs_path` is built from that root), but `payload.relative_to()`
-  compares against a delivery target's reported `cwd` — if an agent reports the symlinked
-  form, the prefix match fails and refs silently degrade to absolute paths with inlined
-  code. Not a crash, and arguably the safe direction, but it means `@refs` can quietly stop
-  being emitted. Worth a `vim.uv.fs_realpath()` on both sides. The suite runs from
-  `$TMPDIR` and so hits this constantly; `diff_spec` resolves both paths.
+- ~~**Symlinked roots.**~~ Fixed in #17. `payload.resolve_base()` realpaths the delivery
+  target's `cwd` once per submit, so an adapter may report either form. Only that side
+  needed it — every `abs_path` is already canonical, from `git rev-parse --show-toplevel`
+  or from capture's own `fs_realpath`. `relative_to` stays a pure string predicate on
+  purpose; do not move the resolution into it. The suite runs from `$TMPDIR`, so on macOS
+  `payload_spec` exercises a genuinely symlinked root for free — and on Linux, where the
+  two forms coincide, that case marks itself `pending` rather than passing vacuously.
 - **The gitsigns diff base is gone.** The host's `claude_review.start()` also called
   `gitsigns.change_base(merge_base, true)`, which made `]h`/`[h` walk branch-relative hunks
   in ordinary buffers. The plugin never touched gitsigns, so the cutover removed that with
