@@ -228,6 +228,20 @@ Each entry records the git blob it was captured against. On reload:
   still worth sending and only its line anchor is untrustworthy. A stale entry never
   travels as an `@ref`; its code is inlined instead.
 
+## Development
+
+```sh
+make deps    # clone plenary into .tests/
+make test    # the suite: one Neovim per spec file, ~5s
+make lint    # stylua --check
+```
+
+Tests are plenary/busted specs under `tests/codereview/`, each building its own throwaway
+git fixture. CI runs them on Neovim stable and nightly with plenary as the only dependency
+— no nvim-treesitter and no compiler, because the fixtures are Lua and Markdown and those
+parsers ship with Neovim. See [`tests/README.md`](tests/README.md) for the layout, what is
+deliberately not covered, and the traps worth knowing before changing a fixture.
+
 ## Design notes
 
 Things that are non-obvious and cost real debugging time.
