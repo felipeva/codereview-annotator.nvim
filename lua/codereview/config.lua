@@ -42,7 +42,9 @@ M.defaults = {
   ---Choose a delivery target, calling back with it (or nil for the default).
   ---@type fun(cb: fun(target: table|nil))|nil
   pick_target = nil,
-  ---Collect note text. Falls back to `vim.ui.input` when not wired.
+  ---Collect note text. Replaces the composer the plugin ships, which is the default
+  ---implementation of this same contract rather than a fallback beside it -- both are
+  ---handed exactly the same arguments.
   ---
   ---`ctx` carries `scope`, `label`, `rel_path`, `file_path` and `origin_win` -- the window
   ---the annotation was started from. The plugin restores focus there once `on_accept`

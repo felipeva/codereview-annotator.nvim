@@ -79,8 +79,9 @@ both sides fixes it.
 
 ## `compose(ctx, on_accept, label)`
 
-Collect note text and call `on_accept(target, text)`. Without it the plugin falls back to
-`vim.ui.input`.
+Collect note text and call `on_accept(target, text)`. Without it you get the composer the
+plugin ships, which implements this same contract — wiring one replaces it rather than
+upgrading from a prompt.
 
 `ctx` describes what is being annotated; `:help codereview-opt-compose` lists the fields.
 The one a herdr composer should not ignore is `origin_win`, the window the annotation was

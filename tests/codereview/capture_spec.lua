@@ -571,28 +571,56 @@ end)
 
 -- The two cases below reconfigure the plugin, so they come last.
 
+-- What a host that wires nothing gets is the plugin's own composer -- from capture exactly
+-- as from the review view, since both arrive through the same tail. `vim.ui.input` is not
+-- the fallback any more.
 describe("with no composer wired", function()
   codereview.setup({ syntax = false })
   queue.clear()
   edit("src/main.lua")
+  local origin = vim.api.nvim_get_current_win()
 
-  local prompt
+  -- Stubbed rather than left alone: the prompt blocks headless Neovim, so a regression to
+  -- it would hang the suite rather than fail it.
+  local prompted = false
   local orig = vim.ui.input
-  vim.ui.input = function(opts, cb)
-    prompt = opts.prompt
-    cb("typed into the fallback")
+  vim.ui.input = function()
+    prompted = true
   end
   codereview.annotate("bug")
   vim.ui.input = orig
 
-  it("falls back to the built-in prompt", function()
-    assert.is_truthy(prompt, "vim.ui.input was never called")
-    assert.is_truthy(prompt:find("src/main.lua", 1, true), prompt)
+  local composer
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_get_config(win).relative ~= "" then
+      composer = win
+    end
+  end
+
+  it("opens the plugin's composer, not a prompt", function()
+    assert.is_false(prompted)
+    assert.is_truthy(composer, "no composer window was opened")
   end)
 
-  it("queues the note that prompt collected", function()
+  it("titles it with what is being annotated", function()
+    local cfg_win = vim.api.nvim_win_get_config(composer)
+    local title = cfg_win.title and tostring(cfg_win.title[1][1]) or ""
+    assert.is_truthy(title:find("src/main.lua", 1, true), title)
+  end)
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "captured through the composer" })
+  h.feed("<C-s>")
+
+  it("queues the note it collected", function()
     assert.same(1, queue.count())
-    assert.same("typed into the fallback", queue.all()[1].note)
+    assert.same("captured through the composer", queue.all()[1].note)
+  end)
+
+  it("leaves focus in the buffer it was captured from", function()
+    vim.wait(200, function()
+      return vim.api.nvim_get_current_win() == origin
+    end)
+    assert.same(origin, vim.api.nvim_get_current_win())
   end)
 end)
 

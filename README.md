@@ -251,7 +251,8 @@ opts = {
   -- `cwd` matters: refs are re-resolved against it at submit time.
   pick_target = function(cb) cb({ short = "agent", cwd = "/path" }) end,
 
-  -- Collect note text. Without it, falls back to vim.ui.input.
+  -- Collect note text. Without it you get the composer the plugin ships, which implements
+  -- this same contract — wiring one replaces that composer rather than upgrading a prompt.
   -- `ctx` describes what is being annotated: `scope`, `label`, `rel_path`, `file_path`,
   -- and `origin_win` — the window the annotation was started from. Focus goes back there
   -- once `on_accept` runs; a composer the user can *cancel* never calls it, so that path
