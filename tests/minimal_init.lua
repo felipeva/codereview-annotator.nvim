@@ -49,5 +49,32 @@ vim.env.XDG_STATE_HOME = vim.fn.tempname() .. "-state"
 vim.env.GIT_CONFIG_GLOBAL = "/dev/null"
 vim.env.GIT_CONFIG_SYSTEM = "/dev/null"
 
+-- An in-memory clipboard, so the `+` register behaves the same everywhere.
+--
+-- A headless Linux runner has no clipboard tool, so `setreg("+", ...)` silently goes
+-- nowhere and `getreg("+")` comes back empty -- which made the submit-without-an-adapter
+-- fallback fail on CI and only on CI. Whether the OS has xclip is not this plugin's
+-- contract; putting the payload in the register is.
+local board = { "" }
+vim.g.clipboard = {
+  name = "in-memory",
+  copy = {
+    ["+"] = function(lines)
+      board = lines
+    end,
+    ["*"] = function(lines)
+      board = lines
+    end,
+  },
+  paste = {
+    ["+"] = function()
+      return board
+    end,
+    ["*"] = function()
+      return board
+    end,
+  },
+}
+
 vim.o.swapfile = false
 vim.o.shadafile = "NONE"
