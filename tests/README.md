@@ -33,7 +33,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 
 | Spec | Covers |
 | --- | --- |
-| `types_spec` | Configuring annotation types: defaulting, validation, a custom type end to end |
+| `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |

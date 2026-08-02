@@ -146,6 +146,38 @@ function M.normalise(list, opts)
   return out
 end
 
+---@class CRGroup
+---@field type CRType Configured type
+---@field items CRAnnotation[]
+
+---Bucket annotations by annotation type, in the configured type order.
+---
+---One helper rather than one loop per consumer: the queue float and the payload renderer
+---both group, and while they each owned a copy the two could -- and did -- drift into
+---disagreeing about what the queue contains.
+---
+---Pure, and deliberately takes the list rather than reading the queue: the payload
+---renderer is a pure function of its arguments, which is what lets a payload be asserted
+---without a live queue or a review view. Grouping through the queue would end that.
+---@param items CRAnnotation[]
+---@param list CRType[]
+---@return CRGroup[]
+function M.group(items, list)
+  local out = {}
+  for _, t in ipairs(list) do
+    local bucket = {}
+    for _, item in ipairs(items) do
+      if item.type == t.name then
+        bucket[#bucket + 1] = item
+      end
+    end
+    if #bucket > 0 then
+      out[#out + 1] = { type = t, items = bucket }
+    end
+  end
+  return out
+end
+
 ---@param list CRType[]
 ---@param name string
 ---@return CRType|nil

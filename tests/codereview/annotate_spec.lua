@@ -326,7 +326,7 @@ describe("grouping the queue", function()
   -- Groups follow the configured type order, not the order notes were captured, so a
   -- reviewer reads bugs before nitpicks however they were written.
   it("orders groups by type, not by capture order", function()
-    local groups = queue.grouped(config.get().types)
+    local groups = require("codereview.types").group(queue.all(), config.get().types)
     assert.same(
       { "bug:2", "nitpick:1", "issue:1" },
       vim.tbl_map(function(g)

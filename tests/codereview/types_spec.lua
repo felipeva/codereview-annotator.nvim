@@ -119,6 +119,42 @@ describe("rejecting a type list", function()
   end)
 end)
 
+-- One helper, shared by the queue float and the payload renderer, which used to carry a
+-- copy of this loop each. Pure: a plain list in, groups out, no queue and no view.
+describe("grouping annotations", function()
+  local list = {
+    { name = "bug", key = "b", label = "Bugs" },
+    { name = "nitpick", key = "n", label = "Nitpicks" },
+  }
+
+  ---@param groups table[]
+  local function shape(groups)
+    return vim.tbl_map(function(g)
+      return ("%s:%d"):format(g.type.label, #g.items)
+    end, groups)
+  end
+
+  -- Groups follow the configured type order, not the order notes were captured, so a
+  -- reviewer reads bugs before nitpicks however they were written.
+  it("buckets by type, in the configured order", function()
+    local groups = types.group({ { type = "nitpick" }, { type = "bug" }, { type = "bug" } }, list)
+    assert.same({ "Bugs:2", "Nitpicks:1" }, shape(groups))
+  end)
+
+  it("keeps capture order inside a group", function()
+    local first, second = { type = "bug", note = "one" }, { type = "bug", note = "two" }
+    assert.same({ first, second }, types.group({ first, second }, list)[1].items)
+  end)
+
+  it("omits a type nothing was annotated with", function()
+    assert.same({ "Bugs:1" }, shape(types.group({ { type = "bug" } }, list)))
+  end)
+
+  it("groups nothing when there is nothing to group", function()
+    assert.same({}, types.group({}, list))
+  end)
+end)
+
 describe("a custom type end to end", function()
   h.ui(110, 40)
   h.cd_fixture("mkfixture")
