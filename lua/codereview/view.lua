@@ -795,22 +795,45 @@ end
 
 --- Delivery -------------------------------------------------------------------
 
----Short name of where the batch is going, or what to call the adapter's own default.
+---Short name for a target, or what to call the adapter's own default.
 ---
----Exposed because the queue float and the composer both name this choice, and it is the
----same choice: routing is a property of the batch, not of whichever window asked.
+---One wording for every piece of chrome that names a destination -- the winbar, the queue
+---float, and a composer footer whichever choice it is naming.
+---@param to table|nil
 ---@return string
-function M.target_label()
-  return (target and target.short) or "local"
+function M.label_of(to)
+  return (to and to.short) or "local"
 end
 
----Choose where the batch goes, through the injected picker.
----@param on_done fun()|nil Runs after a target is chosen, once the picker has closed
-function M.pick_target(on_done)
+---Short name of where the batch is going.
+---
+---Exposed because the queue float and the winbar both name this choice, and it is the
+---same choice: a batch's routing belongs to the batch, not to whichever window asked.
+---@return string
+function M.target_label()
+  return M.label_of(target)
+end
+
+---The batch's routing, in the shape a composer is handed.
+---
+---What a note joining the queue is routed by, and so the composer's default. An immediate
+---send supplies its own instead, because that note has a target of its own.
+---@return { label: fun(): string, pick: fun(on_done: fun()|nil) }
+function M.routing()
+  return { label = M.target_label, pick = M.pick_target }
+end
+
+---Ask the host where something should go, holding focus where the question was asked.
+---
+---Says nothing about *what* is being routed: the batch's target is one caller, a single
+---note being sent on its own is another, and neither should have to reimplement the focus
+---dance around an asynchronous picker to have its own answer.
+---@param cb fun(picked: table|nil) nil is a decline, which every caller reads its own way
+---@return boolean asked false when no picker adapter is wired, so nothing was asked
+function M.choose_target(cb)
   local cfg = config.get()
   if not cfg.pick_target then
-    info("No pick_target adapter configured — submitting locally")
-    return
+    return false
   end
 
   -- Return focus to whichever window asked, not to the diff. Picking a target from the
@@ -819,16 +842,25 @@ function M.pick_target(on_done)
   local return_win = vim.api.nvim_get_current_win()
 
   cfg.pick_target(function(picked)
+    if vim.api.nvim_win_is_valid(return_win) then
+      vim.api.nvim_set_current_win(return_win)
+    elseif V and vim.api.nvim_win_is_valid(V.win) then
+      vim.api.nvim_set_current_win(V.win)
+    end
+    cb(picked)
+  end)
+  return true
+end
+
+---Choose where the batch goes, through the injected picker.
+---@param on_done fun()|nil Runs after a target is chosen, once the picker has closed
+function M.pick_target(on_done)
+  local asked = M.choose_target(function(picked)
     -- Recorded before anything view-shaped is touched. This used to return early with no
     -- view, which meant the picker ran, the user answered, and the answer was dropped.
     target = picked
     if V then
       update_winbar()
-    end
-    if vim.api.nvim_win_is_valid(return_win) then
-      vim.api.nvim_set_current_win(return_win)
-    elseif V and vim.api.nvim_win_is_valid(V.win) then
-      vim.api.nvim_set_current_win(V.win)
     end
     -- The picker is asynchronous, so anything that has to reflect the new target has to
     -- be driven from here; running it after `pick_target` returns repaints too early.
@@ -836,12 +868,48 @@ function M.pick_target(on_done)
       on_done()
     end
   end)
+  if not asked then
+    info("No pick_target adapter configured — submitting locally")
+  end
+end
+
+---Render annotations as one payload and hand it to the send adapter.
+---
+---Shared with the immediate send, which is a batch of one (ADR-0004): one renderer, one
+---delivery, and one fallback for a host that wired no `send` -- rather than a second
+---output shape that could drift from this one.
+---@param items CRAnnotation[]
+---@param to table|nil Where it is going, or nil for whatever the adapter defaults to
+---@param opts { scope_label?: string, files?: integer, reviewed?: integer }|nil
+---@return boolean delivered false when it went to the `+` register instead
+function M.deliver(items, to, opts)
+  local cfg = config.get()
+  local V_ = M.current()
+  local root = V_ and V_.root or (git.root(vim.fn.getcwd()) or vim.fn.getcwd())
+  -- Resolve refs against the directory the payload is actually going to: a routed agent
+  -- reads `@path` relative to its own cwd, not this Neovim's.
+  local base = (to and to.cwd and to.cwd ~= "") and to.cwd or root
+
+  local text = require("codereview.payload").render(items, base, {
+    types = cfg.types,
+    scope_label = opts and opts.scope_label,
+    files = opts and opts.files,
+    reviewed = opts and opts.reviewed,
+  })
+
+  if not cfg.send then
+    warn("No send adapter configured — copied the batch to the + register instead")
+    vim.fn.setreg("+", text)
+    return false
+  end
+
+  cfg.send(text, to)
+  return true
 end
 
 ---Render the queue and hand it to the send adapter.
 function M.submit()
   local queue = require("codereview.queue")
-  local cfg = config.get()
 
   M.ensure_queue()
   if queue.count() == 0 then
@@ -856,12 +924,6 @@ function M.submit()
   end
 
   local V_ = M.current()
-  local root = V_ and V_.root or (git.root(vim.fn.getcwd()) or vim.fn.getcwd())
-  -- Read unconditionally: the target outlives any view, and there may not be one.
-  -- Resolve refs against the directory the batch is actually going to: a routed agent
-  -- reads `@path` relative to its own cwd, not this Neovim's.
-  local base = (target and target.cwd and target.cwd ~= "") and target.cwd or root
-
   local reviewed = 0
   if V_ then
     for _ in pairs(V_.reviewed) do
@@ -869,21 +931,17 @@ function M.submit()
     end
   end
 
-  local text = require("codereview.payload").render(queue.all(), base, {
-    types = cfg.types,
-    scope_label = V_ and V_.scope.label or nil,
-    files = V_ and #V_.files or nil,
-    reviewed = reviewed,
-  })
-
-  if not cfg.send then
-    warn("No send adapter configured — copied the batch to the + register instead")
-    vim.fn.setreg("+", text)
+  local count = queue.count()
+  -- Read unconditionally: the target outlives any view, and there may not be one.
+  if
+    not M.deliver(queue.all(), target, {
+      scope_label = V_ and V_.scope.label or nil,
+      files = V_ and #V_.files or nil,
+      reviewed = reviewed,
+    })
+  then
     return
   end
-
-  local count = queue.count()
-  cfg.send(text, target)
   queue.clear()
   if M.current() then
     M.paint()
