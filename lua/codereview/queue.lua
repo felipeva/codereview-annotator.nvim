@@ -12,6 +12,8 @@ local M = {}
 ---@field path string           Repository-relative
 ---@field abs_path string
 ---@field blob string|nil       File content hash when captured; the staleness key
+---@field worktree boolean|nil  `blob` is the working tree's hash rather than a ref's, so
+---                             staleness judges it against the file on disk at any scope
 ---@field key string            Anchor key from render.line_key / render.file_key
 ---@field first integer|nil
 ---@field last integer|nil

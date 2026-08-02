@@ -233,8 +233,14 @@ function M.ensure_queue()
   end
   queue_restored = true
   local root = ambient_root()
-  if root then
-    require("codereview.state").restore_queue(root)
+  if not root then
+    return
+  end
+  local staled = require("codereview.state").restore_queue(root)
+  if staled > 0 then
+    -- Worded exactly as the review view reports it. With no view open this is the only
+    -- moment a restored annotation's staleness would otherwise go unmentioned.
+    info(("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s"))
   end
 end
 

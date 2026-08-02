@@ -41,6 +41,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit |
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, blob, composer, diagnostics, restart, one queue |
+| `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |

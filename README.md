@@ -303,6 +303,14 @@ Each entry records the git blob it was captured against. On reload:
   still worth sending and only its line anchor is untrustworthy. A stale entry never
   travels as an `@ref`; its code is inlined instead.
 
+Each kind is judged against whatever its blob was actually taken from. A review annotation
+is judged against the diff on screen, and a file the current scope does not include is not
+evidence that anything changed — so it is left alone. An annotation captured from a buffer
+has no scope behind it and is judged against the file on disk, at any scope and with no
+review open. That distinction matters in a `staged` review, where the diff shows the index
+and a buffer capture holds the working tree: judging one by the other would flag a note
+about a file nobody has touched.
+
 ## Development
 
 ```sh

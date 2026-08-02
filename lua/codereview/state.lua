@@ -93,14 +93,19 @@ end
 ---Separate from `restore`, which needs a view and a scope to put reviewed marks back.
 ---The queue needs neither: it is what you submit, not what you are looking at.
 ---@param root string
+---@return integer staled
 function M.restore_queue(root)
   if queue.count() > 0 then
-    return
+    return 0
   end
   local data = M.load(root)
   if data.queue and #data.queue > 0 then
     queue.replace(data.queue)
   end
+  -- Judged as it comes back. This is the window staleness exists to cover: the file was
+  -- free to change while nothing was watching it, and a restored note that still claims a
+  -- line span is exactly the silent wrongness one queue was supposed to remove.
+  return M.reconcile_queue(root)
 end
 
 ---Restore saved progress into a freshly opened view.
@@ -120,6 +125,43 @@ function M.restore(view, scope_key)
   if data.queue and #data.queue > 0 and queue.count() == 0 then
     queue.replace(data.queue)
   end
+end
+
+---Judge working-tree annotations against the files on disk.
+---
+---These are the captures that have no scope behind them, so the diff-based rule never
+---reaches them: it only judges what the current scope includes, which is correct for a
+---review annotation and means a buffer annotation about an unrelated file would never be
+---checked at all. Judged here at any scope, and with no view open.
+---@param root string
+---@return integer staled
+function M.reconcile_queue(root)
+  local git = require("codereview.git")
+
+  local paths = {}
+  for _, item in ipairs(queue.all()) do
+    if item.worktree and item.path then
+      paths[#paths + 1] = item.path
+    end
+  end
+  if #paths == 0 then
+    return 0
+  end
+
+  local hashes = git.hash_worktree(paths, root)
+  local staled = 0
+  for _, item in ipairs(queue.all()) do
+    if item.worktree and item.path then
+      -- A file that has been deleted hashes to nothing, which is at least as stale as one
+      -- that merely changed: the lines the note names are gone either way.
+      local moved = hashes[item.path] ~= (item.blob or "")
+      item.stale = moved or nil
+      if moved then
+        staled = staled + 1
+      end
+    end
+  end
+  return staled
 end
 
 ---Reconcile restored state against the diff that is actually on screen.
@@ -147,7 +189,11 @@ function M.reconcile(view)
 
   local staled = 0
   for _, item in ipairs(queue.all()) do
-    local file = by_path[item.path]
+    -- A working-tree capture is judged below instead, against the file on disk. Judging it
+    -- here as well would compare it against whichever blob this scope happens to show --
+    -- the index, in a staged review -- and flag an annotation about a file nobody has
+    -- touched since it was captured. Two rules that disagree, applied to one entry.
+    local file = not item.worktree and by_path[item.path]
     if file then
       local moved = (file.blob or "") ~= (item.blob or "")
       item.stale = moved or nil
@@ -157,7 +203,7 @@ function M.reconcile(view)
     end
   end
 
-  return unmarked, staled
+  return unmarked, staled + M.reconcile_queue(view.root)
 end
 
 ---Forget everything saved for a repository.
