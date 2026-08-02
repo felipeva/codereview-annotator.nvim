@@ -148,18 +148,31 @@ end
 --- Writing and reading ----------------------------------------------------------
 
 ---Write the view's progress and the current queue.
+---
+---Merged over the stored document rather than rebuilt from the view. A view only knows the
+---scopes it has itself opened -- `open` seeds `per_scope` with one key and `set_scope`
+---adds one per scope cycled to -- so building the whole table from it wrote every other
+---scope out of existence. Review a branch on Monday, open only `staged` on Tuesday, and
+---Monday's reviewed marks were gone the first time anything touched the file.
 ---@param view CRView
 function M.persist(view)
   local owned, loose = partition(queue.all())
   M.save_global(loose)
-  local data = { version = VERSION, scopes = {}, queue = owned }
+
+  local data = M.load(view.root)
+  data.queue = owned
+  data.scopes = data.scopes or {}
   for key, entry in pairs(view.per_scope) do
     -- `expanded` is deliberately not persisted: it is a transient way of peeking at a
     -- file, and restoring it would contradict the reviewed marks that drive collapse.
-    if not vim.tbl_isempty(entry.reviewed) then
-      data.scopes[key] = { reviewed = entry.reviewed }
-    end
+    --
+    -- An emptied scope is written as absence rather than skipped. Skipping was harmless
+    -- when the table was rebuilt every time; against a merge it would hand back the marks
+    -- that were just un-marked. Only keys this view actually knows about are touched --
+    -- one it has never opened is not evidence of anything.
+    data.scopes[key] = not vim.tbl_isempty(entry.reviewed) and { reviewed = entry.reviewed } or nil
   end
+
   M.save(view.root, data)
 end
 

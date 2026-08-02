@@ -205,3 +205,70 @@ describe("an unreadable state file", function()
     assert.same(1, state.load(root).version)
   end)
 end)
+
+-- Reviewed marks are the expensive state here -- they stand for hours of reading -- and a
+-- write rebuilt the whole scopes table from the open view's `per_scope`. A view only knows
+-- the scopes it has itself opened, so every scope it had not seen was overwritten by its
+-- own absence, silently, on the next `R`.
+--
+-- One process is enough, unlike the queue: a view has no session-wide latch. Every
+-- `view.open` builds a fresh `per_scope`, so reopening in another scope reproduces exactly
+-- what a new session does.
+describe("marks belonging to a scope this view never opened", function()
+  local root = assert(vim.uv.fs_realpath(fixture))
+
+  ---Mark the file at `path` reviewed in the open view.
+  ---@param path string
+  local function toggle_reviewed_on(path)
+    local V = assert(view.current(), "no view open")
+    local index = assert(h.file_index(V, path), path .. " is not in this scope")
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index], 0 })
+    view.toggle_reviewed()
+  end
+
+  ---@return string
+  local function scope_key_of()
+    local V = assert(view.current())
+    return V.scope.name .. ":" .. V.scope.before
+  end
+
+  view.close()
+  queue.clear()
+  state.clear(root)
+
+  -- One review, in one scope.
+  view.open("branch")
+  local branch_key = scope_key_of()
+  toggle_reviewed_on("src/routes.lua")
+  view.close()
+
+  it("saved the first scope's mark", function()
+    assert.is_truthy(state.load(root).scopes[branch_key], "nothing was saved to begin with")
+  end)
+
+  -- A different scope, in a view that has never seen the first one.
+  view.open("staged")
+  local staged_key = scope_key_of()
+  toggle_reviewed_on("src/routes.lua")
+
+  it("saved the second scope's mark", function()
+    assert.is_truthy(state.load(root).scopes[staged_key])
+  end)
+
+  it("kept the first scope's mark, which this view could not see", function()
+    local scopes = state.load(root).scopes
+    assert.is_truthy(scopes[branch_key], "the earlier scope's reviewed marks were lost")
+    assert.same(2, vim.tbl_count(scopes))
+  end)
+
+  -- The half a naive merge gets wrong. Un-marking has to remove the scope outright, or
+  -- merging over what is stored hands back the marks that were just cleared.
+  it("removes a scope once its last mark is cleared, rather than resurrecting it", function()
+    toggle_reviewed_on("src/routes.lua")
+    local scopes = state.load(root).scopes
+    assert.is_nil(scopes[staged_key], "an emptied scope came back from the stored document")
+    assert.is_truthy(scopes[branch_key], "the other scope was lost while removing this one")
+  end)
+
+  view.close()
+end)

@@ -39,7 +39,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
-| `state_spec` | Persistence across a real restart, blob invalidation, corrupt files |
+| `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit |
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, blob, composer, diagnostics, restart, one queue |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
