@@ -8,12 +8,13 @@ CONTENTS                                                          *codereview*
   3. Mappings ............................. |codereview-mappings|
   4. Scopes ............................... |codereview-scopes|
   5. Annotations .......................... |codereview-annotations|
-  6. Adapters ............................. |codereview-adapters|
-  7. Configuration ........................ |codereview-configuration|
-  8. Highlights ........................... |codereview-highlights|
-  9. Persistence .......................... |codereview-persistence|
- 10. Lua API .............................. |codereview-api|
- 11. License .............................. |codereview-license|
+  6. Capture ............................... |codereview-capture|
+  7. Adapters ............................. |codereview-adapters|
+  8. Configuration ........................ |codereview-configuration|
+  9. Highlights ........................... |codereview-highlights|
+ 10. Persistence .......................... |codereview-persistence|
+ 11. Lua API .............................. |codereview-api|
+ 12. License .............................. |codereview-license|
 
 ==============================================================================
 1. INTRODUCTION                                    *codereview-introduction*
@@ -37,6 +38,18 @@ files without one fall back to flat diff colours.
             :CodeReview HEAD~3
             :CodeReview main...feature
 <
+                                                        *:CodeReviewAnnotate*
+:[range]CodeReviewAnnotate [{type}]
+        Annotate the current buffer without a review open. {type} is one of
+        the configured annotation names, completed on <Tab>; with none, the
+        same picker `aa` offers. With no range the whole file is captured,
+        with one exactly those lines: >
+            :CodeReviewAnnotate bug
+            :'<,'>CodeReviewAnnotate bug
+            :12,20CodeReviewAnnotate bug
+<
+        See |codereview-capture|.
+
 ==============================================================================
 3. MAPPINGS                                            *codereview-mappings*
 
@@ -102,7 +115,13 @@ The plugin binds no global mappings. Add your own: >
     vim.keymap.set("n", "<leader>rr", "<cmd>CodeReview<cr>")
     vim.keymap.set("n", "<leader>rq", function() require("codereview").queue() end)
     vim.keymap.set("n", "<leader>rS", function() require("codereview").submit() end)
+
+    vim.keymap.set({ "n", "x" }, "<leader>ab", function()
+      require("codereview").annotate("bug")
+    end, { desc = "Annotate as a bug" })
 <
+Bind |codereview.annotate()| in both modes and the selection decides the
+scope: normal mode captures the file, a live selection captures those lines.
 ==============================================================================
 4. SCOPES                                                *codereview-scopes*
 
@@ -170,7 +189,55 @@ would shadow the `aa` type picker), or a field of the wrong type. Start from
 the shipped set with `require("codereview.types").defaults`.
 
 ==============================================================================
-6. ADAPTERS                                            *codereview-adapters*
+6. CAPTURE                                              *codereview-capture*
+
+Annotating does not need a review open. |:CodeReviewAnnotate| and
+|codereview.annotate()| queue a note about the buffer you are looking at.
+
+    Normal mode                     the whole file
+    A visual selection              exactly those lines
+    :{range}CodeReviewAnnotate      exactly that range
+
+That is the entry point to bind a key to -- nothing has to reach into the
+plugin's internal modules to capture.
+
+Four buffer shapes:                                 *codereview-capture-kinds*
+
+    a file in a checkout    keyed by its repository-relative path, exactly as
+                            the review view keys the same file
+    a file outside one      keyed by its absolute path; there is no root to be
+                            relative to and nothing to hash against
+    a scratch or unnamed    a bare `note` with no path at all -- a thought
+    buffer                  worth sending with no file behind it
+    a named buffer that is  rejected, naming the file. The review view's own
+    not a file on disk      buffer is one of these, so `aa` inside a review
+                            keeps meaning what it means
+
+A note has no location to resolve, so it renders as `(no file)` in the payload
+and carries only its prose. The first three are not second-class: they queue,
+submit and survive a restart like anything captured during a review -- same
+queue float, same grouping by type, same batch, same target.
+
+Errors and warnings overlapping the captured lines ride along with the note,
+so they stop being retyped by hand: >
+    why is this branch unreachable?
+
+    Diagnostics:
+    - ERROR L12 undefined global `foo` (lua_ls)
+    - WARN  L14 unused local `bar` (lua_ls)
+<
+Hints and info are left out -- they are rarely why you are annotating, and a
+wall of them buries the diagnostic that is. What rides along is what was on
+screen when the note was started, not what the language server had republished
+by the time the composer closed.
+
+A capture inside a checkout records the file's working-tree blob, so it goes
+stale the same way a review annotation does -- see |codereview-persistence|.
+A selection travels as `@path#L12-20` when the delivery target can resolve the
+path, and inlines its code when it cannot. The buffer itself is never touched.
+
+==============================================================================
+7. ADAPTERS                                            *codereview-adapters*
 
 The plugin has no opinion about where a review goes. Three optional functions
 inject that. With none of them wired everything still works except delivery,
@@ -186,12 +253,18 @@ pick_target({cb})                                 *codereview-opt-pick_target*
         re-resolved against it at submit time, because an `@ref` only resolves
         relative to whoever reads it.
 
+        A chosen target is held for the session, not for the view: it survives
+        closing the review, and picking one with nothing open works. It is
+        deliberately **not persisted**. The queue is worth keeping across a
+        restart; a target names a live destination -- a pane id, say -- and
+        restoring a dead one would route a batch into nothing.
+
 compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
         Collect note text and call {on_accept}(target, text). Falls back to
         |vim.ui.input()|.
 
 ==============================================================================
-7. CONFIGURATION                                  *codereview-configuration*
+8. CONFIGURATION                                  *codereview-configuration*
 
 Defaults: >
     require("codereview").setup({
@@ -213,7 +286,7 @@ Files above it, files with no parser, and binary files all fall back to flat
 diff colours individually -- never the whole view.
 
 ==============================================================================
-8. HIGHLIGHTS                                        *codereview-highlights*
+9. HIGHLIGHTS                                        *codereview-highlights*
 
 Every group is a `default = true` link to something a colorscheme already
 defines, so overriding any of them works without the plugin fighting back: >
@@ -238,7 +311,7 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewIssue        -> DiagnosticOk
 <
 ==============================================================================
-9. PERSISTENCE                                      *codereview-persistence*
+10. PERSISTENCE                                     *codereview-persistence*
 
 Reviewed marks and the queue are written to
 `stdpath("state")/codereview/{repo}.json`, keyed by scope and diff base.
@@ -254,12 +327,51 @@ persisting safe. On reload:
 
 A corrupt or older state file is discarded rather than migrated.
 
+The queue is restored once per session, on first use, whether or not a review
+view is ever opened. Reviewed marks are kept for every scope the store knows
+about, not only the one on screen.
+
+Judging staleness                          *codereview-persistence-staleness*
+
+Each kind is judged against whatever its blob was actually taken from. A
+review annotation is judged against the diff on screen, and a file the current
+scope does not include is not evidence that anything changed -- so it is left
+alone. An annotation captured from a buffer (|codereview-capture|) has no
+scope behind it and is judged against the file on disk, at any scope and with
+no review open.
+
+That distinction matters in a `staged` review, where the diff shows the index
+and a buffer capture holds the working tree: judging one by the other would
+flag a note about a file nobody has touched.
+
+The no-repository store                      *codereview-persistence-norepo*
+
+Annotations with no repository behind them -- a bare `note`, or a file outside
+any checkout -- have nowhere repository-shaped to live, so they go to a single
+store beside the others: >
+    stdpath("state")/codereview/no-repository.json
+<
+Having a repository-relative path is the whole test; no extra field decides
+it. Nothing ever reconciles that store against a diff, which is the moment an
+entry could be judged obsolete, so nothing would ever clear it: entries older
+than **seven days** are dropped when it is read. Each is stamped once, when
+first written, so queueing something else does not restart the clock.
+
+That bounds the store's growth but not its staleness. An old note can still
+claim a line span that has since moved, and nothing will flag it -- the
+accepted cost of not making those annotations second-class.
+
 ==============================================================================
-10. LUA API                                                 *codereview-api*
+11. LUA API                                                 *codereview-api*
 
 require("codereview").setup({opts})                     *codereview.setup()*
 require("codereview").open({scope})                      *codereview.open()*
 require("codereview").close()                           *codereview.close()*
+require("codereview").annotate({type}, {range})      *codereview.annotate()*
+        Annotate the current buffer, with no review view involved. {type} is
+        an annotation name; with nil, the type picker opens. {range} is
+        `{ first = 12, last = 20 }`, overriding both a live visual selection
+        and the whole-file default. See |codereview-capture|.
 require("codereview").queue()                           *codereview.queue()*
         Open the queue float: drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*
@@ -269,7 +381,7 @@ require("codereview").count()                           *codereview.count()*
 require("codereview").is_open()                       *codereview.is_open()*
 
 ==============================================================================
-11. LICENSE                                               *codereview-license*
+12. LICENSE                                               *codereview-license*
 
 MIT. Copyright (c) 2026 Felipe Valencia. See the LICENSE file in the plugin
 root for the full text.
