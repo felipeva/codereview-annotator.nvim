@@ -31,6 +31,8 @@ M.defaults = {
   },
 
   --- Annotations ---
+  ---Replaces the default set outright. Only `name` and `key` are required per type;
+  ---`label`, `icon` and `hl` are derived from the name, and `directive` is optional.
   types = nil, ---@type CRType[]|nil Defaults to types.defaults
 
   --- Adapters (all optional) ---
@@ -48,19 +50,29 @@ M.defaults = {
 ---@type table
 M.options = vim.deepcopy(M.defaults)
 
+---Validate the configured type list and fill in what it left out.
+---
+---Done once, here, rather than defensively at each of the dozen places a type is read. A
+---list that is wrong should fail at `setup()` naming the entry that caused it, not later
+---as a nil `label` in the composer or as a keymap that silently shadows another.
+---@param options table
+---@return CRType[]
+local function resolve_types(options)
+  local types = require("codereview.types")
+  return types.normalise(options.types or types.defaults, { icon = options.icons.annotated })
+end
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
-  if not M.options.types then
-    M.options.types = require("codereview.types").defaults
-  end
+  M.options.types = resolve_types(M.options)
   return M.options
 end
 
 ---@return table
 function M.get()
   if not M.options.types then
-    M.options.types = require("codereview.types").defaults
+    M.options.types = resolve_types(M.options)
   end
   return M.options
 end

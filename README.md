@@ -137,7 +137,34 @@ A type is not decoration — it changes what the receiving agent is told to do.
 | nitpick | `an` | low priority — batch these together |
 | issue | `ai` | do NOT fix — summarize these for tracking |
 
-Override the whole set with `opts.types`.
+`opts.types` replaces the whole set. Only `name` and `key` are required — everything else
+is derived, so adding a type costs two fields:
+
+```lua
+types = {
+  { name = "bug",      key = "b", directive = "diagnose and fix these" },
+  { name = "nitpick",  key = "n", directive = "ignore unless trivial" },
+  { name = "question", key = "q" },
+}
+```
+
+| Field | Default |
+| --- | --- |
+| `name` | **required** — what `annotate()` takes and what an entry stores |
+| `key` | **required** — pressed after the `a` prefix, so `q` binds `aq` |
+| `label` | the name, title-cased and pluralised: `question` → `Questions` |
+| `icon` | `icons.annotated` |
+| `hl` | `CodeReview<Name>`, auto-linked to `DiagnosticInfo` so it has colour |
+| `directive` | none — the payload heading is then just `## Questions (3)` |
+
+Pluralisation is naive (`+s`, unless the name already ends in one), so a name English
+declines irregularly wants an explicit `label`. Order is the order groups appear in the
+payload, most actionable first.
+
+A list that cannot work is rejected at `setup()` naming the entry that caused it — a
+missing `name` or `key`, a duplicate of either, a `key` of `a` (which would shadow the
+`aa` type picker), or a field of the wrong type. Start from the shipped set with
+`require("codereview.types").defaults`.
 
 ## The payload
 
@@ -207,7 +234,7 @@ opts = {
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },
-  types = nil,                     -- defaults to the five above
+  types = nil,                     -- defaults to the five above; see Annotation types
 }
 ```
 

@@ -116,7 +116,13 @@ function M.render(items, base, opts)
   local index = 0
   for _, group in ipairs(groups) do
     out[#out + 1] = ""
-    out[#out + 1] = ("## %s (%d) — %s"):format(group.type.label, #group.items, group.type.directive)
+    -- The directive is what earns a type its keystroke, but it is optional: a type
+    -- without one still groups, it just does not tell the agent what to do.
+    local heading = ("## %s (%d)"):format(group.type.label, #group.items)
+    if group.type.directive and group.type.directive ~= "" then
+      heading = heading .. (" — %s"):format(group.type.directive)
+    end
+    out[#out + 1] = heading
 
     for _, entry in ipairs(group.items) do
       index = index + 1

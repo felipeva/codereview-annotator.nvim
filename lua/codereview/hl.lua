@@ -38,9 +38,20 @@ local LINKS = {
   CodeReviewIssue = "DiagnosticOk",
 }
 
+-- What a configured type's highlight group falls back to. Neutral on purpose: the plugin
+-- cannot know how loud a type nobody has heard of should be.
+local TYPE_FALLBACK = "DiagnosticInfo"
+
 function M.apply()
   for group, target in pairs(LINKS) do
     vim.api.nvim_set_hl(0, group, { link = target, default = true })
+  end
+
+  -- A configured type names a group this module cannot know about, so without this a
+  -- custom type renders with no colour at all. After LINKS and with `default = true`, so
+  -- the built-in types keep their severity mapping and a user's own group is left alone.
+  for _, t in ipairs(require("codereview.config").get().types) do
+    vim.api.nvim_set_hl(0, t.hl, { link = TYPE_FALLBACK, default = true })
   end
   -- Capture -> group resolution depends on what the theme defines, so it cannot outlive
   -- the theme. Guarded because hl.setup() runs before syntax.lua is ever required.

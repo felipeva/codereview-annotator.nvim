@@ -11,7 +11,7 @@ make perf                                             # open-time report, not a 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 218 cases in ~5 seconds.
+The whole suite is about 245 cases in ~5 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -30,6 +30,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 
 | Spec | Covers |
 | --- | --- |
+| `types_spec` | Configuring annotation types: defaulting, validation, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |

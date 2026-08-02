@@ -889,7 +889,11 @@ function M.review_queue()
     anchors = {}
     local index = 0
     for _, group in ipairs(queue.grouped(cfg.types)) do
-      lines[#lines + 1] = ("## %s — %s"):format(group.type.label, group.type.directive)
+      local heading = ("## %s"):format(group.type.label)
+      if group.type.directive and group.type.directive ~= "" then
+        heading = heading .. (" — %s"):format(group.type.directive)
+      end
+      lines[#lines + 1] = heading
       for _, entry in ipairs(group.items) do
         index = index + 1
         anchors[#lines + 1] = entry.id

@@ -21,11 +21,12 @@ and a batch submit through injected adapters. It works and is in daily use.
 
 ## What the port ended up as
 
-218 cases, ~280 assertions, ~5 seconds. `make test` runs `PlenaryBustedDirectory` over
+245 cases, ~310 assertions, ~5 seconds. `make test` runs `PlenaryBustedDirectory` over
 `tests/codereview/`, one Neovim per spec file, each building its own throwaway fixture.
 
 | Spec | From | Covers |
 | --- | --- | --- |
+| `types_spec` | new | configurable annotation types: defaulting, validation, custom type end to end |
 | `diff_spec` | `t1` | scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | `t2` | anchor map, byte columns, navigation, collapse, panel, scope cycling |
 | `syntax_spec` | `t3` | treesitter harvest/replay, caching, guardrails |

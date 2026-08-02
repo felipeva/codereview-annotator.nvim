@@ -138,14 +138,35 @@ and says so. Anything touching a deleted line is inlined as a diff block
 rather than referenced, because an `@ref` shows the file as it is now -- the
 line it names no longer exists. A hunk is always inlined for the same reason.
 
-Types are configurable via `opts.types`. Each carries a `directive`, which
-becomes the instruction attached to that group in the submitted payload:
+Each type carries a `directive`, which becomes the instruction attached to
+that group in the submitted payload:
 
     bug         diagnose and fix these
     fix         apply these changes
     suggestion  evaluate; apply if sound
     nitpick     low priority -- batch these together
     issue       do NOT fix -- summarize these for tracking
+
+`opts.types` replaces the whole set. Only `name` and `key` are required: >lua
+    types = {
+      { name = "bug",      key = "b", directive = "diagnose and fix these" },
+      { name = "question", key = "q" },
+    }
+<
+    name        required -- what annotate() takes, and what an entry stores
+    key         required -- pressed after the `a` prefix, so `q` binds `aq`
+    label       defaults to the name, title-cased and pluralised
+    icon        defaults to `icons.annotated`
+    hl          defaults to CodeReview<Name>, linked so it has colour
+    directive   optional -- the heading is then just "## Questions (3)"
+
+Order is the order groups appear in the payload, most actionable first.
+Pluralisation is naive, so an irregular name wants an explicit `label`.
+
+A list that cannot work is rejected at |codereview.setup()| naming the entry
+that caused it: a missing or duplicated `name` or `key`, a `key` of "a" (which
+would shadow the `aa` type picker), or a field of the wrong type. Start from
+the shipped set with `require("codereview.types").defaults`.
 
 ==============================================================================
 6. ADAPTERS                                            *codereview-adapters*
