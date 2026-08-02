@@ -1,0 +1,249 @@
+*codereview.txt*   A code review surface with typed annotations
+
+==============================================================================
+CONTENTS                                                          *codereview*
+
+  1. Introduction ......................... |codereview-introduction|
+  2. Commands ............................. |codereview-commands|
+  3. Mappings ............................. |codereview-mappings|
+  4. Scopes ............................... |codereview-scopes|
+  5. Annotations .......................... |codereview-annotations|
+  6. Adapters ............................. |codereview-adapters|
+  7. Configuration ........................ |codereview-configuration|
+  8. Highlights ........................... |codereview-highlights|
+  9. Persistence .......................... |codereview-persistence|
+ 10. Lua API .............................. |codereview-api|
+
+==============================================================================
+1. INTRODUCTION                                    *codereview-introduction*
+
+A unified, syntax-highlighted diff of everything a branch changed, in one
+buffer, with a file panel beside it. Annotate lines, selections, hunks or whole
+files with a type; the annotations queue up; submit them as one batch.
+
+Requires Neovim 0.12 or newer and `git`. Treesitter parsers are optional --
+files without one fall back to flat diff colours.
+
+==============================================================================
+2. COMMANDS                                            *codereview-commands*
+
+                                                                *:CodeReview*
+:CodeReview [{scope}]
+        Open the review view. {scope} is one of `branch` (default), `staged`,
+        `unstaged`, `worktree`, or any git revspec: >
+            :CodeReview
+            :CodeReview staged
+            :CodeReview HEAD~3
+            :CodeReview main...feature
+<
+==============================================================================
+3. MAPPINGS                                            *codereview-mappings*
+
+Buffer-local, inside the review view:
+
+    ab af as an ai   Annotate as bug / fix / suggestion / nitpick / issue
+    aa               Annotate, picking the type from a menu
+    x                Drop the annotation under the cursor
+    R                Toggle reviewed on this file (collapses it)
+    za               Toggle expansion without marking reviewed
+    gs               Cycle scope, re-rendering in place
+    gr               Re-read the diff from git
+    <CR>             Open the real file here, in a new tab
+    Q                Review the queue
+    <C-t>            Choose the delivery target
+    <C-s>            Submit the batch
+    q                Close the review
+
+Navigation:                                          *codereview-navigation*
+
+    ]f [f            Next / previous file
+    ]F [F            Next / previous UNREVIEWED file (wraps)
+    ]h [h            Next / previous hunk
+    ]a [a            Next / previous annotation
+    <C-p>            Jump to a file by name, from a list
+    <Tab>            Move between the diff and the tree
+
+`]F` is the motion that matters once a review is underway. Marking a file
+reviewed exists to stop you looking at it, so the useful jump is "the next
+thing I have not done" -- `]f` walks back through everything already finished.
+
+The tree follows the diff cursor: whatever you are reading is highlighted, and
+<Tab> into the tree lands on that file rather than wherever its cursor last
+was. Jumping to a file that is collapsed because it is reviewed expands it.
+
+In the file tree:                                         *codereview-tree*
+
+    <CR> o           Open the file, or fold the directory
+    h zc             Collapse the directory; on a file, its parent
+    l zo             Expand the directory
+    za               Toggle the directory
+    zM zR            Collapse / expand every directory
+    ]f [f            Next / previous file, skipping directory rows
+    R                Toggle reviewed; on a directory, the whole subtree
+    <C-p>            Jump to a file by name
+    <Tab>            Back to the diff
+    q                Close the review
+
+The tree collapses single-child directory chains, so a monorepo shows
+`apps/api/src` on one row rather than burning three rows and six columns of
+indent on segments that carry no information. Directories sort before files,
+and each directory carries a reviewed tally for its subtree.
+
+In the queue float: x drops an entry, <C-t> routes, <C-s> submits, q closes
+and keeps the queue.
+
+Annotation keys are prefixed with `a` rather than bound bare. Bare `b`, `f`,
+`n` and `s` would shadow back-word, find-char and next-search inside the
+buffer; `a` (append) is dead in a |nomodifiable| buffer, so the prefix costs a
+keystroke and no motion.
+
+The plugin binds no global mappings. Add your own: >
+    vim.keymap.set("n", "<leader>rr", "<cmd>CodeReview<cr>")
+    vim.keymap.set("n", "<leader>rq", function() require("codereview").queue() end)
+    vim.keymap.set("n", "<leader>rS", function() require("codereview").submit() end)
+<
+==============================================================================
+4. SCOPES                                                *codereview-scopes*
+
+    branch      merge-base with the default branch .. working tree (default)
+    staged      git diff --cached
+    unstaged    git diff
+    worktree    git diff HEAD
+    {revspec}   anything git accepts
+
+`gs` cycles the first four in place. Reviewed marks are tracked per scope:
+marking a file done in `staged` says nothing about the whole branch's changes
+to it.
+
+The default branch is read, not assumed -- `origin/HEAD` first, then
+`origin/main`, `origin/master`, `main`, `master`. Repositories on `master` are
+common enough that hardcoding `main` would silently diff against nothing.
+
+Untracked files appear as all-added entries in `branch` and `worktree` scopes;
+set `untracked = false` to hide them. `git diff` never reports them, so a
+brand-new file would otherwise be invisible to the review.
+
+==============================================================================
+5. ANNOTATIONS                                      *codereview-annotations*
+
+What gets annotated depends on where the cursor is:
+
+    a diff line         that line
+    a visual selection  those lines
+    a hunk header       the whole hunk
+    a file header       the whole file
+
+A selection spanning more than one file is clamped to the file it started in,
+and says so. Anything touching a deleted line is inlined as a diff block
+rather than referenced, because an `@ref` shows the file as it is now -- the
+line it names no longer exists. A hunk is always inlined for the same reason.
+
+Types are configurable via `opts.types`. Each carries a `directive`, which
+becomes the instruction attached to that group in the submitted payload:
+
+    bug         diagnose and fix these
+    fix         apply these changes
+    suggestion  evaluate; apply if sound
+    nitpick     low priority -- batch these together
+    issue       do NOT fix -- summarize these for tracking
+
+==============================================================================
+6. ADAPTERS                                            *codereview-adapters*
+
+The plugin has no opinion about where a review goes. Three optional functions
+inject that. With none of them wired everything still works except delivery,
+which falls back to the `+` register.
+
+send({payload}, {target})                                *codereview-opt-send*
+        Deliver the rendered batch. {target} is whatever `pick_target`
+        produced, or nil.
+
+pick_target({cb})                                 *codereview-opt-pick_target*
+        Choose a delivery target and call {cb} with it. The target may carry
+        `short` (shown in the winbar) and `cwd`. `cwd` matters: references are
+        re-resolved against it at submit time, because an `@ref` only resolves
+        relative to whoever reads it.
+
+compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
+        Collect note text and call {on_accept}(target, text). Falls back to
+        |vim.ui.input()|.
+
+==============================================================================
+7. CONFIGURATION                                  *codereview-configuration*
+
+Defaults: >
+    require("codereview").setup({
+      context = 3,
+      untracked = true,
+      syntax = true,
+      max_syntax_bytes = 256 * 1024,
+      panel = { enabled = true, width = 34, position = "left" },
+      icons = {
+        reviewed = "✓", annotated = "●", unreviewed = "○",
+        collapsed = "▸", expanded = "▾", change_bar = "▌",
+      },
+      types = nil,
+      send = nil, pick_target = nil, compose = nil,
+    })
+<
+`max_syntax_bytes` bounds the one operation with a real performance cliff.
+Files above it, files with no parser, and binary files all fall back to flat
+diff colours individually -- never the whole view.
+
+==============================================================================
+8. HIGHLIGHTS                                        *codereview-highlights*
+
+Every group is a `default = true` link to something a colorscheme already
+defines, so overriding any of them works without the plugin fighting back: >
+    CodeReviewAdd          -> DiffAdd
+    CodeReviewDel          -> DiffDelete
+    CodeReviewAddBar       -> Added
+    CodeReviewDelBar       -> Removed
+    CodeReviewStatAdd      -> Added
+    CodeReviewStatDel      -> Removed
+    CodeReviewLineNr       -> LineNr
+    CodeReviewFileHeader   -> Title
+    CodeReviewFileReviewed -> Comment
+    CodeReviewHunkHeader   -> Special
+    CodeReviewNote         -> Comment
+    CodeReviewStale        -> DiagnosticWarn
+    CodeReviewPanelDir     -> Directory
+    CodeReviewPanelSel     -> CursorLine
+    CodeReviewBug          -> DiagnosticError
+    CodeReviewFix          -> DiagnosticWarn
+    CodeReviewSuggestion   -> DiagnosticInfo
+    CodeReviewNitpick      -> DiagnosticHint
+    CodeReviewIssue        -> DiagnosticOk
+<
+==============================================================================
+9. PERSISTENCE                                      *codereview-persistence*
+
+Reviewed marks and the queue are written to
+`stdpath("state")/codereview/{repo}.json`, keyed by scope and diff base.
+
+Each entry records the git blob it was captured against, which is what makes
+persisting safe. On reload:
+
+    - a reviewed mark whose blob moved is silently un-marked; the file
+      changed, so you have not reviewed what is there now.
+    - an annotation whose blob moved is kept and flagged stale. The prose is
+      still worth sending; only its line anchor is untrustworthy. A stale
+      entry never travels as an `@ref` -- its code is inlined instead.
+
+A corrupt or older state file is discarded rather than migrated.
+
+==============================================================================
+10. LUA API                                                 *codereview-api*
+
+require("codereview").setup({opts})                     *codereview.setup()*
+require("codereview").open({scope})                      *codereview.open()*
+require("codereview").close()                           *codereview.close()*
+require("codereview").queue()                           *codereview.queue()*
+        Open the queue float: drop, route, submit.
+require("codereview").submit()                         *codereview.submit()*
+        Submit the queued annotations as one batch.
+require("codereview").count()                           *codereview.count()*
+        Number of queued annotations -- useful in a statusline.
+require("codereview").is_open()                       *codereview.is_open()*
+
+vim:tw=78:ts=8:noet:ft=help:norl:

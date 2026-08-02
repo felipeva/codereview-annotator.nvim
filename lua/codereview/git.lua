@@ -1,0 +1,398 @@
+---Git access for the review view.
+---
+---The only module in the plugin that shells out. Everything downstream consumes the
+---plain-data structures built from this output, so the parser, the payload renderer and
+---the state store can all be exercised without a repository.
+local M = {}
+
+-- Metadata queries are near-instant; a diff over a long branch is not. Two budgets rather
+-- than one generous one, so a hung `rev-parse` still fails fast.
+local QUICK_TIMEOUT_MS = 3000
+local DIFF_TIMEOUT_MS = 15000
+
+-- Enough to catch a NUL in any realistic header. Matches what git itself samples.
+local BINARY_SNIFF_BYTES = 8000
+
+--- Process boundary -----------------------------------------------------------
+
+---@param args string[]
+---@param opts? { cwd?: string, timeout?: integer, ok_codes?: integer[] }
+---@return string|nil stdout Raw, untrimmed -- diff output is whitespace-significant
+---@return string|nil err
+local function run(args, opts)
+  opts = opts or {}
+  local cmd = { "git" }
+  vim.list_extend(cmd, args)
+
+  -- vim.system raises when the binary is missing, rather than returning a failure.
+  local ok, res = pcall(function()
+    return vim.system(cmd, { text = true, cwd = opts.cwd }):wait(opts.timeout or QUICK_TIMEOUT_MS)
+  end)
+  if not ok then
+    return nil, tostring(res)
+  end
+
+  if not vim.tbl_contains(opts.ok_codes or { 0 }, res.code) then
+    local stderr = vim.trim(res.stderr or "")
+    return nil, stderr ~= "" and stderr or ("git exited %d"):format(res.code)
+  end
+  return res.stdout or "", nil
+end
+
+---Single-line queries, trimmed. Returns nil for both failure and empty output, since
+---every caller treats "no answer" and "empty answer" the same way.
+---@param args string[]
+---@param cwd? string
+---@return string|nil
+local function line(args, cwd)
+  local out = run(args, { cwd = cwd })
+  if not out then
+    return nil
+  end
+  out = vim.trim(out)
+  return out ~= "" and out or nil
+end
+
+--- Repository ------------------------------------------------------------------
+
+---@param cwd? string
+---@return string|nil root
+function M.root(cwd)
+  return line({ "rev-parse", "--show-toplevel" }, cwd)
+end
+
+---The repository's default branch, e.g. `origin/master`.
+---
+---Read from `origin/HEAD` rather than assumed: "main" is not universal -- repos on this
+---machine use `master` -- and guessing wrong silently diffs against nothing.
+---@param root string
+---@return string|nil
+function M.default_branch(root)
+  local ref = line({ "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD" }, root)
+  if ref then
+    return (ref:gsub("^refs/remotes/", ""))
+  end
+  for _, candidate in ipairs({ "origin/main", "origin/master", "main", "master" }) do
+    if line({ "rev-parse", "--verify", "--quiet", candidate }, root) then
+      return candidate
+    end
+  end
+  return nil
+end
+
+---@param root string
+---@return string|nil name Current branch, or nil when detached
+function M.current_branch(root)
+  local name = line({ "symbolic-ref", "--quiet", "--short", "HEAD" }, root)
+  return name
+end
+
+---@param a string
+---@param b string
+---@param root string
+---@return string|nil
+function M.merge_base(a, b, root)
+  return line({ "merge-base", a, b }, root)
+end
+
+--- Scopes ----------------------------------------------------------------------
+
+---@class CRScope
+---@field name string       "branch"|"staged"|"unstaged"|"worktree"|"revspec"
+---@field label string      Shown in the view title
+---@field args string[]     Appended to the `git diff` invocation
+---@field before string     Ref for the pre-image; ":0" means the index
+---@field after string|nil  Ref for the post-image; nil means the working tree
+---@field untracked boolean Whether untracked files belong in this scope
+
+---Scopes cycled by `gs`, in order. A bare revspec is resolved separately.
+M.CYCLE = { "branch", "staged", "unstaged", "worktree" }
+
+---Resolve a scope name, or any git revspec, into the refs the rest of the plugin needs.
+---
+---`before`/`after` exist because the diff text alone cannot tell the syntax highlighter
+---where to find whole-file content: `--cached` compares HEAD to the index, and neither
+---side is a file on disk.
+---@param spec string
+---@param root string
+---@return CRScope|nil, string|nil err
+function M.resolve_scope(spec, root)
+  if spec == "staged" then
+    return {
+      name = "staged",
+      label = "staged",
+      args = { "--cached" },
+      before = "HEAD",
+      after = ":0",
+      untracked = false,
+    }
+  elseif spec == "unstaged" then
+    return { name = "unstaged", label = "unstaged", args = {}, before = ":0", after = nil, untracked = false }
+  elseif spec == "worktree" then
+    return { name = "worktree", label = "worktree", args = { "HEAD" }, before = "HEAD", after = nil, untracked = true }
+  elseif spec == "branch" or spec == "" or spec == nil then
+    local branch = M.default_branch(root)
+    if not branch then
+      return nil, "could not determine the default branch"
+    end
+    local base = M.merge_base(branch, "HEAD", root)
+    if not base then
+      return nil, ("no merge base with %s"):format(branch)
+    end
+    return {
+      name = "branch",
+      label = ("branch vs %s"):format(branch),
+      args = { base },
+      before = base,
+      after = nil,
+      untracked = true,
+    }
+  end
+
+  -- Anything else is a revspec. Resolve the endpoints ourselves so `before`/`after` are
+  -- real refs the highlighter can `git show`; passing the raw spec through would leave us
+  -- unable to fetch either side's file content.
+  local left, kind, right = spec:match("^(.-)(%.%.%.?)(.*)$")
+  if kind == "..." then
+    local a = left ~= "" and left or "HEAD"
+    local b = right ~= "" and right or "HEAD"
+    local base = M.merge_base(a, b, root)
+    if not base then
+      return nil, ("no merge base between %s and %s"):format(a, b)
+    end
+    return { name = "revspec", label = spec, args = { spec }, before = base, after = b, untracked = false }
+  elseif kind == ".." then
+    local a = left ~= "" and left or "HEAD"
+    local b = right ~= "" and right or "HEAD"
+    return { name = "revspec", label = spec, args = { spec }, before = a, after = b, untracked = false }
+  end
+
+  if not line({ "rev-parse", "--verify", "--quiet", spec .. "^{commit}" }, root) then
+    return nil, ("not a valid revision: %s"):format(spec)
+  end
+  return {
+    name = "revspec",
+    label = ("vs %s"):format(spec),
+    args = { spec },
+    before = spec,
+    after = nil,
+    untracked = true,
+  }
+end
+
+--- Diff ------------------------------------------------------------------------
+
+---Raw unified diff for a scope.
+---
+---`-M` detects renames, `--no-color` because we do our own highlighting, and
+---`--no-ext-diff` so a user's configured external difftool cannot replace the machine-
+---readable output we parse.
+---@param scope CRScope
+---@param root string
+---@param context integer Lines of context (`-U`)
+---@return string|nil text, string|nil err
+function M.diff(scope, root, context)
+  local args = { "diff", "--no-color", "--no-ext-diff", "-M", ("-U%d"):format(context or 3) }
+  vim.list_extend(args, scope.args)
+  return run(args, { cwd = root, timeout = DIFF_TIMEOUT_MS })
+end
+
+---Paths git is not tracking, honouring .gitignore.
+---@param root string
+---@return string[]
+function M.untracked_files(root)
+  local out = run({ "ls-files", "--others", "--exclude-standard" }, { cwd = root })
+  if not out or vim.trim(out) == "" then
+    return {}
+  end
+  return vim.split(vim.trim(out), "\n", { trimempty = true })
+end
+
+--- File content ----------------------------------------------------------------
+
+---@param root string
+---@param path string
+---@return string|nil
+local function read_worktree(root, path)
+  local fd = io.open(vim.fs.joinpath(root, path), "rb")
+  if not fd then
+    return nil
+  end
+  local content = fd:read("*a")
+  fd:close()
+  return content
+end
+
+---Whole-file content on one side of the diff, for syntax highlighting.
+---@param path string Relative to root
+---@param ref string|nil nil = working tree, ":0" = index, otherwise a commit-ish
+---@param root string
+---@return string|nil
+function M.file_content(path, ref, root)
+  if ref == nil then
+    return read_worktree(root, path)
+  end
+  local spec = ref == ":0" and (":0:" .. path) or (ref .. ":" .. path)
+  -- Exit 128 is the normal answer for "this path does not exist at that ref" (an added or
+  -- deleted file), not a failure worth reporting.
+  local out = run({ "show", "--textconv", spec }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
+  return out
+end
+
+---Content hash of one side of a file -- the invalidation key for reviewed marks and
+---queued annotations. A file whose blob still matches is a file you really did review.
+---@param path string Relative to root
+---@param ref string|nil nil = working tree, ":0" = index, otherwise a commit-ish
+---@param root string
+---@return string|nil
+function M.blob(path, ref, root)
+  if ref == nil then
+    return line({ "hash-object", "--", path }, root)
+  end
+  local spec = ref == ":0" and (":0:" .. path) or (ref .. ":" .. path)
+  return line({ "rev-parse", "--quiet", "--verify", spec }, root)
+end
+
+---Hash many working-tree files in one process.
+---
+---`git hash-object` accepts any number of paths, and a review of sixty files otherwise
+---pays for sixty process spawns before it can draw anything -- which costs more than all
+---the syntax parsing put together.
+---@param paths string[]
+---@param root string
+---@return table<string, string>
+function M.hash_worktree(paths, root)
+  local out = {}
+  -- A single missing path fails the whole invocation, so they are filtered out first
+  -- rather than letting one deleted file lose every hash.
+  local present = {}
+  for _, p in ipairs(paths) do
+    if vim.uv.fs_stat(vim.fs.joinpath(root, p)) then
+      present[#present + 1] = p
+    end
+  end
+  if #present == 0 then
+    return out
+  end
+
+  local args = { "hash-object", "--" }
+  vim.list_extend(args, present)
+  local res = run(args, { cwd = root, timeout = DIFF_TIMEOUT_MS })
+  if not res then
+    return out
+  end
+  local lines = vim.split(vim.trim(res), "\n", { trimempty = true })
+  for i, p in ipairs(present) do
+    out[p] = lines[i]
+  end
+  return out
+end
+
+---Resolve many `<ref>:<path>` specs to blob hashes in one process.
+---@param specs string[]
+---@param root string
+---@return table<string, string> Keyed by the spec that was asked for
+function M.hash_refs(specs, root)
+  local out = {}
+  if #specs == 0 then
+    return out
+  end
+  local ok, res = pcall(function()
+    return vim
+      .system({ "git", "cat-file", "--batch-check" }, {
+        text = true,
+        cwd = root,
+        stdin = table.concat(specs, "\n") .. "\n",
+      })
+      :wait(DIFF_TIMEOUT_MS)
+  end)
+  if not ok or res.code ~= 0 then
+    return out
+  end
+  -- One output line per input line: "<sha> blob <size>", or "<spec> missing" for a path
+  -- that does not exist at that ref (an added or deleted file).
+  local lines = vim.split(res.stdout or "", "\n", { trimempty = true })
+  for i, spec in ipairs(specs) do
+    local sha = (lines[i] or ""):match("^(%x+) blob ")
+    if sha then
+      out[spec] = sha
+    end
+  end
+  return out
+end
+
+---@param text string|nil
+---@return boolean
+function M.looks_binary(text)
+  if not text or text == "" then
+    return false
+  end
+  return text:sub(1, BINARY_SNIFF_BYTES):find("\0", 1, true) ~= nil
+end
+
+--- Collection ------------------------------------------------------------------
+
+---Every file in a scope, parsed, with untracked entries folded in and blobs filled.
+---
+---This is the seam between the process boundary and the pure parser: `diff.lua` stays
+---git-free, and everything downstream receives one already-complete list.
+---@param scope CRScope
+---@param root string
+---@param opts? { context?: integer, untracked?: boolean }
+---@return CRFile[]|nil files, string|nil err
+function M.collect(scope, root, opts)
+  opts = opts or {}
+
+  local text, err = M.diff(scope, root, opts.context or 3)
+  if not text then
+    return nil, err
+  end
+
+  local diff = require("codereview.diff")
+  local files = diff.parse(text)
+
+  -- Untracked files are invisible to `git diff` entirely, so a brand-new file would
+  -- silently never appear in the review.
+  if scope.untracked and opts.untracked ~= false then
+    for _, path in ipairs(M.untracked_files(root)) do
+      files[#files + 1] = diff.synthesize_added(path, read_worktree(root, path))
+    end
+  end
+
+  -- Blobs are resolved in two batched calls rather than one process per file.
+  local worktree_paths, ref_specs = {}, {}
+  local want = {}
+  for _, file in ipairs(files) do
+    -- A deletion has no post-image, so its identity is the content that went away.
+    local ref = file.status == "D" and scope.before or scope.after
+    if file.status == "U" then
+      ref = nil
+    end
+    want[file.path] = ref
+    if ref == nil then
+      worktree_paths[#worktree_paths + 1] = file.path
+    else
+      ref_specs[#ref_specs + 1] = (ref == ":0" and ":0:" or (ref .. ":")) .. file.path
+    end
+  end
+
+  local from_worktree = M.hash_worktree(worktree_paths, root)
+  local from_refs = M.hash_refs(ref_specs, root)
+
+  for _, file in ipairs(files) do
+    local ref = want[file.path]
+    if ref == nil then
+      file.blob = from_worktree[file.path]
+    else
+      file.blob = from_refs[(ref == ":0" and ":0:" or (ref .. ":")) .. file.path]
+    end
+  end
+
+  table.sort(files, function(a, b)
+    return a.path < b.path
+  end)
+
+  return files, nil
+end
+
+return M

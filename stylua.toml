@@ -1,0 +1,6 @@
+# syntax = "Lua52" is required: LuaJIT supports `goto`/`::label::`, which the parser
+# rejects by default as a Luau conflict.
+syntax = "Lua52"
+indent_type = "Spaces"
+indent_width = 2
+column_width = 120
