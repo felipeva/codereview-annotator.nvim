@@ -13,6 +13,7 @@ CONTENTS                                                          *codereview*
   8. Highlights ........................... |codereview-highlights|
   9. Persistence .......................... |codereview-persistence|
  10. Lua API .............................. |codereview-api|
+ 11. License .............................. |codereview-license|
 
 ==============================================================================
 1. INTRODUCTION                                    *codereview-introduction*
@@ -266,5 +267,14 @@ require("codereview").submit()                         *codereview.submit()*
 require("codereview").count()                           *codereview.count()*
         Number of queued annotations -- useful in a statusline.
 require("codereview").is_open()                       *codereview.is_open()*
+
+==============================================================================
+11. LICENSE                                               *codereview-license*
+
+MIT. Copyright (c) 2026 Felipe Valencia. See the LICENSE file in the plugin
+root for the full text.
+
+Written with Claude Code; agent-assisted contributions are welcome. See
+CONTRIBUTING.md.
 
 vim:tw=78:ts=8:noet:ft=help:norl:

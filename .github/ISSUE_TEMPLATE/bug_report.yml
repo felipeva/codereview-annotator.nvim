@@ -1,0 +1,73 @@
+name: Bug report
+description: Something in the plugin does not behave as documented
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: `make all` on `master` should be green. If it is not, say so — that
+        is a different and more interesting bug.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you got, and what you expected instead.
+      placeholder: |
+        Opened `:CodeReview` on a branch with a renamed file. The rename rendered as an
+        add plus a delete. I expected one entry marked as a rename.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        The steps, ideally from a fresh repository. A shell snippet that builds the
+        repository shape beats a description of it — see `tests/fixtures/` for the style.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: nvim-version
+    attributes:
+      label: Neovim version
+      description: The first line of `nvim --version`. 0.12+ is the floor.
+      placeholder: NVIM v0.12.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Your configuration
+      description: >
+        The `opts` table you pass to the plugin, including any `send`, `pick_target` or
+        `compose` adapters. Reduce them to stubs if the bug reproduces without them.
+      render: lua
+      placeholder: |
+        {
+          context = 3,
+          untracked = true,
+        }
+    validations:
+      required: true
+
+  - type: textarea
+    id: errors
+    attributes:
+      label: Errors or messages
+      description: Anything from `:messages`, plus the stack trace if there was one.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I reproduced this on the latest `master`.
+          required: true
+        - label: I searched existing issues for this.
+          required: true

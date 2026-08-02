@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a change to what the plugin does
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search open issues first — if this is already filed, add your use case there rather
+        than opening a duplicate. A second person describing a different reason for wanting
+        the same thing is worth more than a second issue.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What review workflow does this unblock? Describe the situation you hit, not the
+        feature you already decided on — the useful design often is not the first one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: The behaviour you want, including keys, commands or config if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: >
+        Existing keys, adapters or config that get partway there, and where they fall
+        short. The plugin has no opinion about delivery — a lot of "features" are an
+        adapter you can already write.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: This belongs in the plugin rather than in a `send`/`pick_target`/`compose` adapter.
+        - label: I am willing to open a PR for it.
