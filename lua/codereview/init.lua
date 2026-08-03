@@ -64,8 +64,10 @@ end
 ---With a visual selection live, captures those lines; otherwise the whole file.
 ---@param type_name string|nil Falls back to the type picker
 ---@param range { first: integer, last: integer }|nil Explicit lines, overriding both
-function M.annotate(type_name, range)
-  require("codereview.capture").annotate(type_name, range)
+---@param opts { immediate?: boolean }|nil `immediate` delivers this one annotation on its
+---       own instead of queueing it -- see `codereview-immediate-send`
+function M.annotate(type_name, range, opts)
+  require("codereview.capture").annotate(type_name, range, opts)
 end
 
 ---Open the queue for review, with drop / route / submit.

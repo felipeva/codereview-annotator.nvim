@@ -193,8 +193,9 @@ The composer                                          *codereview-composer*
 Annotating opens a floating buffer to write the note in, titled with the type
 and what is being annotated:
 
-    ^S              queue the note and close
-    ^T              choose where the batch goes
+    ^S              queue the note and close (or send it, on an immediate
+                    send -- the footer names the verb it will use)
+    ^T              choose where it goes
     @               reference another file (|codereview-opt-pick_file|)
     ^D              discard a restored draft
     q  <Esc>        abandon, keeping what you wrote as a draft
@@ -208,8 +209,11 @@ The note is whatever the buffer holds, newlines and all. An empty one queues
 nothing, so opening the composer by accident costs nothing. Either way focus
 returns to the window the annotation was started from.
 
-Routing from here is the same choice the queue float offers, because it is the
-same choice: a target belongs to the batch, not to the window that asked.
+The footer names the target the note in front of you will actually reach, and
+`^T` changes that one. For a note joining the queue that is the batch's target,
+the same choice the queue float offers -- routing belongs to the batch, not to
+the window that asked. For an |codereview-immediate-send| it is that note's own
+target, and rerouting it leaves the batch pointing where it was.
 
 `@` references another file, through |codereview-opt-pick_file|. It is written
 into the note before the picker opens, so cancelling leaves the character you
@@ -286,6 +290,36 @@ stale the same way a review annotation does -- see |codereview-persistence|.
 A selection travels as `@path#L12-20` when the delivery target can resolve the
 path, and inlines its code when it cannot. The buffer itself is never touched.
 
+Sending one now                                 *codereview-immediate-send*
+
+A thought you want acted on should not wait for a batch you have not finished
+assembling. The same entry point sends one annotation on its own: >
+    require("codereview").annotate("bug", nil, { immediate = true })
+<
+Delivery is a property of the call rather than a different door, so everything
+above still applies -- the same path resolution, blob, diagnostics, drafts and
+`@` references, and the same type picker with its way of declining a type. It
+renders through the same renderer a batch does, so what arrives is an ordinary
+review payload holding one annotation, untyped if that is what you chose.
+
+That a type is optional at all follows from this: a batch of one would
+otherwise force one onto the fastest interaction there is.
+
+The queue is untouched: an annotation sent this way never joins it, and what is
+already queued is neither delivered nor cleared.
+
+You are asked where it goes *before* the composer opens, through
+|codereview-opt-pick_target|, so declining costs no typing -- decline and
+nothing is sent. With no picker wired there is nothing to choose between and no
+way to decline, so it goes with no target and |codereview-opt-send| decides
+what that means. With no `send` either, the payload lands in the `+` register
+like a batch does.
+
+Because the note owns that choice rather than the batch, the composer's footer
+names the target *this note* will reach and `^T` reroutes the note, leaving the
+batch pointing where it was. Abandon it and the text is kept as a draft, like
+any other note you walked away from.
+
 ==============================================================================
 7. ADAPTERS                                            *codereview-adapters*
 
@@ -343,7 +377,15 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
             rel_path    repository-relative path; nil outside a checkout
             file_path   absolute path; nil for a note with no file
             origin_win  window the annotation was started from
+            routing     immediate sends only -- see below
 <
+        `routing` is `{ label(), pick(on_done) }` for the target *this note*
+        will reach: `label()` is what to name in the chrome, `pick()` changes
+        it and calls {on_done} once the picker has answered. It is absent for a
+        note joining the queue, which is routed by the batch it joins -- so a
+        composer that ignores it entirely still works, it just cannot name or
+        change where an |codereview-immediate-send| is going.
+
         `origin_win` is there for composers that can be dismissed. Once
         {on_accept} is called the plugin puts focus back there itself, so a
         composer that always submits can ignore it. One the user can cancel
@@ -461,11 +503,14 @@ accepted cost of not making those annotations second-class.
 require("codereview").setup({opts})                     *codereview.setup()*
 require("codereview").open({scope})                      *codereview.open()*
 require("codereview").close()                           *codereview.close()*
-require("codereview").annotate({type}, {range})      *codereview.annotate()*
+require("codereview").annotate({type}, {range}, {opts})
+                                                     *codereview.annotate()*
         Annotate the current buffer, with no review view involved. {type} is
         an annotation name; with nil, the type picker opens. {range} is
         `{ first = 12, last = 20 }`, overriding both a live visual selection
-        and the whole-file default. See |codereview-capture|.
+        and the whole-file default. {opts} takes `immediate = true` to send
+        this one annotation on its own instead of queueing it. See
+        |codereview-capture| and |codereview-immediate-send|.
 require("codereview").queue()                           *codereview.queue()*
         Open the queue float: drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*

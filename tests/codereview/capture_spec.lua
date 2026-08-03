@@ -18,16 +18,31 @@ local root = assert(vim.uv.fs_realpath(fixture))
 
 local composed = {}
 local sent = {}
+-- What the adapters were asked for, in order. An immediate send has to choose a target
+-- before a word is typed, which is a claim about ordering and nothing else.
+local steps = {}
+local BATCH_TARGET = { short = "agent", pane_id = "wV:p3", cwd = root }
+-- Reassigned by the cases below; read at call time, the way a real picker's answer is.
+local target_answer = BATCH_TARGET
+-- Runs while the composer is open, before it answers. How a case makes the world change
+-- under a composer the way a language server does.
+local compose_hook
+
 codereview.setup({
   syntax = false,
   compose = function(ctx, on_accept, label)
     -- The mode the composer is entered in is part of its contract: a composer opened with
     -- a selection still active gets a buffer it cannot type into cleanly.
+    steps[#steps + 1] = "compose"
     composed[#composed + 1] = { ctx = ctx, label = label, mode = vim.fn.mode() }
+    if compose_hook then
+      compose_hook()
+    end
     on_accept(nil, "the note")
   end,
   pick_target = function(cb)
-    cb({ short = "agent", pane_id = "wV:p3", cwd = root })
+    steps[#steps + 1] = "target"
+    cb(target_answer)
   end,
   send = function(text, target)
     sent[#sent + 1] = { text = text, target = target }
@@ -731,7 +746,300 @@ describe("an untyped annotation in the queue and in the batch", function()
   end)
 end)
 
--- The two cases below reconfigure the plugin, so they come last.
+-- An immediate send: the same capture, delivered on its own instead of joining the queue.
+describe("sending one annotation immediately", function()
+  queue.clear()
+  local before = #sent
+  edit("src/main.lua")
+  codereview.annotate("bug", nil, { immediate = true })
+
+  it("hands a payload to the send adapter", function()
+    assert.same(before + 1, #sent)
+  end)
+
+  it("leaves the queue empty", function()
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- The plugin owns this choice now, and it makes it before a word is typed: a target
+-- declined after the note is written costs the note.
+describe("where an immediate send goes", function()
+  queue.clear()
+  steps = {}
+  target_answer = { short = "solo", pane_id = "wV:p9", cwd = root }
+  edit("src/main.lua")
+  codereview.annotate("bug", nil, { immediate = true })
+  local order = table.concat(steps, " ")
+  target_answer = BATCH_TARGET
+
+  it("asks for a target before the composer opens", function()
+    assert.same("target compose", order)
+  end)
+
+  it("delivers to the target that was chosen for it", function()
+    assert.same("wV:p9", sent[#sent].target.pane_id)
+  end)
+
+  -- Batch routing and immediate-send routing are different things pointing at the same
+  -- kind of destination. An errand must not redirect the batch you are assembling.
+  it("leaves the batch's own target where it was", function()
+    assert.same("agent", require("codereview.view").target_label())
+  end)
+end)
+
+-- Distinct from having no picker at all, which sends to whatever the adapter defaults to.
+-- A picker that ran and came back empty is a reviewer who changed their mind.
+describe("declining to choose a target", function()
+  queue.clear()
+  steps = {}
+  local before = #sent
+  target_answer = nil
+  edit("src/main.lua")
+  local msgs, restore = h.capture_notify()
+  codereview.annotate("bug", nil, { immediate = true })
+  restore()
+  local order = table.concat(steps, " ")
+  target_answer = BATCH_TARGET
+
+  it("never opens the composer, so no note is written for nothing", function()
+    assert.same("target", order)
+  end)
+
+  it("delivers nothing", function()
+    assert.same(before, #sent)
+  end)
+
+  it("queues nothing instead", function()
+    assert.same(0, queue.count())
+  end)
+
+  it("says so rather than failing silently", function()
+    assert.is_true(h.notified(msgs, "No target chosen"), vim.inspect(msgs))
+  end)
+end)
+
+-- Why a type became optional at all (ADR-0004): a batch of one would otherwise force one
+-- onto the fastest interaction there is, and a remark with no instruction behind it would
+-- have to invent a directive to be sendable.
+describe("sending one annotation with no type", function()
+  queue.clear()
+  steps = {}
+  local before = #sent
+  local orig = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    steps[#steps + 1] = "type"
+    -- One past the configured types is the decline entry, which is not a dismissal.
+    cb(items[#items], #items)
+  end
+  edit("src/main.lua")
+  codereview.annotate(nil, nil, { immediate = true })
+  vim.ui.select = orig
+  local order = table.concat(steps, " ")
+  local text = sent[#sent].text
+
+  it("delivers it rather than making a type the price of sending", function()
+    assert.same(before + 1, #sent)
+  end)
+
+  -- Both pickers are answered before a word is written; neither hides inside the
+  -- composer's callback, where the answer would arrive too late to matter.
+  it("asks for the type, then the target, then opens the composer", function()
+    assert.same("type target compose", order)
+  end)
+
+  it("lands its one annotation in the untyped group", function()
+    assert.is_truthy(text:find("Code review — 1 annotation", 1, true), text)
+    assert.is_truthy(text:find("## Untyped (1)", 1, true), text)
+    assert.is_truthy(text:find("@src/main.lua", 1, true), text)
+    assert.is_truthy(text:find("the note", 1, true), text)
+  end)
+
+  -- A group with nothing to instruct should not pretend otherwise.
+  it("gives that group no directive", function()
+    assert.is_truthy(text:find("## Untyped (1)\n", 1, true), text)
+  end)
+
+  it("still leaves the queue alone", function()
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- Declining and dismissing were the same gesture until the picker grew a way to say "no
+-- type", and the send path must not quietly put them back together: one delivers an
+-- untyped annotation, the other abandons the send entirely.
+describe("dismissing the type picker on an immediate send", function()
+  queue.clear()
+  steps = {}
+  local before, composed_before = #sent, #composed
+  local orig = vim.ui.select
+  vim.ui.select = function(_, _, cb)
+    steps[#steps + 1] = "type"
+    cb(nil, nil)
+  end
+  edit("src/main.lua")
+  codereview.annotate(nil, nil, { immediate = true })
+  vim.ui.select = orig
+  local order = table.concat(steps, " ")
+
+  it("delivers nothing", function()
+    assert.same(before, #sent)
+  end)
+
+  it("queues nothing either", function()
+    assert.same(0, queue.count())
+  end)
+
+  -- Neither the composer nor the target picker: abandoning before a type is chosen costs
+  -- nothing at all, not even the question of where it would have gone.
+  it("asks nothing further", function()
+    assert.same("type", order)
+    assert.same(composed_before, #composed)
+  end)
+end)
+
+-- The promise the queue makes to a batch half assembled: an errand does not disturb it.
+describe("an immediate send beside a queue with something in it", function()
+  queue.clear()
+  edit("src/main.lua")
+  codereview.annotate("bug")
+  local queued_before = vim.deepcopy(queue.all())
+
+  local before = #sent
+  edit("src/routes.lua")
+  codereview.annotate("nitpick", nil, { immediate = true })
+  local text = sent[#sent].text
+
+  it("leaves what was queued exactly as it was", function()
+    assert.same(1, queue.count())
+    assert.same(queued_before[1].path, queue.all()[1].path)
+    assert.same(queued_before[1].note, queue.all()[1].note)
+  end)
+
+  it("renders one annotation, not the queue", function()
+    assert.same(before + 1, #sent)
+    assert.is_truthy(text:find("Code review — 1 annotation", 1, true), text)
+    assert.is_truthy(text:find("src/routes.lua", 1, true), text)
+    assert.is_nil(text:find("src/main.lua", 1, true), text)
+  end)
+
+  -- The same renderer a batch goes through, which is what keeps one payload format:
+  -- grouped under its type's heading, with that type's directive.
+  it("groups it under its type, as a batch of one", function()
+    assert.is_truthy(text:find("## Nitpicks (1)", 1, true), text)
+    assert.is_truthy(text:find("the note", 1, true), text)
+  end)
+end)
+
+-- Fired from a mapping for the reason `<F5>` is: the selection has to still be live when
+-- capture reads it, which is only true from inside a visual-mode mapping.
+vim.keymap.set({ "n", "x" }, "<F6>", function()
+  codereview.annotate("bug", nil, { immediate = true })
+end, { desc = "capture_spec: send as bug, immediately" })
+
+describe("sending a visual selection immediately", function()
+  queue.clear()
+  local before = #sent
+  edit("src/main.lua")
+  h.feed("1GVj<F6>")
+  local text = sent[#sent].text
+
+  it("delivers it without queueing it", function()
+    assert.same(before + 1, #sent)
+    assert.same(0, queue.count())
+  end)
+
+  it("names exactly the lines that were selected", function()
+    assert.is_truthy(text:find("@src/main.lua#L1-2", 1, true), text)
+  end)
+
+  -- The queued path escapes visual mode before the composer opens; so must this one, or
+  -- the composer is entered with a selection still live.
+  it("leaves visual mode before the composer opens", function()
+    assert.same("n", composed[#composed].mode)
+  end)
+end)
+
+-- A thought with no file behind it is still worth sending on its own.
+describe("sending a bare note immediately", function()
+  queue.clear()
+  local before = #sent
+  vim.cmd("enew")
+  codereview.annotate("bug", nil, { immediate = true })
+  local text = sent[#sent].text
+
+  it("delivers it with nothing to anchor to", function()
+    assert.same(before + 1, #sent)
+    assert.is_truthy(text:find("(no file)", 1, true), text)
+  end)
+
+  it("still leaves the queue alone", function()
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- An `@ref` only resolves relative to whoever reads it, so it is rendered against the
+-- directory this note is going to -- not against this Neovim's.
+describe("sending to a target whose working directory is elsewhere", function()
+  queue.clear()
+  target_answer = { short = "far", pane_id = "wV:p4", cwd = "/nowhere/else" }
+  edit("src/main.lua")
+  h.feed("1GVj<F6>")
+  target_answer = BATCH_TARGET
+  local text = sent[#sent].text
+
+  it("carries the code instead of a reference the target could not follow", function()
+    assert.is_nil(text:find("@src/main.lua", 1, true), text)
+    assert.is_truthy(text:find("```diff", 1, true), text)
+    local source = vim.fn.readfile(vim.fs.joinpath(root, "src/main.lua"))
+    assert.is_truthy(text:find(source[1], 1, true), text)
+  end)
+end)
+
+-- A language server is free to republish while a composer is open. What rides along has to
+-- be what was on screen when the note was started, which is only true if diagnostics are
+-- read before the composer opens rather than inside its callback.
+describe("diagnostics on an immediate send", function()
+  local ns = vim.api.nvim_create_namespace("capture_spec_immediate_diagnostics")
+  local buf = edit("src/main.lua")
+  local S = vim.diagnostic.severity
+
+  ---@param message string
+  local function publish(message)
+    vim.diagnostic.set(ns, buf, {
+      { lnum = 0, col = 0, severity = S.ERROR, message = message, source = "lua_ls" },
+    })
+  end
+
+  publish("on screen when the note was started")
+  local republished = false
+  compose_hook = function()
+    publish("republished while the composer was open")
+    republished = true
+  end
+
+  queue.clear()
+  codereview.annotate("bug", nil, { immediate = true })
+  compose_hook = nil
+  vim.diagnostic.reset(ns, buf)
+  local text = sent[#sent].text
+
+  -- Without this the case below passes whether or not anything republished, which is the
+  -- fixture trap: an assertion that cannot fail is measuring nothing.
+  it("ran a language server that republished under the composer", function()
+    assert.is_true(republished)
+  end)
+
+  it("carries what the language server had when the note was started", function()
+    assert.is_truthy(text:find("on screen when the note was started", 1, true), text)
+  end)
+
+  it("does not carry what it republished while the composer was open", function()
+    assert.is_nil(text:find("republished while the composer was open", 1, true), text)
+  end)
+end)
+
+-- The cases below reconfigure the plugin, so they come last.
 
 -- What a host that wires nothing gets is the plugin's own composer -- from capture exactly
 -- as from the review view, since both arrive through the same tail. `vim.ui.input` is not
@@ -842,5 +1150,66 @@ describe("with a custom type vocabulary", function()
     assert.same(3, #offered)
     assert.is_truthy(offered[1]:find("blocker", 1, true), vim.inspect(offered))
     assert.is_truthy(offered[3]:find("no type", 1, true), vim.inspect(offered))
+  end)
+end)
+
+-- Nothing to choose between, and no way to decline. The plugin carries no opinion about
+-- where a payload goes, so it delivers with no target and lets the adapter decide what
+-- that means -- refusing here would be an opinion about transport.
+describe("an immediate send with no target picker wired", function()
+  local delivered = {}
+  codereview.setup({
+    syntax = false,
+    compose = function(_, on_accept)
+      on_accept(nil, "no picker here")
+    end,
+    send = function(text, to)
+      delivered[#delivered + 1] = { text = text, target = to }
+    end,
+  })
+  queue.clear()
+  edit("src/main.lua")
+  local msgs, restore = h.capture_notify()
+  codereview.annotate("bug", nil, { immediate = true })
+  restore()
+
+  it("delivers it anyway, with no target", function()
+    assert.same(1, #delivered)
+    assert.is_nil(delivered[1].target)
+    assert.is_truthy(delivered[1].text:find("no picker here", 1, true), delivered[1].text)
+  end)
+
+  it("says there was nothing to choose from", function()
+    assert.is_true(h.notified(msgs, "No pick_target adapter configured"), vim.inspect(msgs))
+  end)
+end)
+
+-- The fallback a batch already has, for the same reason: a note is never dropped in
+-- silence because the host wired no delivery.
+describe("an immediate send with no send adapter wired", function()
+  codereview.setup({
+    syntax = false,
+    compose = function(_, on_accept)
+      on_accept(nil, "nowhere to send this")
+    end,
+  })
+  queue.clear()
+  edit("src/main.lua")
+  vim.fn.setreg("+", "")
+  local msgs, restore = h.capture_notify()
+  codereview.annotate("bug", nil, { immediate = true })
+  restore()
+
+  it("falls back to the clipboard", function()
+    assert.is_truthy(vim.fn.getreg("+"):find("nowhere to send this", 1, true), vim.fn.getreg("+"))
+  end)
+
+  it("does not claim to have sent it", function()
+    assert.is_true(h.notified(msgs, "No send adapter configured"), vim.inspect(msgs))
+    assert.is_false(h.notified(msgs, "Sent bug"), vim.inspect(msgs))
+  end)
+
+  it("still leaves the queue alone", function()
+    assert.same(0, queue.count())
   end)
 end)

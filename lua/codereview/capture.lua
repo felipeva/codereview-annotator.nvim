@@ -182,7 +182,10 @@ end
 ---Annotate the current buffer: the visual selection if there is one, else the whole file.
 ---@param type_name string|nil Falls back to the same picker the review view offers
 ---@param range { first: integer, last: integer }|nil Explicit lines, e.g. a command range
-function M.annotate(type_name, range)
+---@param opts { immediate?: boolean }|nil `immediate` sends this one annotation on its own
+---       rather than queueing it. Delivery is a property of the call, not a second door:
+---       everything above this line is the capture both paths share.
+function M.annotate(type_name, range, opts)
   local cfg = config.get()
 
   local type_def = type_name and types.get(cfg.types, type_name)
@@ -211,18 +214,22 @@ function M.annotate(type_name, range)
   -- Read now rather than in the callback: both the composer and the picker are
   -- asynchronous, and a language server can republish diagnostics while either is open.
   -- What rides along should be what was on screen when the note was started.
-  local opts = { note_suffix = diagnostics_note(buf, entry.first, entry.last) }
+  local note_opts = { note_suffix = diagnostics_note(buf, entry.first, entry.last) }
 
   local annotate = require("codereview.annotate")
+  -- The one thing delivery changes about capture: which tail the entry goes down. Both
+  -- collect a note the same way, through the same composer, from the same entry.
+  local finish = (opts and opts.immediate) and annotate.send_entry or annotate.queue_entry
   if type_def then
-    annotate.queue_entry(entry, type_def, opts)
+    finish(entry, type_def, note_opts)
     return
   end
 
   -- The same menu the review view offers, including its way of declining a type outright:
-  -- which types exist, and how you say "none of them", cannot depend on where you asked.
+  -- which types exist, and how you say "none of them", cannot depend on where you asked --
+  -- or on whether this one is being queued or sent.
   annotate.pick_type(cfg.types, function(chosen)
-    annotate.queue_entry(entry, chosen, opts)
+    finish(entry, chosen, note_opts)
   end)
 end
 

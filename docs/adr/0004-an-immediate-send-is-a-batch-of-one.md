@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # An immediate send is a batch of one
