@@ -11,7 +11,7 @@ make perf                                             # open-time report, not a 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 258 cases in ~5 seconds.
+The whole suite is about 600 cases in ~5 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -41,6 +41,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
+| `delivery_spec` | What a send adapter may report — nothing, true, false, a raise — the clipboard default, and the one condition that empties the queue |
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
@@ -57,7 +58,7 @@ interchangeable, and the assertions know which one they are looking at.
   modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
-  `viewless_spec`, `capture_spec` and `interactive_spec`.
+  `viewless_spec`, `capture_spec`, `delivery_spec` and `interactive_spec`.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec` and `focus_spec`.
@@ -100,6 +101,12 @@ so the out-of-core language path is still checked locally without ever failing C
   therefore does *not* simulate a restart — the latch is still set, nothing reloads, and an
   assertion about restoring is measuring nothing. `capture_spec` spawns
   `capture_child.lua` twice for this reason.
+- **A send adapter that raises takes the whole `describe` with it.** Plenary runs a
+  describe body immediately, so an adapter that propagates its error aborts the block
+  instead of failing one case — the `it`s below it never run. `delivery_spec` asserts on
+  the queue and the notification *after* the submit returns, which is only meaningful
+  because delivery catches the raise; remove that catch and the case reports as an error
+  rather than a failure.
 - **`nvim -l` sends `print` to stderr, not stdout.** A child spawned with `-l` that reports
   its result through `print` has to be read from `stderr`, or from both streams. Asserting
   against `stdout` alone silently never matches.
