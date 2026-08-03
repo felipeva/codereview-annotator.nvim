@@ -125,10 +125,28 @@ end
 ---Explicitly rather than through `cursorbind`: the binding follows cursor *motions*, and
 ---nothing here moves a cursor -- it sets one. Running the same command in both windows is
 ---also what keeps their top lines identical, which the binding alone would not restore.
+---
+---And with the binding *lifted* while it does, because the binding tracks scroll deltas: the
+---first pane's `zz` propagates into the second pane before the second pane has been placed,
+---and the second pane's own `zz` then propagates back -- landing the two somewhere neither
+---was asked for, and nine rows apart. Both panes are set from the same row and the same
+---command instead, which is what makes the result the command that was asked for.
 ---@param row integer
 ---@param cmd string|nil A normal-mode view command: `zt` to put the row at the top, `zz`
 ---       to centre it, nil to leave the window where it is
 local function place(row, cmd)
+  local bound = has_before()
+  ---@param on boolean
+  local function bind_panes(on)
+    for _, win in ipairs(panes()) do
+      vim.wo[win].scrollbind = on
+      vim.wo[win].cursorbind = on
+    end
+  end
+
+  if bound then
+    bind_panes(false)
+  end
   for _, win in ipairs(panes()) do
     local last = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
     pcall(vim.api.nvim_win_set_cursor, win, { math.max(1, math.min(row, last)), 0 })
@@ -137,6 +155,11 @@ local function place(row, cmd)
         vim.cmd("normal! " .. cmd)
       end)
     end
+  end
+  if bound then
+    -- Turning the binding back on records the offset the panes are at now; it does not
+    -- scroll either of them, which is what makes lifting it safe.
+    bind_panes(true)
   end
 end
 
