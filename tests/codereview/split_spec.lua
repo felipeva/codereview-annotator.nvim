@@ -525,6 +525,20 @@ do
   h.feed("Vjab")
   reference.range = shape(queue.all()[1])
 
+  -- A range covering a context line and the deletion under it. Both rows exist in the
+  -- before pane too, and in the same order, so this one crosses the layouts unchanged --
+  -- unlike a range spanning a deletion *and its replacement*, which is the documented
+  -- exception because the two runs live in different windows.
+  queue.clear()
+  vim.api.nvim_win_set_cursor(V.win, {
+    line_row(V, V.render, "src/main.lua", function(ln)
+      return ln.side == "ctx" and ln.old == 1
+    end),
+    0,
+  })
+  h.feed("Vjab")
+  reference.del_range = shape(queue.all()[1])
+
   queue.clear()
   view.close()
 end
@@ -788,6 +802,37 @@ describe("annotating from either pane", function()
     vim.api.nvim_win_set_cursor(V.win, { line_row(V, V.render, "src/untracked.lua", ADDED), 0 })
     h.feed("Vjab")
     assert.same(reference.range, shape(queue.all()[1]))
+  end)
+
+  -- Fed through the mapping rather than called directly: `capture` reads `mode()` and
+  -- `line("v")` while the selection is still live, and the mapping is only reachable if the
+  -- before pane's buffer really carries the diff's keys.
+  it("captures a range containing a deletion from the before pane, as unified does", function()
+    queue.clear()
+    focus(V.before_win)
+    vim.api.nvim_win_set_cursor(V.before_win, {
+      line_row(V, V.before_render, "src/main.lua", function(ln)
+        return ln.side == "ctx" and ln.old == 1
+      end),
+      0,
+    })
+    h.feed("Vjab")
+    assert.same(1, queue.count())
+    assert.same(reference.del_range, shape(queue.all()[1]))
+    assert.is_true(queue.all()[1].inline)
+  end)
+
+  it("binds the diff's keys in the before pane too", function()
+    -- Both sides through `vim.keycode`: the API reports a control key in its own notation
+    -- (`<C-P>`, capitalised) rather than the one it was bound with, so comparing the
+    -- strings as written silently never matches.
+    local lhs = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(V.before_buf, "n")) do
+      lhs[vim.keycode(m.lhs)] = true
+    end
+    for _, key in ipairs({ "ab", "aa", "x", "]f", "]a", "R", "za", "gp", "<C-p>", "Q" }) do
+      assert.is_true(lhs[vim.keycode(key)] == true, ("%s is not bound in the before pane"):format(key))
+    end
   end)
 
   -- The cursor is on nothing, so this means the file -- never the unrelated line above it,
