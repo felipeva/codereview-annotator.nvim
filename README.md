@@ -300,8 +300,8 @@ opts = {
   pick_target = function(cb) cb({ short = "agent", cwd = "/path" }) end,
 
   -- Choose a file to reference from `@` inside the composer. The plugin ships no picker,
-  -- so without this `@` stays a literal `@`. `first`/`last` are optional — omit them and
-  -- the reference is to the file rather than to a range in it.
+  -- so without this `@` stays a literal `@` and says so. `first`/`last` are optional —
+  -- omit them and the reference is to the file rather than to a range in it.
   pick_file = function(cb) cb({ path = "src/main.lua", first = 12, last = 20 }) end,
 
   -- Collect note text. Without it you get the composer the plugin ships, which implements

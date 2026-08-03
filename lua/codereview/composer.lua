@@ -126,6 +126,15 @@ function M.open(ctx, on_accept, label)
 
     local pick_file = config.get().pick_file
     if not pick_file then
+      -- Said out loud, because a host that wires its adapters up incompletely otherwise
+      -- gets a key that does nothing, which is indistinguishable from one that is broken.
+      -- The sentinel stays where it was written: what is missing is the reference, not the
+      -- character the reviewer just typed.
+      vim.notify(
+        "No file picker configured — set pick_file to reference a file",
+        vim.log.levels.WARN,
+        { title = "Code review" }
+      )
       return
     end
     pick_file(function(chosen)

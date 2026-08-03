@@ -330,9 +330,11 @@ end)
 describe("referencing a file", function()
   reset()
   file_answer = { path = "apps/web/src/index.lua" }
+  local msgs, restore = h.capture_notify()
   annotate_line()
   local composer_win = floating()
   h.feed("i@")
+  restore()
   local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
   -- Closed through the API, not by feeding `q`: abandoning has its own test, and a stray
   -- `q` that arrives after the composer has gone reaches the review buffer, where it
@@ -350,6 +352,12 @@ describe("referencing a file", function()
   -- a note, not the end of one.
   it("splices a reference to the chosen file", function()
     assert.same("@apps/web/src/index.lua ", line)
+  end)
+
+  -- The warning a host without a picker gets is for that host alone. One wired up properly
+  -- is told nothing, because there is nothing the matter.
+  it("says nothing about a missing picker", function()
+    assert.is_false(h.notified(msgs, "file picker"), vim.inspect(msgs))
   end)
 end)
 
@@ -926,15 +934,23 @@ describe("abandoning an immediate send", function()
 end)
 
 -- Reconfigures, so it comes after everything that wants a picker. The plugin ships none:
--- every config already has one, and `@` staying a literal `@` is what "the composer is
--- still fully usable without it" means.
+-- every config already has one, so a host is entitled to have wired none up -- but it is
+-- entitled to be told, rather than to a key that appears broken.
+--
+-- Where the sentinel leaves the cursor is deliberately not asserted here. `h.feed` ends
+-- insert with an implied <Esc>, so the column readable from a headless spec is the one
+-- normal mode clamped it to, not the one a reviewer would be typing at. That half belongs
+-- to `interactive_spec`, which drives a pty.
 describe("with no file picker wired", function()
   require("codereview").setup({ syntax = false })
   reset()
+  local msgs, restore = h.capture_notify()
   annotate_line()
   local composer_win = floating()
   h.feed("ilook at @")
+  restore()
   local line = vim.api.nvim_buf_get_lines(0, 0, 1, false)[1]
+  local open = composer_win ~= nil and vim.api.nvim_win_is_valid(composer_win)
   h.feed("<Esc>")
   if composer_win and vim.api.nvim_win_is_valid(composer_win) then
     vim.api.nvim_win_close(composer_win, true)
@@ -942,6 +958,34 @@ describe("with no file picker wired", function()
 
   it("inserts a literal @ and opens nothing", function()
     assert.same("look at @", line)
+  end)
+
+  -- A host that wired its adapters up incompletely gets told. Silence here is what made
+  -- the original defect read as intermittent rather than broken.
+  it("says the picker is missing rather than returning silently", function()
+    assert.is_true(h.notified(msgs, "file picker"), vim.inspect(msgs))
+  end)
+
+  it("leaves the composer open", function()
+    assert.is_true(open)
+  end)
+end)
+
+-- Open is not the same as usable. Being told the picker is missing has to cost the
+-- reference and nothing else: the note carries on around the `@` and still reaches the
+-- queue.
+describe("carrying on after a missing file picker", function()
+  reset()
+  annotate_line()
+  -- One feed, so the typing after the warning arrives in the insert mode the `@` was
+  -- pressed in rather than in normal mode.
+  h.feed("iread @ yourself")
+  -- A second feed, which normal mode is fine for: `^S` is bound in both.
+  h.feed("<C-s>")
+
+  it("keeps what was typed on either side of the sentinel, and queues it", function()
+    assert.same(1, queue.count())
+    assert.same("read @ yourself", queue.all()[1].note)
   end)
 end)
 
