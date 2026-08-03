@@ -42,7 +42,8 @@ M.defaults = {
   ---Report whether the payload was *handed off*, not whether it arrived (ADR-0005):
   ---return nothing or `true` for dispatched, `false` and a reason for not. Raising is a
   ---non-dispatch too, with the error message as the reason. Only a dispatch empties the
-  ---queue, so an adapter that says no leaves the batch to be retried.
+  ---queue, so an adapter that says no leaves the batch to be retried -- and leaves an
+  ---immediate send's note as a draft, which is the only place a batch of one can wait.
   ---
   ---Replaces the clipboard copy the plugin ships, which is the default implementation of
   ---this same contract rather than a fallback beside it: it is handed the same arguments

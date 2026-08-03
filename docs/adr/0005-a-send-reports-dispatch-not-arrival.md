@@ -27,6 +27,19 @@ there is. That is accepted: a **host** that wants a retry owns the payload by th
 plugin holding a copy against a failure it cannot observe would mean two places believing
 they are responsible for the same batch.
 
+A **batch of one** has no queue to be kept in, so a non-dispatch writes its note back to
+the **draft** store under the key the composer wrote it from, and the reviewer picks it up
+by annotating that file again. Putting it in the queue instead was rejected: an **immediate
+send** is an errand, and an errand that failed must not add itself to a batch someone is
+still assembling. The cost is that the two paths recover from different places — the queue
+for a batch, the draft store for a note.
+
+A non-dispatch is reported as an error where a host adapter refused or broke, because
+something was written and nothing received it. With no adapter wired it stays a warning:
+that is a configuration state rather than a failure, and the payload is in the register.
+It is the one place the shipped default is distinguished from a host's adapter, and only
+in how loudly it speaks — never in what happens to the batch.
+
 Because a raise is caught and reported rather than propagated, a host adapter's bugs are
 now reported as delivery failures. A `nil` field dereferenced inside a `send` reads as
 "the batch did not go" plus a Lua error message, rather than as a traceback out of the

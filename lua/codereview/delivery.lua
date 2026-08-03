@@ -27,9 +27,17 @@ local function info(msg)
   vim.notify(msg, vim.log.levels.INFO, { title = "Code review" })
 end
 
----@param msg string
-local function warn(msg)
-  vim.notify(msg, vim.log.levels.WARN, { title = "Code review" })
+---Say that a payload did not go, at the level that says whose problem it is.
+---
+---The rule that empties the queue has no branch in it and must not grow one. How loudly a
+---non-dispatch is said is a different question, and it does: an adapter that refused or
+---broke is a failure a reviewer has to act on, because something was written and nothing
+---received it. No adapter wired at all is a configuration state with the payload sitting
+---in the register, and saying that in red would cry wolf about the plugin's own default.
+---@param message string
+function M.report_undelivered(message)
+  local level = config.get().send and vim.log.levels.ERROR or vim.log.levels.WARN
+  vim.notify(message, level, { title = "Code review" })
 end
 
 ---Where the next batch goes, or nil for the adapter's default.
@@ -155,6 +163,10 @@ end
 ---       repository stands in, which is the only answer available to a caller -- buffer
 ---       capture sending a single note -- that never had a review behind it.
 ---@return boolean dispatched false when the send said it did not go, or raised trying
+---@return string|nil reason Always set on a non-dispatch. Returned rather than announced
+---       here, because what a caller has to add to it differs: a batch is still queued and
+---       says so by still being counted, while a batch of one has to say where its note
+---       went instead.
 function M.deliver(items, to, opts)
   local cfg = config.get()
   opts = opts or {}
@@ -185,8 +197,9 @@ function M.deliver(items, to, opts)
   -- all, and nothing has to keep meaning it went. What "went" means is deliberately
   -- narrow -- handed off, not arrived (ADR-0005).
   if dispatched == false then
-    warn(reason or "The send adapter did not deliver the batch")
-    return false
+    -- Given a sentence of its own when the adapter did not bother with one, so that every
+    -- caller can put the reason in a message without checking whether there is one.
+    return false, reason or "The send adapter reported it did not deliver"
   end
   return true
 end
@@ -227,7 +240,11 @@ function M.submit(ctx)
     return false
   end
 
-  if not M.deliver(queue.all(), target, ctx) then
+  local dispatched, reason = M.deliver(queue.all(), target, ctx)
+  if not dispatched then
+    -- Nothing more to add: the batch is still queued, and a queue that still counts what
+    -- it holds is how a reviewer sees that for themselves.
+    M.report_undelivered(reason)
     return false
   end
   queue.clear()

@@ -128,7 +128,10 @@ force one onto the fastest interaction there is.
 
 The queue is untouched: an annotation sent this way never joins it, and whatever is already
 queued is neither delivered nor cleared. It is governed by the same rule a batch is, though:
-a `send` that reports it did not go says why, and nothing claims the note was sent.
+a `send` that reports it did not go says why — as an error, since something was written and
+nothing received it — and nothing claims the note was sent. The note itself is kept as a
+draft, so annotating that file again offers it back. A batch of one has no queue to wait in,
+and by the time delivery answers, the composer has closed.
 
 You are asked where it goes **before** the composer opens, through `pick_target` — so
 declining costs no typing. Decline and nothing is sent. With no `pick_target` wired there
@@ -298,9 +301,11 @@ opts = {
   -- arrived: return nothing or `true` for dispatched, `false` and a reason for not.
   -- Raising counts as not dispatched too, with the error message as the reason.
   -- A dispatch is the one thing that empties the queue, so a batch that did not go is
-  -- still there to retry. Without this the payload goes to the + register, which is the
-  -- default implementation of this same contract — it reports a non-dispatch, because a
-  -- register is not a consumer, and that is why an unwired host keeps its queue.
+  -- still there to retry, and an immediate send that did not go keeps its note as a
+  -- draft. A refusal is reported as an error. Without this the payload goes to the +
+  -- register, which is the default implementation of this same contract — it reports a
+  -- non-dispatch (a register is not a consumer), which is why an unwired host keeps its
+  -- queue, and it is a warning rather than an error because nothing is broken.
   send = function(payload, target) return true end,
 
   -- Choose a delivery target; call back with anything carrying `short` and `cwd`.
