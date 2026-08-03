@@ -110,8 +110,16 @@ from there on, for the rest of that review. Dismissing it from inside the tree
 hands focus back to the diff. Collapsed directories belong to the review, not
 to the tree, so they are exactly as you left them when it comes back.
 
-In the queue float: x drops an entry, <C-t> routes, <C-s> submits, q closes
-and keeps the queue.
+In the queue float: <CR> jumps to the annotation under the cursor, x drops an
+entry, <C-t> routes, <C-s> submits, q closes and keeps the queue.
+
+A jump closes the float and centres the line the annotation is about,
+expanding the file first if it was collapsed. The queue is shared with the
+capture path and the float opens with or without a review, so some entries
+have nowhere to go: a bare note has no file at all, there may be no review
+view open, and a file may lie outside the current scope. Each says which, and
+leaves the float open -- the remedies are nothing, open a review, and change
+scope.
 
 Annotation keys are prefixed with `a` rather than bound bare. Bare `b`, `f`,
 `n` and `s` would shadow back-word, find-char and next-search inside the
