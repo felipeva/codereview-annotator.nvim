@@ -32,6 +32,38 @@ see which packages are done without opening them.
 Everything is drawn natively, and the syntax highlighting is recovered with
 `vim.treesitter.get_string_parser` — see [Design notes](#design-notes).
 
+## What it does
+
+**Reviewing** — [scopes](#usage) for a branch, the staged or unstaged changes, the whole
+worktree, or any git revspec, cycled in place with `gs`. A [unified or split
+layout](#layouts), chosen in configuration and switched with `gl` without losing your place.
+Treesitter [syntax highlighting](#design-notes) in both panes, including deleted lines that
+exist in no post-image. A [file tree](#in-the-tree) that compacts single-child chains and
+carries per-directory reviewed tallies, dismissed and summoned with `gp`. Files marked
+reviewed against their blob, so a mark stops meaning anything once the file changes under
+it. [Navigation](#getting-around) by file, hunk, unreviewed file and annotation.
+
+**Annotating** — [typed annotations](#annotation-types) (`bug`, `fix`, `suggestion`,
+`nitpick`, `issue` by default, replaceable wholesale), each with an optional directive
+telling the receiving agent what to do with that group, plus [untyped](#no-type) for "read
+this" without saying what to do. [Five kinds](#what-gets-annotated): a line, a range, a
+hunk, a whole file, or a bare note with no file behind it at all. Captured from the review
+view or [from any ordinary buffer](#from-any-buffer) with no review open — same entry,
+either way. A [composer](#adapters) with per-target drafts that survive restarts and `@`
+references to other files. Diagnostics on the annotated lines ride along.
+
+**Delivering** — a [queue](#persistence) that survives `:qa` and restarts, in a per-repository
+store plus a global one for files outside any checkout. A [queue float](#in-the-queue-float)
+that lists the batch, jumps to any entry with `<CR>`, drops, routes and submits. A
+[payload](#the-payload) grouped by type, most actionable first, inlining a diff where an
+`@ref` cannot carry the change. [Immediate send](#sending-one-annotation-now) for a single
+annotation that skips the queue. Staleness tracked by blob hash, so an annotation whose file
+moved is flagged rather than silently trusted.
+
+**Embedding** — [four adapters](#adapters): `send`, `pick_target`, `pick_file` and
+`compose`. None are required. With none of them wired the plugin still renders, annotates
+and queues, and the batch reaches the `+` register.
+
 ## Requirements
 
 - Neovim **0.12+** (`vim.treesitter.get_string_parser`, `vim.system`, `virt_lines`)
