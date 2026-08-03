@@ -3,6 +3,8 @@
 ---References are resolved at submit time, not at capture time, because the same queue can
 ---be sent to an agent whose working directory differs from this Neovim's -- an `@ref` only
 ---resolves relative to whoever reads it.
+local types = require("codereview.types")
+
 local M = {}
 
 ---Canonical form of a directory refs will be resolved against.
@@ -137,21 +139,10 @@ function M.render(items, base, opts)
   -- canonical, and `base` is the only side that never went through git or a realpath.
   base = M.resolve_base(base)
 
-  -- Grouped here rather than through queue.lua so this stays a pure function of its
-  -- arguments: the same list always renders the same message, which is what makes the
-  -- payload testable without a view or a live queue.
-  local groups = {}
-  for _, t in ipairs(opts.types) do
-    local bucket = {}
-    for _, entry in ipairs(items) do
-      if entry.type == t.name then
-        bucket[#bucket + 1] = entry
-      end
-    end
-    if #bucket > 0 then
-      groups[#groups + 1] = { type = t, items = bucket }
-    end
-  end
+  -- Grouped from the arguments rather than through queue.lua, so this stays a pure
+  -- function of them: the same list always renders the same message, which is what makes
+  -- the payload testable without a view or a live queue.
+  local groups = types.group(items, opts.types)
 
   local total = #items
   local header = ("Code review — %d annotation%s"):format(total, total == 1 and "" or "s")

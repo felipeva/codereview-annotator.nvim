@@ -146,6 +146,68 @@ function M.normalise(list, opts)
   return out
 end
 
+---The group an annotation with no annotation type falls into.
+---
+---Not a configured type and never one: it has no `name`, so nothing can be annotated *as*
+---untyped and no entry ever stores it. It exists so that both renderers have a heading and
+---a mark to print for a remark that carries no instruction. No `directive` for the same
+---reason -- a group with nothing to instruct should not pretend otherwise.
+---
+---The mark matches the one `render.lua` already prints for an annotation whose type it
+---cannot resolve, so an untyped note looks the same on the diff as it does in the queue.
+---@type CRType
+M.UNTYPED = { label = "Untyped", icon = "•" }
+
+---@class CRGroup
+---@field type CRType Configured type, or `M.UNTYPED`
+---@field items CRAnnotation[]
+
+---Bucket annotations by annotation type, in the configured type order.
+---
+---One helper rather than one loop per consumer: the queue float and the payload renderer
+---both group, and while they each owned a copy the two could -- and did -- drift into
+---disagreeing about what the queue contains.
+---
+---Pure, and deliberately takes the list rather than reading the queue: the payload
+---renderer is a pure function of its arguments, which is what lets a payload be asserted
+---without a live queue or a review view. Grouping through the queue would end that.
+---@param items CRAnnotation[]
+---@param list CRType[]
+---@return CRGroup[]
+function M.group(items, list)
+  local out, configured = {}, {}
+  for _, t in ipairs(list) do
+    configured[t.name] = true
+    local bucket = {}
+    for _, item in ipairs(items) do
+      if item.type == t.name then
+        bucket[#bucket + 1] = item
+      end
+    end
+    if #bucket > 0 then
+      out[#out + 1] = { type = t, items = bucket }
+    end
+  end
+
+  -- Last, after every typed group: an untyped annotation is worth reading, but a group
+  -- with no directive has nothing to ask for, so it does not belong above the ones that do.
+  --
+  -- Everything the loop above could not place, rather than only the entries carrying no
+  -- type at all: a queue persisted before a host dropped a type from its list restores
+  -- entries naming one that is gone, and those were being discarded just as silently.
+  local untyped = {}
+  for _, item in ipairs(items) do
+    if not configured[item.type] then
+      untyped[#untyped + 1] = item
+    end
+  end
+  if #untyped > 0 then
+    out[#out + 1] = { type = M.UNTYPED, items = untyped }
+  end
+
+  return out
+end
+
 ---@param list CRType[]
 ---@param name string
 ---@return CRType|nil

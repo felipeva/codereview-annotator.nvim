@@ -91,28 +91,6 @@ function M.at(key)
   return M.by_key()[key] or {}
 end
 
----Annotations bucketed by type, in the configured type order.
----
----Order comes from the type list rather than insertion order so the payload always leads
----with the most actionable group, whatever sequence you happened to write them in.
----@param types CRType[]
----@return { type: CRType, items: CRAnnotation[] }[]
-function M.grouped(types)
-  local out = {}
-  for _, t in ipairs(types) do
-    local bucket = {}
-    for _, item in ipairs(items) do
-      if item.type == t.name then
-        bucket[#bucket + 1] = item
-      end
-    end
-    if #bucket > 0 then
-      out[#out + 1] = { type = t, items = bucket }
-    end
-  end
-  return out
-end
-
 ---@return integer
 function M.stale_count()
   local n = 0

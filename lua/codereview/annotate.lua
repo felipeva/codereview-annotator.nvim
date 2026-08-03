@@ -329,15 +329,36 @@ function M.annotate(type_name)
   M.annotate_target(V, target, type_def.name)
 end
 
----Pick the type from a menu, then annotate.
-function M.annotate_pick()
-  local cfg = config.get()
+---Offer the configured types, plus an explicit way to decline one.
+---
+---Declining is an entry in the menu rather than a second meaning for dismissing it. The
+---picker's only non-selection outcome is cancel, and cancel abandons the annotation
+---outright, so reusing it would make "no type" indistinguishable from "never mind".
+---
+---Shared by the review path and by buffer capture, which offered the same menu twice.
+---@param list CRType[]
+---@param cb fun(type_def: CRType|nil) Untyped when nil; not called at all if dismissed
+function M.pick_type(list, cb)
   local labels = vim.tbl_map(function(t)
     return ("%s  %s"):format(t.icon, t.name)
-  end, cfg.types)
+  end, list)
+  -- Appended, so every configured type keeps the position a reviewer already reaches for.
+  labels[#labels + 1] = ("%s  no type"):format(types.UNTYPED.icon)
 
+  vim.ui.select(labels, { prompt = "Annotation type:" }, function(_, index)
+    if not index then
+      return
+    end
+    -- One past the type list is the decline entry, where `list[index]` is nil: an untyped
+    -- annotation, which is not the dismissal above and must not be answered like one.
+    cb(list[index])
+  end)
+end
+
+---Pick the type from a menu, then annotate.
+function M.annotate_pick()
   -- The selection has to be read before vim.ui.select steals the mode, so resolve the
-  -- target first and hand the already-resolved type name to the normal path.
+  -- target first and hand the already-resolved type to the normal path.
   local V = require("codereview.view").current()
   if not V then
     return
@@ -348,11 +369,8 @@ function M.annotate_pick()
     return
   end
 
-  vim.ui.select(labels, { prompt = "Annotation type:" }, function(_, index)
-    if not index then
-      return
-    end
-    M.annotate_target(V, target, cfg.types[index].name)
+  M.pick_type(config.get().types, function(type_def)
+    M.annotate_target(V, target, type_def and type_def.name)
   end)
 end
 
@@ -363,11 +381,16 @@ end
 ---captured, and that is only true if one piece of code decides the composer context, the
 ---persistence call, the wording of the confirmation and where focus lands afterwards.
 ---@param entry CRAnnotation
----@param type_def CRType
+---@param type_def CRType|nil nil for an untyped annotation
 ---@param opts? { note_suffix?: string } Appended below the collected note. Buffer capture
 ---       uses it to carry diagnostics; the review path has nothing to add.
 function M.queue_entry(entry, type_def, opts)
-  entry.type = type_def.name
+  -- Left unset rather than stamped with a sentinel, so anything asking an entry which type
+  -- it carries gets the honest answer -- and so no configurable name can ever collide with
+  -- one the plugin reserved.
+  entry.type = type_def and type_def.name
+  -- The untyped group stands in wherever the annotation still has to be named.
+  local type_label = (type_def or types.UNTYPED).label
   -- Before anything is added, not after: persisting writes the in-memory queue over the
   -- document, so queueing into a queue this session has never read back would drop
   -- whatever the last session left. A review view has already restored by the time it
@@ -376,7 +399,7 @@ function M.queue_entry(entry, type_def, opts)
   collect(
     {
       scope = "none",
-      label = ("%s · %s"):format(type_def.label:gsub("s$", ""), M.describe(entry)),
+      label = ("%s · %s"):format(type_label:gsub("s$", ""), M.describe(entry)),
       rel_path = entry.path,
       file_path = entry.abs_path,
     },
@@ -388,7 +411,7 @@ function M.queue_entry(entry, type_def, opts)
       local view = require("codereview.view")
       view.paint()
       view.persist()
-      info(("Queued %s %s (%d in queue)"):format(type_def.name, M.describe(entry), queue.count()))
+      info(("Queued %s %s (%d in queue)"):format(entry.type or "untyped", M.describe(entry), queue.count()))
     end
   )
 end
@@ -396,11 +419,10 @@ end
 ---Annotate a target that was resolved earlier.
 ---@param V CRView
 ---@param target CRTarget
----@param type_name string
+---@param type_name string|nil nil annotates without a type
 function M.annotate_target(V, target, type_name)
-  local cfg = config.get()
-  local type_def = types.get(cfg.types, type_name)
-  if not type_def then
+  local type_def = type_name and types.get(config.get().types, type_name)
+  if type_name and not type_def then
     return
   end
   if target.clamped then
@@ -439,7 +461,7 @@ function M.drop()
   view.paint()
   view.persist()
   if removed then
-    info(("Dropped %s note (%d left)"):format(removed.type, queue.count()))
+    info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
   end
 end
 

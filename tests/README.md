@@ -33,7 +33,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 
 | Spec | Covers |
 | --- | --- |
-| `types_spec` | Configuring annotation types: defaulting, validation, a custom type end to end |
+| `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
@@ -41,7 +41,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit |
-| `capture_spec` | Annotating from an ordinary buffer: scope, types, blob, composer, diagnostics, restart, one queue |
+| `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
@@ -103,6 +103,10 @@ so the out-of-core language path is still checked locally without ever failing C
 - **`nvim -l` sends `print` to stderr, not stdout.** A child spawned with `-l` that reports
   its result through `print` has to be read from `stderr`, or from both streams. Asserting
   against `stdout` alone silently never matches.
+- **An empty environment variable does not reach a child.** `vim.system` drops an env entry
+  whose value is `""`, so a child cannot tell "set to empty" from "never set". A flag a
+  child branches on has to be absent or carry a real value — `capture_child.lua` declines a
+  type when `CAPTURE_TYPE` is absent, not when it is blank.
 - **git config is neutralised.** Both the fixture scripts and `minimal_init.lua` set
   `GIT_CONFIG_GLOBAL=/dev/null`. Inherited settings quietly change what a fixture means:
   `diff.renames = false` turns the rename case into an unrelated add plus delete, and

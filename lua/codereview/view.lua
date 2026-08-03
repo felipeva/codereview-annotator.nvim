@@ -956,7 +956,9 @@ function M.review_queue()
     local lines = {}
     anchors = {}
     local index = 0
-    for _, group in ipairs(queue.grouped(cfg.types)) do
+    -- The same helper the payload renders through, handed the same list: what the float
+    -- shows and what the batch says have to be the one grouping, not two that agree today.
+    for _, group in ipairs(require("codereview.types").group(queue.all(), cfg.types)) do
       local heading = ("## %s"):format(group.type.label)
       if group.type.directive and group.type.directive ~= "" then
         heading = heading .. (" — %s"):format(group.type.directive)
