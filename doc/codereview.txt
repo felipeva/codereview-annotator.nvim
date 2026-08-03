@@ -225,6 +225,12 @@ and the space after it, or past the `@` if you cancelled, and back in insert
 mode. A picker takes focus and insert mode with it, and asking for a reference
 mid-sentence is not asking to stop writing.
 
+With no |codereview-opt-pick_file| wired at all, the `@` is all you get and the
+composer says so rather than doing nothing quietly -- a key that reports
+nothing is indistinguishable from a broken one. It costs you the reference and
+nothing else: the composer stays open, at the same place, and the note carries
+on around the `@`.
+
 Drafts                                                  *codereview-drafts*
 
 Abandon the composer with something in it and the text is kept. Annotate that
@@ -358,7 +364,7 @@ pick_target({cb})                                 *codereview-opt-pick_target*
 pick_file({cb})                                     *codereview-opt-pick_file*
         Choose a file to reference from inside the composer and call {cb} with
         it. The plugin ships no picker -- every config already has one -- so
-        without this `@` stays a literal `@` and opens nothing: >
+        without this `@` stays a literal `@` and says so: >
             cb({ path = "src/main.lua", first = 12, last = 20 })
 <
         `first` and `last` are optional. A picker that cannot select lines
