@@ -308,3 +308,185 @@ describe("the file picker", function()
     assert.is_true(V.expanded[path])
   end)
 end)
+
+-- Dismissing the panel wipes the buffer it was drawn into -- `bufhidden = "wipe"` -- so
+-- bringing it back is a rebuild, not an unhide. What survives is what lives on the review:
+-- the collapsed directories, the reviewed marks, the queue.
+describe("dismissing and summoning the tree", function()
+  local function shown()
+    return V.panel_win ~= nil and vim.api.nvim_win_is_valid(V.panel_win)
+  end
+
+  ---Normal-mode mappings bound to a buffer, by their lhs.
+  local function maps_of(buf)
+    local out = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+      out[#out + 1] = m.lhs
+    end
+    table.sort(out)
+    return out
+  end
+
+  ---The diff's file headers are padded to the diff window's width, which is exactly what
+  ---changes when the tree appears or goes away.
+  local function header_width()
+    local row = V.render.file_rows[1]
+    return vim.fn.strdisplaywidth(vim.api.nvim_buf_get_lines(V.buf, row - 1, row, false)[1])
+  end
+
+  ---Row carrying the current-file highlight.
+  local function selected_row()
+    local sel = vim.tbl_filter(
+      function(m)
+        return m[4].line_hl_group == "CodeReviewPanelSel"
+      end,
+      vim.api.nvim_buf_get_extmarks(V.panel_buf, vim.api.nvim_create_namespace("codereview_panel"), 0, -1, {
+        details = true,
+      })
+    )
+    assert.same(1, #sel)
+    return sel[1][2] + 1
+  end
+
+  -- Collapsed *before* the tree goes away. Collapsed state belongs to the review; the
+  -- buffer it was drawn into does not survive.
+  vim.api.nvim_set_current_win(V.win)
+  pcur(row_of_dir("apps"))
+  view.panel_fold(true)
+  local folded = panel_lines()
+  local maps_before = maps_of(V.panel_buf)
+  local buf_before = V.panel_buf
+  local narrow = vim.api.nvim_win_get_width(V.win)
+
+  it("hides the tree", function()
+    view.toggle_panel()
+    assert.is_false(shown())
+  end)
+
+  it("wipes the buffer the tree was drawn into", function()
+    assert.is_false(vim.api.nvim_buf_is_valid(buf_before))
+  end)
+
+  it("repaints the diff against the width it now has", function()
+    assert.is_true(vim.api.nvim_win_get_width(V.win) > narrow)
+    assert.same(vim.api.nvim_win_get_width(V.win), header_width())
+  end)
+
+  it("brings it back on the same keystroke", function()
+    view.toggle_panel()
+    assert.is_true(shown())
+    assert.same(narrow, vim.api.nvim_win_get_width(V.win))
+    assert.same(narrow, header_width())
+  end)
+
+  it("brings it back in a buffer of its own", function()
+    assert.is_true(vim.api.nvim_buf_is_valid(V.panel_buf))
+    assert.is_true(V.panel_buf ~= buf_before, "the wiped buffer came back")
+  end)
+
+  it("leaves collapsed directories exactly as they were", function()
+    assert.is_true(V.collapsed["apps"])
+    assert.same(folded, panel_lines())
+  end)
+
+  it("rebinds every panel keymap", function()
+    assert.same(maps_before, maps_of(V.panel_buf))
+  end)
+
+  -- Bound is not the same as working: assert through the keys themselves.
+  it("rebinds them as live mappings", function()
+    vim.api.nvim_set_current_win(V.panel_win)
+    pcur(row_of_dir("apps"))
+    h.feed("za")
+    assert.is_nil(V.collapsed["apps"])
+    h.feed("za")
+    assert.is_true(V.collapsed["apps"])
+    vim.api.nvim_set_current_win(V.win)
+  end)
+
+  it("does not shadow the tab-switching keys", function()
+    for _, buf in ipairs({ V.buf, V.panel_buf }) do
+      assert.is_false(vim.tbl_contains(maps_of(buf), "gt"))
+      assert.is_false(vim.tbl_contains(maps_of(buf), "gT"))
+    end
+  end)
+
+  it("is the same keystroke in the diff and in the tree", function()
+    vim.api.nvim_set_current_win(V.win)
+    h.feed("gp")
+    assert.is_false(shown())
+    h.feed("gp")
+    assert.is_true(shown())
+
+    vim.api.nvim_set_current_win(V.panel_win)
+    h.feed("gp")
+    assert.is_false(shown())
+    assert.same(V.win, vim.api.nvim_get_current_win())
+    h.feed("gp")
+    assert.is_true(shown())
+  end)
+
+  it("hands focus back to the diff when dismissed from inside the tree", function()
+    vim.api.nvim_set_current_win(V.panel_win)
+    view.toggle_panel()
+    assert.is_false(shown())
+    assert.same(V.win, vim.api.nvim_get_current_win())
+  end)
+
+  it("shows what changed while it was hidden", function()
+    view.panel_fold_all(false)
+    local path = "apps/web/src/index.lua"
+    local i = assert(h.file_index(V, path))
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[i], 0 })
+    view.toggle_reviewed()
+
+    view.toggle_panel()
+    assert.is_truthy(panel_lines()[row_of_file(path)]:find("✓", 1, true))
+    view.toggle_reviewed()
+  end)
+
+  -- The tree repaints only when the diff cursor crosses into a different file, and while
+  -- there is no tree to repaint that latch is holding a file nobody is reading any more.
+  it("follows the diff cursor again once it is back", function()
+    local function look_at(index)
+      vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index], 0 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+    end
+
+    look_at(3)
+    look_at(1)
+    assert.same(V.panel_render.file_row[1], selected_row())
+
+    view.toggle_panel()
+    look_at(3)
+    view.toggle_panel()
+    assert.same(V.panel_render.file_row[3], selected_row())
+
+    look_at(1)
+    assert.same(V.panel_render.file_row[1], selected_row())
+  end)
+end)
+
+-- Last: this reopens the review, so every `V` above it is gone.
+describe("a review configured to start without a tree", function()
+  require("codereview").setup({
+    syntax = false,
+    panel = { enabled = false },
+    compose = function(_, on_accept, _)
+      on_accept(nil, "n")
+    end,
+  })
+  view.open("branch")
+  local W = assert(view.current())
+
+  it("opens with none", function()
+    assert.is_nil(W.panel_win)
+  end)
+
+  it("summons one on the keystroke", function()
+    view.toggle_panel()
+    assert.is_not_nil(W.panel_win)
+    assert.is_true(vim.api.nvim_win_is_valid(W.panel_win))
+    assert.same(#W.files, #W.panel_render.file_rows)
+  end)
+end)

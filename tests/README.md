@@ -45,7 +45,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
-| `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
+| `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `interactive_spec` | The insert-mode leak, and where a completed or cancelled `@` leaves you, in a real pty-backed Neovim |
 
@@ -121,6 +121,15 @@ so the out-of-core language path is still checked locally without ever failing C
 - **Counts are derived from git, not hardcoded.** `diff_spec` cross-checks every file
   against `git diff --numstat` at runtime. Hardcoded totals went stale three times while
   this was being written. Keep them derived.
+- **A dismissed panel is a wiped buffer.** Panel buffers are `bufhidden = "wipe"`, so
+  closing the window destroys the buffer and every keymap bound to it. Nothing that drives
+  the view's exported actions can notice: `panel_spec` therefore asserts that the tree
+  comes back in a *different* buffer carrying the same mappings, and drives one of them
+  through the keys. Without that, a panel that comes back with no keymaps at all passes.
+- **`WinResized` is no use to a test.** It is fired from the main loop, so it lands after
+  whatever changed the width has returned — and in a headless spec, which never pumps the
+  loop, it does not land at all. Anything that changes a window's width has to repaint for
+  itself; the resize autocmd is for the reviewer dragging a border, nothing else.
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.
