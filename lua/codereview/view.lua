@@ -7,6 +7,7 @@ local git = require("codereview.git")
 local render = require("codereview.render")
 local panel = require("codereview.panel")
 local hl = require("codereview.hl")
+local delivery = require("codereview.delivery")
 
 local M = {}
 
@@ -31,18 +32,6 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 
 ---@type CRView|nil
 local V = nil
-
----Where the next batch goes, or nil for the adapter's default.
----
----Module-level for the reason the queue is: it describes what you are submitting to, not
----what you are looking at. Held on the view, choosing a target with nothing open ran the
----picker and discarded the answer, and the batch went to the default having just asked.
----
----Deliberately not persisted. The queue is worth keeping across a restart; a target
----identifies a live destination -- a herdr pane id, say -- and restoring a dead one would
----route a batch into nothing, which is worse than asking again.
----@type table|nil
-local target = nil
 
 ---@param msg string
 local function warn(msg)
@@ -152,8 +141,9 @@ local function update_winbar()
   if notes > 0 then
     bar = bar .. (" · %d note%s"):format(notes, notes == 1 and "" or "s")
   end
-  if target and target.short then
-    bar = bar .. (" · → %s"):format(target.short)
+  local to = delivery.target()
+  if to and to.short then
+    bar = bar .. (" · → %s"):format(to.short)
   end
   vim.wo[V.win].winbar = bar:gsub("%%", "%%%%")
 end
@@ -795,82 +785,28 @@ end
 
 --- Delivery -------------------------------------------------------------------
 
----Short name for a target, or what to call the adapter's own default.
+---Choose where the batch goes, from a surface this module owns.
 ---
----One wording for every piece of chrome that names a destination -- the winbar, the queue
----float, and a composer footer whichever choice it is naming.
----@param to table|nil
----@return string
-function M.label_of(to)
-  return (to and to.short) or "local"
-end
-
----Short name of where the batch is going.
----
----Exposed because the queue float and the winbar both name this choice, and it is the
----same choice: a batch's routing belongs to the batch, not to whichever window asked.
----@return string
-function M.target_label()
-  return M.label_of(target)
-end
-
----The batch's routing, in the shape a composer is handed.
----
----What a note joining the queue is routed by, and so the composer's default. An immediate
----send supplies its own instead, because that note has a target of its own.
----@return { label: fun(): string, pick: fun(on_done: fun()|nil) }
-function M.routing()
-  return { label = M.target_label, pick = M.pick_target }
-end
-
----Ask the host where something should go, holding focus where the question was asked.
----
----Says nothing about *what* is being routed: the batch's target is one caller, a single
----note being sent on its own is another, and neither should have to reimplement the focus
----dance around an asynchronous picker to have its own answer.
----@param cb fun(picked: table|nil) nil is a decline, which every caller reads its own way
----@return boolean asked false when no picker adapter is wired, so nothing was asked
-function M.choose_target(cb)
-  local cfg = config.get()
-  if not cfg.pick_target then
-    return false
-  end
-
-  -- Return focus to whichever window asked, not to the diff. Picking a target from the
-  -- queue float used to dump the cursor into the diff buffer, where `<C-s>` hits the main
-  -- buffer's mapping -- which submits but leaves the float open behind it.
-  local return_win = vim.api.nvim_get_current_win()
-
-  cfg.pick_target(function(picked)
-    if vim.api.nvim_win_is_valid(return_win) then
-      vim.api.nvim_set_current_win(return_win)
-    elseif V and vim.api.nvim_win_is_valid(V.win) then
-      vim.api.nvim_set_current_win(V.win)
-    end
-    cb(picked)
-  end)
-  return true
-end
-
----Choose where the batch goes, through the injected picker.
+---The choice is delivery's; what is left here is windows. Delivery puts focus back in the
+---window that asked, so all this adds is the case delivery cannot know about: that window
+---being gone by the time the picker answers -- the queue float closed under it, say -- in
+---which case the diff is where a reviewer belongs.
 ---@param on_done fun()|nil Runs after a target is chosen, once the picker has closed
 function M.pick_target(on_done)
-  local asked = M.choose_target(function(picked)
-    -- Recorded before anything view-shaped is touched. This used to return early with no
-    -- view, which meant the picker ran, the user answered, and the answer was dropped.
-    target = picked
+  local asked_from = vim.api.nvim_get_current_win()
+  delivery.pick_target(function()
+    if not vim.api.nvim_win_is_valid(asked_from) and M.current() then
+      vim.api.nvim_set_current_win(V.win)
+    end
+    -- The winbar names the target, and the picker is asynchronous: repainting after
+    -- `pick_target` returns paints before there is anything new to say.
     if V then
       update_winbar()
     end
-    -- The picker is asynchronous, so anything that has to reflect the new target has to
-    -- be driven from here; running it after `pick_target` returns repaints too early.
     if on_done then
       on_done()
     end
   end)
-  if not asked then
-    info("No pick_target adapter configured — submitting locally")
-  end
 end
 
 ---Render annotations as one payload and hand it to the send adapter.
@@ -933,6 +869,7 @@ function M.submit()
 
   local count = queue.count()
   -- Read unconditionally: the target outlives any view, and there may not be one.
+  local target = delivery.target()
   if
     not M.deliver(queue.all(), target, {
       scope_label = V_ and V_.scope.label or nil,
@@ -1042,7 +979,7 @@ function M.review_queue()
     vim.bo[buf].modifiable = false
 
     local n, stale = queue.count(), queue.stale_count()
-    local name = M.target_label()
+    local name = delivery.target_label()
     cfg_win.title = (" Review queue · %d annotation%s%s "):format(
       n,
       n == 1 and "" or "s",

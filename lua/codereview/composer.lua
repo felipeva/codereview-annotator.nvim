@@ -24,7 +24,7 @@ function M.open(ctx, on_accept, label)
   -- The batch's routing by default, because a note written here joins the batch. An
   -- immediate send hands its own on the context: that note has a target of its own, and
   -- naming the batch's would name a destination this note is not going to.
-  local routing = ctx.routing or require("codereview.view").routing()
+  local routing = ctx.routing or require("codereview.delivery").routing()
 
   local width = math.min(84, math.max(40, math.floor(vim.o.columns * 0.7)))
   local height = 6

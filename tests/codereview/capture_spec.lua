@@ -784,7 +784,7 @@ describe("where an immediate send goes", function()
   -- Batch routing and immediate-send routing are different things pointing at the same
   -- kind of destination. An errand must not redirect the batch you are assembling.
   it("leaves the batch's own target where it was", function()
-    assert.same("agent", require("codereview.view").target_label())
+    assert.same("agent", require("codereview.delivery").target_label())
   end)
 end)
 

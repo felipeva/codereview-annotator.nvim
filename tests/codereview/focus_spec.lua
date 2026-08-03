@@ -169,7 +169,6 @@ describe("submitting from the diff while a float is open", function()
 end)
 
 describe("routing from the diff", function()
-  V.target = nil
   vim.api.nvim_set_current_win(V.win)
   view.pick_target()
   pending_pick()

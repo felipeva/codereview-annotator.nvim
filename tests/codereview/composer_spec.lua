@@ -876,7 +876,7 @@ describe("the composer on an immediate send", function()
   end)
 
   it("leaves the batch pointing where it was", function()
-    assert.same("janus · api", view.target_label())
+    assert.same("janus · api", require("codereview.delivery").target_label())
   end)
 
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "send this one now" })

@@ -7,6 +7,7 @@
 ---    line it names no longer exists and that number now belongs to unrelated code;
 ---  * a hunk is always inlined, for the same reason -- what changed is the point.
 local config = require("codereview.config")
+local delivery = require("codereview.delivery")
 local queue = require("codereview.queue")
 local render = require("codereview.render")
 local types = require("codereview.types")
@@ -456,14 +457,14 @@ function M.send_entry(entry, type_def, opts)
   local to = nil
 
   ---What the composer names in its footer and changes with its routing key. The batch's
-  ---equivalent is `view.routing()`; this is the same shape for a note that owns its own
+  ---equivalent is `delivery.routing()`; this is the same shape for a note that owns its own
   ---destination, which is what lets one composer tell the truth on both paths.
   local routing = {
     label = function()
-      return view.label_of(to)
+      return delivery.label_of(to)
     end,
     pick = function(on_done)
-      local asked = view.choose_target(function(picked)
+      local asked = delivery.choose_target(function(picked)
         -- Declining a reroute is "never mind", not "send it nowhere". The note is written
         -- by now, and dropping the target it already had would redirect it in the one
         -- direction nobody asked for.
@@ -497,7 +498,7 @@ function M.send_entry(entry, type_def, opts)
 
   -- Asked before the composer opens, not after it closes: declining then costs nothing,
   -- where declining after the note is written costs the note.
-  local asked = view.choose_target(function(picked)
+  local asked = delivery.choose_target(function(picked)
     -- A picker that ran and came back empty is a reviewer who chose not to send. Said out
     -- loud, because a note that goes nowhere in silence looks exactly like one that was
     -- delivered.
