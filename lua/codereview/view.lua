@@ -1069,6 +1069,7 @@ local function setup_main_keymaps()
       "Cycle scope",
     },
     ["gr"] = { M.refresh, "Reload the diff" },
+    ["gp"] = { M.toggle_panel, "Show or hide the file tree" },
     ["<CR>"] = { M.open_file, "Open the real file here" },
     ["Q"] = { M.review_queue, "Review the queue" },
     ["<C-t>"] = { M.pick_target, "Choose the delivery target" },
@@ -1137,6 +1138,7 @@ local function setup_panel_keymaps()
     },
     ["<C-p>"] = { M.pick_file, "Jump to a file" },
     ["<Tab>"] = { M.toggle_focus, "Focus the diff" },
+    ["gp"] = { M.toggle_panel, "Hide the file tree" },
     ["R"] = { M.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { M.close, "Close the review" },
   })
@@ -1164,6 +1166,66 @@ local function window_opts(win)
   vim.wo[win].list = false
   vim.wo[win].spell = false
 end
+
+--- The panel window ------------------------------------------------------------
+
+---Build the panel: its window, its buffer and its keymaps.
+---
+---An operation of its own rather than a step inside `open`, because the toggle has to be
+---able to run it again. The panel buffer is `bufhidden = "wipe"`, so a dismissed panel
+---leaves nothing to re-attach: the buffer is gone and every keymap bound to it with it.
+local function show_panel()
+  local cfg = config.get()
+  vim.api.nvim_set_current_win(V.win)
+  vim.cmd(cfg.panel.position == "right" and "botright vsplit" or "topleft vsplit")
+  local pwin = vim.api.nvim_get_current_win()
+  local pbuf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_win_set_buf(pwin, pbuf)
+  scratch(pbuf, "codereviewpanel")
+  window_opts(pwin)
+  vim.api.nvim_win_set_width(pwin, cfg.panel.width)
+  vim.wo[pwin].winfixwidth = true
+  V.panel_buf, V.panel_win = pbuf, pwin
+  setup_panel_keymaps()
+  vim.api.nvim_set_current_win(V.win)
+end
+
+---Dismiss the panel. Collapsed directories are untouched: they live on the review.
+local function hide_panel()
+  local win = V.panel_win
+  V.panel_buf, V.panel_win, V.panel_render = nil, nil, nil
+  -- The tree follows the diff by repainting only when the cursor crosses into a different
+  -- file. With no tree to repaint, that latch would sit on whatever was being read when it
+  -- was dismissed, and reading that file again once it is back would repaint nothing.
+  V.panel_current = nil
+  -- A reviewer who dismisses the tree is not asking to be left in the window they
+  -- dismissed, so leave it deliberately rather than letting Neovim pick a successor.
+  if vim.api.nvim_get_current_win() == win then
+    vim.api.nvim_set_current_win(V.win)
+  end
+  pcall(vim.api.nvim_win_close, win, true)
+end
+
+---Show or dismiss the file tree, from the diff or from the tree itself.
+---
+---Configuration decides the state a review opens in; this decides it from there on.
+function M.toggle_panel()
+  if not M.current() then
+    return
+  end
+  if V.panel_win and vim.api.nvim_win_is_valid(V.panel_win) then
+    hide_panel()
+  else
+    show_panel()
+  end
+  -- The diff just changed width and its file headers are padded to that width, so this has
+  -- to repaint. The resize autocmd does not cover it: WinResized is fired from the main
+  -- loop, so it lands after the toggle has returned -- and never at all if nothing else
+  -- pumps the loop, which is exactly the headless case.
+  M.paint()
+end
+
+--- Opening --------------------------------------------------------------------
 
 ---@param spec string|nil
 function M.open(spec)
@@ -1226,17 +1288,7 @@ function M.open(spec)
   M.reconcile()
 
   if cfg.panel.enabled then
-    vim.cmd(cfg.panel.position == "right" and "botright vsplit" or "topleft vsplit")
-    local pwin = vim.api.nvim_get_current_win()
-    local pbuf = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_win_set_buf(pwin, pbuf)
-    scratch(pbuf, "codereviewpanel")
-    window_opts(pwin)
-    vim.api.nvim_win_set_width(pwin, cfg.panel.width)
-    vim.wo[pwin].winfixwidth = true
-    V.panel_buf, V.panel_win = pbuf, pwin
-    setup_panel_keymaps()
-    vim.api.nvim_set_current_win(main_win)
+    show_panel()
   end
 
   setup_main_keymaps()

@@ -151,6 +151,7 @@ batch pointing where it was.
 | `za` | Toggle expansion without marking reviewed |
 | `gs` | Cycle scope, re-rendering in place |
 | `gr` | Re-read the diff from git |
+| `gp` | Show or hide the file tree |
 | `<CR>` | Open the real file here, in a new tab |
 | `Q` | Review the queue |
 | `<C-t>` | Choose the delivery target |
@@ -189,10 +190,17 @@ cursor last was.
 | `R` | Toggle reviewed — **on a directory, the whole subtree** |
 | `<C-p>` | Jump to a file by name |
 | `<Tab>` | Back to the diff |
+| `gp` | Dismiss the tree, landing back in the diff |
 | `q` | Close |
 
 Jumping to a file that was collapsed because it is reviewed expands it: you asked to look
 at it.
+
+`panel.enabled` decides whether a review *opens* with a tree; `gp` decides it from there
+on, for the rest of that review. Dismissing it hands focus back to the diff, because a
+reviewer who dismisses the tree is not asking to be left in a window that no longer
+exists. Collapsed directories belong to the review rather than to the tree, so they are
+exactly as you left them when it comes back.
 
 Annotation keys are prefixed with `a` rather than bound bare, because bare `b`, `f`, `n`
 and `s` would shadow back-word, find-char, next-search and (if you use it) flash.nvim
