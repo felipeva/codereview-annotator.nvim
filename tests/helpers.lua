@@ -60,16 +60,44 @@ function M.capture_notify()
   end
 end
 
----@param messages string[]
+---Collect notifications with the level each was reported at, which `capture_notify`
+---drops. For the cases where *how loudly* something was said is the point.
+---@return { msg: string, level: integer }[] records, fun() restore
+function M.capture_notify_levels()
+  local records = {}
+  local orig = vim.notify
+  vim.notify = function(msg, level, ...)
+    records[#records + 1] = { msg = msg, level = level }
+    return orig(msg, level, ...)
+  end
+  return records, function()
+    vim.notify = orig
+  end
+end
+
+---@param messages string[]|{ msg: string, level: integer }[] Either capture's shape
 ---@param needle string
 ---@return boolean
 function M.notified(messages, needle)
   for _, m in ipairs(messages) do
-    if type(m) == "string" and m:find(needle, 1, true) then
+    local text = type(m) == "table" and m.msg or m
+    if type(text) == "string" and text:find(needle, 1, true) then
       return true
     end
   end
   return false
+end
+
+---The level a matching notification was reported at.
+---@param records { msg: string, level: integer }[]
+---@param needle string
+---@return integer|nil level nil when nothing matched
+function M.notified_level(records, needle)
+  for _, r in ipairs(records) do
+    if type(r.msg) == "string" and r.msg:find(needle, 1, true) then
+      return r.level
+    end
+  end
 end
 
 ---Feed keys and let them run to completion.

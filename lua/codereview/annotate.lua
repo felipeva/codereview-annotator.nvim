@@ -8,6 +8,7 @@
 ---  * a hunk is always inlined, for the same reason -- what changed is the point.
 local config = require("codereview.config")
 local delivery = require("codereview.delivery")
+local drafts = require("codereview.drafts")
 local queue = require("codereview.queue")
 local render = require("codereview.render")
 local types = require("codereview.types")
@@ -423,10 +424,9 @@ function M.queue_entry(entry, type_def, opts)
   -- gets here; capture from a buffer can be the very first thing a session does.
   local staled = require("codereview.state").ensure_queue()
   if staled > 0 then
-    -- Worded exactly as a review reports staleness, and said before the composer opens:
-    -- which path happened to read the queue back is not something a reviewer should be
-    -- able to hear.
-    info(("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s"))
+    -- Said before the composer opens, in the queue's own wording: which path happened to
+    -- read the queue back is not something a reviewer should be able to hear.
+    info(queue.stale_phrase(staled))
   end
   collect(compose_ctx(entry, type_def), "queue", function(text)
     entry.note = note_with(text, opts)
@@ -487,11 +487,15 @@ function M.send_entry(entry, type_def, opts)
   }
 
   local function compose_and_send()
-    collect(compose_ctx(entry, type_def, routing), "send", function(text)
+    -- Held rather than built inside the call, because the draft key is computed from it
+    -- and a note that did not go has to return under exactly the key it was written from.
+    local ctx = compose_ctx(entry, type_def, routing)
+    collect(ctx, "send", function(text)
       entry.note = note_with(text, opts)
       -- No context to hand over: this note was captured from a buffer, so there is no
       -- review whose root and scope the payload could describe.
-      if delivery.deliver({ entry }, to) then
+      local dispatched, reason = delivery.deliver({ entry }, to)
+      if dispatched then
         info(
           ("Sent %s %s to %s"):format(
             entry.type or "untyped",
@@ -499,7 +503,30 @@ function M.send_entry(entry, type_def, opts)
             to and (to.short or "agent") or "local"
           )
         )
+        return
       end
+
+      -- Where a batch keeps its payload in the queue, a batch of one has no queue to keep
+      -- it in: an errand must not disturb the batch being assembled (ADR-0004), and by
+      -- now the composer has closed its window, wiped its buffer and committed its draft
+      -- because a submitted note is not an abandoned one. Without this the note the
+      -- reviewer just typed exists nowhere at all. The draft store is what "you may want
+      -- this back" already means, so it goes there, under the composer's own key.
+      --
+      -- The typed text, not `entry.note`: whatever rides along under a note -- buffer
+      -- capture's diagnostics -- is added again on the way out next time.
+      drafts.set(drafts.key(ctx), text)
+      -- Named by the file rather than by the annotation, because that is what a draft is
+      -- keyed by: coming back to it is what offers the note again, whatever the next one
+      -- covers.
+      local where = entry.path or entry.abs_path
+      delivery.report_undelivered(
+        ("%s; the note is kept as a draft — %s"):format(
+          reason,
+          where and ("annotate %s again to pick it up"):format(where)
+            or "the next note with no file behind it picks it up"
+        )
+      )
     end)
   end
 

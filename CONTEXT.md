@@ -109,8 +109,15 @@ The agent session a batch is delivered to.
 _Avoid_: destination, recipient, agent (an agent is the software; a target is the session)
 
 **Submit**:
-Render the batch and hand it to the host's delivery adapter, clearing the queue.
+Render the batch and hand it to the host's delivery adapter, clearing the queue if the
+adapter reports a **dispatch**.
 _Avoid_: send (reserved for the adapter), flush, publish
+
+**Dispatch**:
+A payload handed off to the send adapter, said of the handoff and not of its arrival — the
+adapter cannot know synchronously that an agent took it. A dispatch is the one thing that
+empties the queue.
+_Avoid_: delivered, sent, accepted
 
 **Immediate send**:
 Delivering a single annotation on its own, without it joining the queue.

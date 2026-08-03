@@ -222,8 +222,12 @@ function M.restore_queue(root)
 end
 
 ---The repository the queue belongs to when no view is open.
+---
+---Public because more than the restore has to ask it: writing the queue with nothing open
+---and emptying it after a submit both write to the store this names, and a second copy of
+---the question is a second chance to answer it differently.
 ---@return string|nil
-local function ambient_root()
+function M.ambient_root()
   return require("codereview.git").root(vim.fn.getcwd())
 end
 
@@ -251,7 +255,7 @@ function M.ensure_queue()
   queue_restored = true
   -- No root is not a reason to skip: annotations with no repository behind them live in a
   -- store that does not need one, and they would otherwise never come back.
-  return M.restore_queue(ambient_root())
+  return M.restore_queue(M.ambient_root())
 end
 
 ---Restore saved progress into a freshly opened view.

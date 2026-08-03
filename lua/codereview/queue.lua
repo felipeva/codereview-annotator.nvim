@@ -91,6 +91,18 @@ function M.at(key)
   return M.by_key()[key] or {}
 end
 
+---How a reviewer is told that annotations came back untrustworthy.
+---
+---One wording for every surface that reports staleness -- a reconcile against the diff on
+---screen, a restore with nothing open, a capture that restored on its way past, and a
+---submit that did. Which of them happened to notice is not something a reviewer should be
+---able to hear, and four copies of a sentence is how that stops being true.
+---@param n integer
+---@return string
+function M.stale_phrase(n)
+  return ("%d annotation%s now stale"):format(n, n == 1 and "" or "s")
+end
+
 ---@return integer
 function M.stale_count()
   local n = 0

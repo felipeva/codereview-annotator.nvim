@@ -194,12 +194,6 @@ function M.paint(keep_file)
   end
 end
 
----The repository the queue belongs to when no view is open.
----@return string|nil
-local function ambient_root()
-  return git.root(vim.fn.getcwd())
-end
-
 ---Write progress to disk. Called from every mutation rather than from `paint`, which
 ---also runs on resize and would turn a window drag into a stream of file writes.
 ---
@@ -207,13 +201,14 @@ end
 ---the queue -- there are no marks to write, and writing the document anyway would blank
 ---the ones a review left behind.
 function M.persist()
+  local state = require("codereview.state")
   if V then
-    require("codereview.state").persist(V)
+    state.persist(V)
     return
   end
   -- Passed even when nil: there may still be annotations with no repository to write, and
   -- skipping would leave a submitted batch's entries on disk to come back next start.
-  require("codereview.state").persist_queue(ambient_root())
+  state.persist_queue(state.ambient_root())
 end
 
 ---Read the persisted queue back if this session has not, and say what came back stale.
@@ -225,7 +220,7 @@ end
 local function ensure_queue()
   local staled = require("codereview.state").ensure_queue()
   if staled > 0 then
-    info(("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s"))
+    info(require("codereview.queue").stale_phrase(staled))
   end
 end
 
@@ -505,7 +500,7 @@ function M.reconcile()
     parts[#parts + 1] = ("%d file%s changed since review"):format(unmarked, unmarked == 1 and "" or "s")
   end
   if staled > 0 then
-    parts[#parts + 1] = ("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s")
+    parts[#parts + 1] = require("codereview.queue").stale_phrase(staled)
   end
   if #parts > 0 then
     info(table.concat(parts, ", "))
@@ -795,16 +790,13 @@ function M.pick_target(on_done)
   end)
 end
 
----Render the queue and hand it to the send adapter.
+---Submit the batch, and put the windows back the way a sent batch leaves them.
+---
+---The rule -- restore, deliver, empty only on a dispatch -- is delivery's, because none of
+---it is about a window and all of it happens with nothing open. What is left here is the
+---float that was listing the batch, the diff behind it, and telling delivery what this
+---review can say about itself.
 function M.submit()
-  local queue = require("codereview.queue")
-
-  ensure_queue()
-  if queue.count() == 0 then
-    info("Queue is empty — annotate something first")
-    return
-  end
-
   -- Submitting empties the queue, so any open queue float is now describing nothing.
   if V and V.queue_win and vim.api.nvim_win_is_valid(V.queue_win) then
     vim.api.nvim_win_close(V.queue_win, true)
@@ -819,35 +811,19 @@ function M.submit()
     end
   end
 
-  local count = queue.count()
-  -- Read unconditionally: the target outlives any view, and there may not be one.
-  local target = delivery.target()
-  if
-    not delivery.deliver(queue.all(), target, {
-      -- Handed over rather than read back: delivery knows nothing about views, and a batch
-      -- submitted with none open is answered from the working directory instead.
-      root = V_ and V_.root or nil,
-      scope_label = V_ and V_.scope.label or nil,
-      files = V_ and #V_.files or nil,
-      reviewed = reviewed,
-    })
-  then
-    return
-  end
-  queue.clear()
-  if M.current() then
+  local dispatched = delivery.submit({
+    -- Handed over rather than read back: delivery knows nothing about views, and a batch
+    -- submitted with none open is answered from the working directory instead.
+    root = V_ and V_.root or nil,
+    scope_label = V_ and V_.scope.label or nil,
+    files = V_ and #V_.files or nil,
+    reviewed = reviewed,
+  })
+  -- A batch that did not go is still queued and still drawn on the diff, so there is
+  -- nothing to repaint -- and the reviewer has already been told why.
+  if dispatched then
     M.paint()
   end
-  -- Outside the `M.current()` guard: a batch submitted with no view still has to write the
-  -- emptied queue, or the entries it just sent come back on the next start.
-  M.persist()
-  info(
-    ("Submitted %d annotation%s to %s"):format(
-      count,
-      count == 1 and "" or "s",
-      target and (target.short or "agent") or "local"
-    )
-  )
 end
 
 --- The queue review float ------------------------------------------------------

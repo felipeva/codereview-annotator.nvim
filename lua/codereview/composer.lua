@@ -89,7 +89,14 @@ function M.open(ctx, on_accept, label)
   local function submit()
     local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
     close(false)
-    -- Committed: there is nothing left worth restoring for this file.
+    -- Committed as far as this composer is concerned: a submitted note is not an
+    -- abandoned one, and nothing of the window that collected it is worth restoring.
+    --
+    -- It is no longer the last word on the note, though. `on_accept` may deliver, and a
+    -- delivery can report that it did not go -- by which time this window is closed and
+    -- its buffer wiped, so the caller writes the note back under this same key rather
+    -- than losing it. Clearing here is still right: it is the caller's business whether
+    -- there is anything left to keep.
     drafts.set(draft_key, nil)
     -- The target argument is the adapter contract's, not this composer's: routing is a
     -- property of the batch and the plugin already holds it.
