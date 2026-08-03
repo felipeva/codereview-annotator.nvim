@@ -14,8 +14,25 @@ git revspec.
 _Avoid_: mode, filter, range (a range is a span of lines, see **Range**)
 
 **Review view**:
-The unified, syntax-highlighted diff of a scope, with annotations projected onto its lines.
+The syntax-highlighted diff of a scope, with annotations projected onto its lines. Means
+the whole surface in either **layout**.
 _Avoid_: diff view, buffer
+
+**Layout**:
+How the review view arranges a diff: **unified**, deleted and added lines stacked in one
+column, or **split**, the before- and after-images as two **panes** side by side.
+_Avoid_: mode, diff view
+
+**Pane**:
+One of the two windows in a split layout, holding the before- or the after-image. Not
+_side_: a diff line's side is already add/del/ctx, and one word must not do two jobs.
+_Avoid_: side, column, window
+
+**Filler**:
+A blank row emitted in one pane where the other has no counterpart — a pure addition, a
+pure deletion, a file that exists on only one side — so the two stay row-aligned. Distinct
+from a **pad**, the blank row after a hunk, which both panes draw.
+_Avoid_: padding, spacer
 
 **Review path**:
 Annotating from inside the review view, where the diff and its anchors decide what an

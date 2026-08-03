@@ -4,9 +4,10 @@
 [![Neovim 0.12+](https://img.shields.io/badge/Neovim-0.12%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A code review surface for Neovim: one unified, syntax-highlighted diff of everything a
-branch changed, with vim-native navigation, typed annotations that queue up, reviewed-file
-collapsing, and a batch submit that hands the whole review to an agent as a single message.
+A code review surface for Neovim: one syntax-highlighted diff of everything a branch
+changed — unified or side by side — with vim-native navigation, typed annotations that queue
+up, reviewed-file collapsing, and a batch submit that hands the whole review to an agent as
+a single message.
 
 ```
 ┌─ tree ──────────────┐┌─ Code review · branch vs origin/master · 2/7 · +9 -4 ──┐
@@ -140,6 +141,66 @@ Because the note owns that choice rather than the batch, the composer's footer n
 target *this note* will reach, and `^T` in the composer reroutes the note, leaving the
 batch pointing where it was.
 
+### Layouts
+
+The review view arranges a diff one of two ways. **Unified** is what has always existed and
+stays the default: deleted and added lines stacked in one column. **Split** draws the same
+diff as two **panes** — the before-image on the left, the after-image on the right — with
+corresponding code on the same screen row.
+
+```lua
+opts = { layout = "split" }   -- "unified" (default) or "split"
+```
+
+```
+┌─ tree ─────────┐┌─ Before · origin/master ────┐┌─ Code review · branch · 2/7 ─┐
+│ ▾ apps     1/4 ││     apps/api/src/main.ts    ││ ● ▾ apps/api/src/main.ts +12 │
+│   ▾ api/src1/2 ││ @@ -19,6 @@                 ││ @@ +19,8 @@ function boot()  │
+│     ● main.ts 3││  19 │  const app = express()││  19 │  const app = express() │
+│   ▾ web/src0/2 ││ ▌20 │ -const cfg = load()   ││ ▌20 │ +const cfg = loadCon…  │
+│     ✓ index.ts ││                             ││ ▌    │   🐞 why the rename?  │
+│ ○ README.md    ││                             ││ ▌21 │ +cfg.validate()       │
+│ 2/7 reviewed   ││  21 │  app.listen(cfg.port) ││  22 │  app.listen(cfg.port) │
+└────────────────┘└─────────────────────────────┘└──────────────────────────────┘
+```
+
+The blank rows on the left are **filler**: the addition on row 21 has no counterpart in the
+before-image, so the left pane holds its place rather than letting the two drift apart. The
+note is drawn once, in the pane its line belongs to, and the opposite pane holds that place
+too.
+
+The value is validated at `setup()`, so a typo fails loudly instead of quietly rendering
+unified. Everything the view does works in both: files collapse and expand, files are
+marked reviewed, annotations are captured and displayed on the lines they are about,
+navigation moves by file, hunk and annotation, and both panes are syntax-highlighted — the
+left from the pre-image, the right from the post-image.
+
+Where one image has no counterpart — a pure addition, a pure deletion, a file that exists on
+only one side — the other pane draws **filler**: a blank row that keeps the two in step and
+that resolves to the whole file if you annotate from it, rather than to whatever code
+happens to be above it.
+
+Chrome is split too, so headers stay aligned as well: a hunk header shows its pre-image
+range on the left and its post-image range plus git's section heading on the right, and a
+renamed file shows its old path on the left and its new path on the right. The right pane's
+winbar carries the review status; the left names the revision it is showing.
+
+You can annotate from either pane, and the pane you are in decides what is captured — a
+deleted line on the left, the post-image line on the right. **The entry is the same either
+way.** A layout is a rendering choice and nothing else, so which one was on screen never
+reaches the receiving agent
+([ADR-0002](docs/adr/0002-one-queue-one-entry-shape.md)). Notes are drawn in the pane the
+line belongs to, wrapped to that pane's width, with the opposite pane holding its place so
+reading one never knocks the two out of alignment.
+
+The panes scroll and move together. Horizontal scrolling does not, because synchronising it
+would mean changing `scrollopt`, which is a global option this plugin does not own.
+
+One behavioural difference, and only one: a visual **range** cannot span both images,
+because the two runs live in different windows and cannot be in one selection.
+Pure-addition and pure-deletion ranges work, and annotating the hunk header captures both
+images inlined — so what a split range cannot express is still one keystroke away.
+
 ### Inside the view
 
 | Key | Action |
@@ -235,6 +296,7 @@ message would name none of them.
 | A visual selection | Those lines |
 | A hunk header | The whole hunk |
 | A file header | The whole file |
+| A filler row (split layout) | The whole file |
 
 ## Annotation types
 
@@ -390,6 +452,7 @@ opts = {
   untracked = true,                -- show untracked files in branch/worktree scopes
   syntax = true,                   -- treesitter highlighting
   max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
+  layout = "unified",              -- "unified" or "split"; validated at setup
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },
