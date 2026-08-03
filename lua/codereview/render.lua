@@ -4,10 +4,16 @@
 ---produces is the single source of truth that navigation, annotation targeting, collapse
 ---and the syntax replay all read -- every "which change is row 47?" question is answered
 ---here and nowhere else.
+---
+---`build` returns **two** renders from **one** walk: the after-pane render, and the
+---before-pane render, which is nil in the unified layout. One walk rather than two calls is
+---what makes row alignment a property of the returned data, guaranteed by construction,
+---rather than an emergent property of two independent calls agreeing -- and it is what lets
+---every property that makes the split layout correct be asserted with no window on screen.
 local M = {}
 
 ---@class CRAnchor
----@field kind "file"|"sep"|"hunk"|"line"|"pad"|"note"
+---@field kind "file"|"sep"|"hunk"|"line"|"pad"|"note"|"fill"
 ---@field file integer        Index into the file list
 ---@field hunk integer|nil    Index into that file's hunks
 ---@field line integer|nil    Index into that hunk's lines
@@ -22,6 +28,10 @@ local M = {}
 
 local SEP = " │ "
 
+---The layouts a review can be rendered in. `unified` is what has always existed; `split`
+---draws the same diff as two panes, the before-image beside the after-image.
+M.LAYOUTS = { "unified", "split" }
+
 ---Explicit so the layers compose predictably: diff backgrounds sit underneath, the
 ---treesitter foregrounds `syntax.lua` adds sit on top. Leaving these at the extmark
 ---default makes the result depend on insertion order, which changes as the view repaints.
@@ -32,6 +42,9 @@ M.PRIORITY = { diff = 100, gutter = 110, syntax = 150 }
 ---Sided because a deleted line and an added line can share a number: `foo.ts:o:20` and
 ---`foo.ts:n:20` are different places, and collapsing them would move annotations onto
 ---code they were never about.
+---
+---Also what decides which **pane** a note is drawn in, since the side is already in the
+---key: no second rule is introduced for the split layout.
 ---@param path string
 ---@param line CRLine
 ---@return string
@@ -50,10 +63,21 @@ function M.file_key(path)
   return path .. ":f:0"
 end
 
+---Whether a key names a place in the pre-image, and so belongs to the before pane.
+---
+---Only a pure deletion produces one: a context line exists on both sides and its key
+---prefers the post-image, which is why context reads in the after pane.
+---@param key string|nil
+---@return boolean
+function M.is_before_key(key)
+  return key ~= nil and key:find(":o:%d+$") ~= nil
+end
+
 ---Widest line number anywhere in the diff.
 ---
 ---Computed across all files, not just expanded ones, so the gutter does not resize --
----and every row shift -- when a file is expanded.
+---and every row shift -- when a file is expanded. Shared by both panes, so their gutters
+---are the same width and their code starts at the same column.
 ---@param files CRFile[]
 ---@return integer
 local function gutter_digits(files)
@@ -89,44 +113,147 @@ local function truncate(text, width)
   return vim.fn.strcharpart(text, 0, math.max(1, width - 1)) .. "…"
 end
 
+---Longest prefix of `text` that fits in `width` display columns, and what is left.
+---
+---By display width rather than by characters: a note containing CJK or an emoji occupies
+---more columns than it has characters, and cutting by character count would overflow.
+---@param text string
+---@param width integer
+---@return string head, string tail
+local function take(text, width)
+  local lo, hi = 0, vim.fn.strchars(text)
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    if vim.fn.strdisplaywidth(vim.fn.strcharpart(text, 0, mid)) <= width then
+      lo = mid
+    else
+      hi = mid - 1
+    end
+  end
+  lo = math.max(1, lo)
+  return vim.fn.strcharpart(text, 0, lo), vim.fn.strcharpart(text, lo)
+end
+
+---Break `text` into lines no wider than `width` display columns.
+---
+---Virtual lines clip at the window edge rather than wrapping, so a note that arrives
+---unbroken is silently truncated in a narrow pane. Breaking on whitespace where there is
+---one, and mid-word only when a single word is wider than the pane -- which loses nothing,
+---where clipping loses the tail.
+---@param text string
+---@param width integer
+---@return string[]
+local function wrap(text, width)
+  if width < 1 then
+    return vim.split(text, "\n", { plain = true })
+  end
+  local out = {}
+  for _, para in ipairs(vim.split(text, "\n", { plain = true })) do
+    local rest = para
+    if rest == "" then
+      out[#out + 1] = ""
+    end
+    while rest ~= "" do
+      if vim.fn.strdisplaywidth(rest) <= width then
+        out[#out + 1] = rest
+        rest = ""
+      else
+        local head, tail = take(rest, width)
+        -- Last whitespace inside the part that fits. `head` is a byte-prefix of `rest`, so
+        -- the position it reports is a position in `rest` too.
+        local cut = head:match("^.*()%s")
+        if cut and cut > 1 then
+          out[#out + 1] = (head:sub(1, cut - 1):gsub("%s+$", ""))
+          rest = (rest:sub(cut):gsub("^%s+", ""))
+        else
+          out[#out + 1] = head
+          rest = tail
+        end
+      end
+    end
+  end
+  return out
+end
+
+---Split a hunk header into the halves each pane draws.
+---@param header string "@@ -19,6 +19,8 @@ heading"
+---@param hunk CRHunk
+---@return string old, string new
+local function header_ranges(header, hunk)
+  local old, new = header:match("^@@ (%-[%d,]+) (%+[%d,]+) @@")
+  return old or ("-%d"):format(hunk.old_start), new or ("+%d"):format(hunk.new_start)
+end
+
+---@return table
+local function new_pane()
+  return { lines = {}, anchors = {}, marks = {}, file_rows = {}, hunk_rows = {} }
+end
+
 ---Build the view.
+---
+---Returns the after-pane render first because the after-image is the primary one
+---throughout: context lines are attributed to it, line keys prefer it, an entry's line
+---numbers prefer it, and opening a file resolves through it. In the unified layout the
+---second return value is nil, which is what every existing caller already ignores.
 ---@param files CRFile[]
----@param opts { width: integer, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, types: CRType[] }
----@return CRRender
+---@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, types: CRType[] }
+---@return CRRender after, CRRender|nil before
 function M.build(files, opts)
   local icons = opts.icons
+  local split = opts.layout == "split"
   local width = math.max(40, opts.width or 80)
+  local before_width = math.max(40, opts.before_width or width)
   local digits = gutter_digits(files)
 
-  local lines, anchors, marks = {}, {}, {}
-  local file_rows, hunk_rows = {}, {}
+  local after = new_pane()
+  local before = split and new_pane() or nil
 
+  ---@param pane table
   ---@param row integer 1-indexed
   ---@param col integer 0-indexed byte
   ---@param opts_ table
-  local function mark(row, col, opts_)
+  local function mark(pane, row, col, opts_)
     if opts_.priority == nil and not opts_.virt_lines then
       opts_.priority = opts_.line_hl_group and M.PRIORITY.diff or M.PRIORITY.gutter
     end
-    marks[#marks + 1] = { row = row - 1, col = col, opts = opts_ }
+    pane.marks[#pane.marks + 1] = { row = row - 1, col = col, opts = opts_ }
   end
 
+  ---@param pane table
   ---@param text string
   ---@param anchor CRAnchor
   ---@return integer row
-  local function push(text, anchor)
-    lines[#lines + 1] = text
-    anchors[#lines] = anchor
-    return #lines
+  local function push(pane, text, anchor)
+    pane.lines[#pane.lines + 1] = text
+    pane.anchors[#pane.lines] = anchor
+    return #pane.lines
   end
 
-  ---Annotations attached to a row, rendered as virtual lines beneath it.
-  ---@param row integer
+  ---One logical row, drawn in both panes.
+  ---
+  ---Every chrome row goes through here, which is what makes parity structural rather than
+  ---something to remember: a row cannot be added to one pane without the other.
+  ---@param atext string
+  ---@param aanchor CRAnchor
+  ---@param btext string|nil
+  ---@param banchor CRAnchor|nil
+  ---@return integer row
+  local function row2(atext, aanchor, btext, banchor)
+    local r = push(after, atext, aanchor)
+    if before then
+      push(before, btext or "", banchor or { kind = "fill", file = aanchor.file, hunk = aanchor.hunk })
+    end
+    return r
+  end
+
+  ---The virtual lines an annotated row draws, or nil when nothing is attached to it.
   ---@param key string
-  local function attach_notes(row, key)
+  ---@param wrap_to integer|nil Pane width to wrap the note to; nil leaves it unwrapped
+  ---@return table[]|nil
+  local function note_virt(key, wrap_to)
     local items = opts.notes and opts.notes[key]
     if not items or #items == 0 then
-      return
+      return nil
     end
     local virt = {}
     for _, item in ipairs(items) do
@@ -134,13 +261,26 @@ function M.build(files, opts)
       local icon = type_def and type_def.icon or "•"
       local group = type_def and type_def.hl or "CodeReviewNote"
       local prefix = ("   %s "):format(icon)
+      local stale = item.stale and "⚠ stale  " or nil
+
+      local body
+      if wrap_to then
+        -- The marker only prefixes the first line, but wrapping the whole note to the
+        -- narrower budget is what makes "nothing is clipped" true by construction rather
+        -- than true of every line except one.
+        local avail = wrap_to - vim.fn.strdisplaywidth(prefix) - (stale and vim.fn.strdisplaywidth(stale) or 0)
+        body = wrap(item.note, math.max(8, avail))
+      else
+        body = vim.split(item.note, "\n", { plain = true })
+      end
+
       -- A multi-line note becomes multiple virtual lines; the continuation lines are
       -- indented to the icon so the block reads as one comment.
-      for n, text in ipairs(vim.split(item.note, "\n", { plain = true })) do
+      for n, text in ipairs(body) do
         if n == 1 then
           local chunks = { { prefix, group } }
-          if item.stale then
-            chunks[#chunks + 1] = { "⚠ stale  ", "CodeReviewStale" }
+          if stale then
+            chunks[#chunks + 1] = { stale, "CodeReviewStale" }
           end
           chunks[#chunks + 1] = { text, "CodeReviewNote" }
           virt[#virt + 1] = chunks
@@ -149,7 +289,76 @@ function M.build(files, opts)
         end
       end
     end
-    mark(row, 0, { virt_lines = virt })
+    return virt
+  end
+
+  ---@param n integer
+  ---@return table[]
+  local function blank_virt(n)
+    local out = {}
+    for i = 1, n do
+      out[i] = { { "", "CodeReviewNote" } }
+    end
+    return out
+  end
+
+  ---Draw the notes on a row, and hold the opposite pane's place while they are drawn.
+  ---
+  ---A note costs the same vertical space in both panes because a virtual line occupies
+  ---exactly one display line whatever its width, so mirroring the *count* is enough to
+  ---keep the two panes' display heights identical.
+  ---@param row integer
+  ---@param before_key string|nil Pre-image key owning this row in the before pane
+  ---@param after_key string|nil Post-image (or whole-file) key owning it in the after pane
+  local function attach_notes(row, before_key, after_key)
+    if not split then
+      local virt = after_key and note_virt(after_key, nil)
+      if virt then
+        mark(after, row, 0, { virt_lines = virt })
+      end
+      return
+    end
+
+    local bvirt = before_key and note_virt(before_key, before_width) or nil
+    local avirt = after_key and note_virt(after_key, width) or nil
+    if not bvirt and not avirt then
+      return
+    end
+    -- The before pane's own notes come first in both panes, so the blocks line up row for
+    -- row and not merely in total height.
+    local bcount, acount = bvirt and #bvirt or 0, avirt and #avirt or 0
+    local bside = vim.list_extend(bvirt or {}, blank_virt(acount))
+    local aside = vim.list_extend(blank_virt(bcount), avirt or {})
+    mark(before, row, 0, { virt_lines = bside })
+    mark(after, row, 0, { virt_lines = aside })
+  end
+
+  ---The rendered text of one diff line in one pane, and where its code starts.
+  ---@param ln CRLine
+  ---@param number integer
+  ---@param sign string
+  ---@return string text, integer code_col, integer bar_len
+  local function line_text(ln, number, sign)
+    local bar = ln.side ~= "ctx" and icons.change_bar or " "
+    local prefix = bar .. rpad_num(number, digits) .. SEP .. sign
+    -- Byte offset, not display width: extmark columns are byte offsets, and both the
+    -- change bar and the separator are multibyte.
+    return prefix .. ln.text, #prefix, #bar
+  end
+
+  ---@param pane table
+  ---@param row integer
+  ---@param ln CRLine
+  ---@param bar_len integer
+  local function paint_line(pane, row, ln, bar_len)
+    if ln.side == "add" then
+      mark(pane, row, 0, { line_hl_group = "CodeReviewAdd" })
+      mark(pane, row, 0, { end_col = bar_len, hl_group = "CodeReviewAddBar" })
+    elseif ln.side == "del" then
+      mark(pane, row, 0, { line_hl_group = "CodeReviewDel" })
+      mark(pane, row, 0, { end_col = bar_len, hl_group = "CodeReviewDelBar" })
+    end
+    mark(pane, row, bar_len, { end_col = bar_len + digits + #SEP, hl_group = "CodeReviewLineNr" })
   end
 
   for fi, file in ipairs(files) do
@@ -173,7 +382,9 @@ function M.build(files, opts)
     --- File header -----------------------------------------------------------
     local icon = reviewed and icons.reviewed or (note_count > 0 and icons.annotated or icons.unreviewed)
     local chevron = expanded and icons.expanded or icons.collapsed
-    local name = file.old_path and ("%s → %s"):format(file.old_path, file.path) or file.path
+    -- A rename reads as a rename when each pane draws its own path; only the unified
+    -- layout, which has one header to say it in, spells the arrow out.
+    local name = (not split and file.old_path) and ("%s → %s"):format(file.old_path, file.path) or file.path
 
     local left = ("%s %s %s"):format(icon, chevron, name)
     local stat = file.binary and "binary" or ("+%d -%d"):format(file.added, file.removed)
@@ -183,79 +394,159 @@ function M.build(files, opts)
     local pad = math.max(1, width - vim.fn.strdisplaywidth(left) - vim.fn.strdisplaywidth(right))
     local header = left .. (" "):rep(pad) .. right
 
-    local row = push(header, { kind = "file", file = fi })
-    file_rows[fi] = row
-    mark(row, 0, { line_hl_group = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader" })
+    -- The before pane draws the half that concerns it: the path the pre-image had, indented
+    -- to sit under the after pane's name. A file that exists only on the after side has no
+    -- pre-image path at all, so its header row is filler like the rest of it.
+    local bheader = nil
+    if before and file.status ~= "A" and file.status ~= "U" then
+      local indent = (" "):rep(vim.fn.strdisplaywidth(icon) + vim.fn.strdisplaywidth(chevron) + 2)
+      bheader = truncate(indent .. (file.old_path or file.path), before_width)
+    end
+
+    -- The before pane's header row is chrome even when it is empty: it is where this file
+    -- begins on that side, and it is where `file_rows` points in both panes.
+    local row = row2(header, { kind = "file", file = fi }, bheader, { kind = "file", file = fi })
+    after.file_rows[fi] = row
+    if before then
+      before.file_rows[fi] = row
+    end
+    local header_hl = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader"
+    mark(after, row, 0, { line_hl_group = header_hl })
+    if before then
+      mark(before, row, 0, { line_hl_group = header_hl })
+    end
     -- Colour only the +N/-M inside the stat, not the note count that may follow it.
     local stat_col = #header - #right
     local plus_len = file.binary and 0 or #(("+%d"):format(file.added))
     if not file.binary then
-      mark(row, stat_col, { end_col = stat_col + plus_len, hl_group = "CodeReviewStatAdd" })
-      mark(row, stat_col + plus_len + 1, { end_col = stat_col + #stat, hl_group = "CodeReviewStatDel" })
+      mark(after, row, stat_col, { end_col = stat_col + plus_len, hl_group = "CodeReviewStatAdd" })
+      mark(after, row, stat_col + plus_len + 1, { end_col = stat_col + #stat, hl_group = "CodeReviewStatDel" })
     end
     if note_count > 0 then
-      mark(row, stat_col + #stat, { end_col = #header, hl_group = "CodeReviewNoteCount" })
+      mark(after, row, stat_col + #stat, { end_col = #header, hl_group = "CodeReviewNoteCount" })
     end
     -- Whole-file annotations hang off the header, so they stay visible even when the
-    -- file is collapsed -- which is exactly when a file-level note matters most.
-    attach_notes(row, M.file_key(file.path))
+    -- file is collapsed -- which is exactly when a file-level note matters most. Their key
+    -- carries no side, and the stat and the note count already sit here, so they belong to
+    -- the after pane.
+    attach_notes(row, nil, M.file_key(file.path))
 
     if not expanded then
-      push("", { kind = "pad", file = fi })
+      row2("", { kind = "pad", file = fi }, "", { kind = "pad", file = fi })
       goto next_file
     end
 
     if file.note then
-      local r = push("   " .. file.note, { kind = "pad", file = fi })
-      mark(r, 0, { line_hl_group = "CodeReviewNote" })
-      push("", { kind = "pad", file = fi })
+      -- Why there are no hunks -- binary, a rename with no content change, a mode-only
+      -- change. Drawn on the after pane, so the before pane holds its place with filler.
+      local r = row2("   " .. file.note, { kind = "pad", file = fi })
+      mark(after, r, 0, { line_hl_group = "CodeReviewNote" })
+      row2("", { kind = "pad", file = fi }, "", { kind = "pad", file = fi })
       goto next_file
     end
 
     --- Hunks -----------------------------------------------------------------
     for hi, hunk in ipairs(file.hunks) do
-      local head = hunk.heading ~= "" and ("%s %s"):format(hunk.header, hunk.heading) or hunk.header
-      local hrow = push(truncate(head, width), { kind = "hunk", file = fi, hunk = hi })
-      hunk_rows[#hunk_rows + 1] = hrow
-      mark(hrow, 0, { line_hl_group = "CodeReviewHunkHeader" })
-
-      for li, ln in ipairs(hunk.lines) do
-        local changed = ln.side ~= "ctx"
-        local bar = changed and icons.change_bar or " "
-        local sign = ln.side == "add" and "+" or (ln.side == "del" and "-" or " ")
-        local number = rpad_num(ln.new or ln.old, digits)
-        local prefix = bar .. number .. SEP .. sign
-        local text = prefix .. ln.text
-
-        -- Byte offset, not display width: extmark columns are byte offsets, and both the
-        -- change bar and the separator are multibyte.
-        local code_col = #prefix
-        local r = push(text, { kind = "line", file = fi, hunk = hi, line = li, col = code_col })
-
-        if ln.side == "add" then
-          mark(r, 0, { line_hl_group = "CodeReviewAdd" })
-          mark(r, 0, { end_col = #bar, hl_group = "CodeReviewAddBar" })
-        elseif ln.side == "del" then
-          mark(r, 0, { line_hl_group = "CodeReviewDel" })
-          mark(r, 0, { end_col = #bar, hl_group = "CodeReviewDelBar" })
-        end
-        mark(r, #bar, { end_col = #bar + digits + #SEP, hl_group = "CodeReviewLineNr" })
-
-        attach_notes(r, M.line_key(file.path, ln))
+      local hanchor = { kind = "hunk", file = fi, hunk = hi }
+      local hrow
+      if before then
+        -- Each pane says what its own image spans; git's section heading describes the
+        -- post-image, so it rides with the range that does.
+        local old_range, new_range = header_ranges(hunk.header, hunk)
+        local rhead = hunk.heading ~= "" and ("@@ %s @@ %s"):format(new_range, hunk.heading)
+          or ("@@ %s @@"):format(new_range)
+        hrow = row2(
+          truncate(rhead, width),
+          hanchor,
+          truncate(("@@ %s @@"):format(old_range), before_width),
+          { kind = "hunk", file = fi, hunk = hi }
+        )
+        mark(before, hrow, 0, { line_hl_group = "CodeReviewHunkHeader" })
+      else
+        local head = hunk.heading ~= "" and ("%s %s"):format(hunk.header, hunk.heading) or hunk.header
+        hrow = row2(truncate(head, width), hanchor)
       end
-      push("", { kind = "pad", file = fi, hunk = hi })
+      after.hunk_rows[#after.hunk_rows + 1] = hrow
+      if before then
+        before.hunk_rows[#before.hunk_rows + 1] = hrow
+      end
+      mark(after, hrow, 0, { line_hl_group = "CodeReviewHunkHeader" })
+
+      if not before then
+        for li, ln in ipairs(hunk.lines) do
+          local text, code_col, bar_len =
+            line_text(ln, ln.new or ln.old, ln.side == "add" and "+" or (ln.side == "del" and "-" or " "))
+          local r = push(after, text, { kind = "line", file = fi, hunk = hi, line = li, col = code_col })
+          paint_line(after, r, ln, bar_len)
+          attach_notes(r, nil, M.line_key(file.path, ln))
+        end
+      else
+        ---One logical row of the split body: a pre-image line beside a post-image line,
+        ---either of which may be absent and is then filler.
+        ---@param bi integer|nil Index into hunk.lines of the row's pre-image line
+        ---@param ai integer|nil Index into hunk.lines of the row's post-image line
+        local function pair(bi, ai)
+          local bln, aln = bi and hunk.lines[bi], ai and hunk.lines[ai]
+          local fill = { kind = "fill", file = fi, hunk = hi }
+
+          local atext, acol, abar
+          if aln then
+            atext, acol, abar = line_text(aln, aln.new, aln.side == "add" and "+" or " ")
+          end
+          local btext, bcol, bbar
+          if bln then
+            btext, bcol, bbar = line_text(bln, bln.old, bln.side == "del" and "-" or " ")
+          end
+
+          local r =
+            push(after, atext or "", aln and { kind = "line", file = fi, hunk = hi, line = ai, col = acol } or fill)
+          push(before, btext or "", bln and { kind = "line", file = fi, hunk = hi, line = bi, col = bcol } or fill)
+
+          if aln then
+            paint_line(after, r, aln, abar)
+          end
+          if bln then
+            paint_line(before, r, bln, bbar)
+          end
+          -- A deletion and its replacement share a row, so both keys are offered: each
+          -- pane draws the notes its own key owns and mirrors the other's height.
+          attach_notes(
+            r,
+            bln and bln.side == "del" and M.line_key(file.path, bln) or nil,
+            aln and M.line_key(file.path, aln) or nil
+          )
+        end
+
+        -- A deleted run and the run that replaced it occupy the same rows, longest first;
+        -- whichever runs out is filler for the rest. A context line ends both runs, because
+        -- it exists in both images and must sit on one row.
+        local dels, adds = {}, {}
+        local function flush()
+          for i = 1, math.max(#dels, #adds) do
+            pair(dels[i], adds[i])
+          end
+          dels, adds = {}, {}
+        end
+        for li, ln in ipairs(hunk.lines) do
+          if ln.side == "del" then
+            dels[#dels + 1] = li
+          elseif ln.side == "add" then
+            adds[#adds + 1] = li
+          else
+            flush()
+            pair(li, li)
+          end
+        end
+        flush()
+      end
+
+      row2("", { kind = "pad", file = fi, hunk = hi }, "", { kind = "pad", file = fi, hunk = hi })
     end
 
     ::next_file::
   end
 
-  return {
-    lines = lines,
-    anchors = anchors,
-    marks = marks,
-    file_rows = file_rows,
-    hunk_rows = hunk_rows,
-  }
+  return after, before
 end
 
 return M

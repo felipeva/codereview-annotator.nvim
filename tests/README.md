@@ -36,6 +36,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
+| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
@@ -60,8 +61,10 @@ interchangeable, and the assertions know which one they are looking at.
   modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
-  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec` and
-  `interactive_spec`.
+  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `split_spec` and
+  `interactive_spec`. It already covers everything the split layout has to render,
+  including the files that exist on only one side and the additions between context lines
+  that produce filler — so that slice needed no fixture of its own.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
@@ -153,6 +156,22 @@ so the out-of-core language path is still checked locally without ever failing C
   answers a tick later, which is the shape a real picker has and the only one that
   reproduces the defect. `composer_spec`'s file picker still answers inline on purpose: it
   is asserting text and cursor, not mode.
+- **`scrollbind` and `cursorbind` follow motions, not the API.** They *do* work in a
+  headless Neovim, which was measured rather than assumed: a `normal!` motion, a `<C-e>`
+  and fed keys all propagate to the bound window, and `nvim_win_set_cursor` does not.
+  Driving a binding assertion through the API therefore passes whether or not the binding
+  exists — the failure mode `interactive_spec` exists to avoid — so `split_spec` drives
+  `normal!` and asserts the *other* pane followed. Removing the two `vim.wo` lines in
+  `view.lua`'s `show_before_pane` must fail three cases. The same asymmetry is why the view
+  sets both panes' cursors explicitly instead of trusting the binding to carry one across.
+- **Two panes that were never moved apart cannot be seen coming back together.** The first
+  version of "both panes hold their alignment across every repaint" passed with `resync()`
+  deleted, because nothing had knocked them out of step: both sat at line 1 throughout. It
+  now lifts the binding, moves one pane, puts the binding back — which is the state a
+  repaint that changed the line count leaves behind — and only then repaints. A guard case
+  asserts the panes really did diverge, so the assertion cannot quietly stop measuring.
+  Note that `zt` in one pane propagates through `scrollbind`, so it is no use for pulling
+  them apart; that was the first attempt and the guard caught it.
 - **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
@@ -170,6 +189,10 @@ so the out-of-core language path is still checked locally without ever failing C
 - **Real adapters.** `send`, `pick_target` and `compose` are injected stubs throughout.
   That is the point of the seam — the plugin carries no opinion about the transport — but
   it means no test exercises a real agent handoff.
+- **Horizontal scroll synchronisation between panes.** There is nothing to cover: it is
+  `scrollopt` that decides whether a bound window keeps its horizontal position in step,
+  `scrollopt` is global, and the plugin deliberately does not set it. What *is* covered is
+  that it stays untouched.
 - **Timing and wall clock.** `perf.lua` reports numbers and fails only past a deliberately
   loose ceiling. It is a report you read, not a gate; it is not in CI, where a shared
   runner would make it noise.

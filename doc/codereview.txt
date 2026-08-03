@@ -7,21 +7,23 @@ CONTENTS                                                          *codereview*
   2. Commands ............................. |codereview-commands|
   3. Mappings ............................. |codereview-mappings|
   4. Scopes ............................... |codereview-scopes|
-  5. Annotations .......................... |codereview-annotations|
-  6. Capture ............................... |codereview-capture|
-  7. Adapters ............................. |codereview-adapters|
-  8. Configuration ........................ |codereview-configuration|
-  9. Highlights ........................... |codereview-highlights|
- 10. Persistence .......................... |codereview-persistence|
- 11. Lua API .............................. |codereview-api|
- 12. License .............................. |codereview-license|
+  5. Layouts .............................. |codereview-layouts|
+  6. Annotations .......................... |codereview-annotations|
+  7. Capture ............................... |codereview-capture|
+  8. Adapters ............................. |codereview-adapters|
+  9. Configuration ........................ |codereview-configuration|
+ 10. Highlights ........................... |codereview-highlights|
+ 11. Persistence .......................... |codereview-persistence|
+ 12. Lua API .............................. |codereview-api|
+ 13. License .............................. |codereview-license|
 
 ==============================================================================
 1. INTRODUCTION                                    *codereview-introduction*
 
-A unified, syntax-highlighted diff of everything a branch changed, in one
-buffer, with a file panel beside it. Annotate lines, selections, hunks or whole
-files with a type; the annotations queue up; submit them as one batch.
+A syntax-highlighted diff of everything a branch changed, with a file panel
+beside it -- unified in one buffer, or side by side as two panes. Annotate
+lines, selections, hunks or whole files with a type; the annotations queue up;
+submit them as one batch. See |codereview-layouts|.
 
 Requires Neovim 0.12 or newer and `git`. Treesitter parsers are optional --
 files without one fall back to flat diff colours.
@@ -159,7 +161,54 @@ set `untracked = false` to hide them. `git diff` never reports them, so a
 brand-new file would otherwise be invisible to the review.
 
 ==============================================================================
-5. ANNOTATIONS                                      *codereview-annotations*
+5. LAYOUTS                                              *codereview-layouts*
+
+The review view arranges a diff one of two ways: >
+    require("codereview").setup({ layout = "split" })
+<
+    unified     deleted and added lines stacked in one column (default)
+    split       the before-image and the after-image as two panes, side by
+                side, with corresponding code on the same screen row
+
+The value is validated at |codereview.setup()|, so a mistyped one fails there
+rather than silently rendering unified.
+
+Everything the view does works in both. Files collapse and expand, files are
+marked reviewed, annotations are captured and displayed on the lines they are
+about, navigation moves by file, hunk and annotation, and both panes are
+syntax-highlighted -- the left pane from the pre-image, the right from the
+post-image.
+
+Where one image has no counterpart -- a pure addition, a pure deletion, a file
+that exists on only one side -- the other pane draws *filler*: a blank row that
+keeps the two in step. Annotating from a filler row resolves to the whole
+file, never to whatever code happens to be above it.
+
+Chrome is split too, so headers stay aligned as well. A hunk header shows its
+pre-image range on the left and its post-image range plus git's section
+heading on the right; a renamed file shows its old path on the left and its
+new path on the right. The right pane's winbar carries the review status; the
+left names the revision it is showing.
+
+Both panes accept annotations, and the pane the cursor is in decides what is
+captured: a deleted line on the left, the post-image line on the right. The
+entry is the same either way -- a layout is a rendering choice and nothing
+else, so which one was on screen never reaches the receiving agent. Notes are
+drawn in the pane their line belongs to, wrapped to that pane's width, with
+the opposite pane holding its place so the two stay aligned.
+
+The panes are held together with |scrollbind| and |cursorbind|, which are
+window-local. |scrollopt| is global and is deliberately not touched, so
+vertical movement is synchronised and horizontal scrolling is not.
+
+One behavioural difference, and only one: a visual range cannot span both
+images, because the two runs live in different windows and cannot be in one
+selection. Pure-addition and pure-deletion ranges work, and annotating the
+hunk header captures both images inlined -- so what a split range cannot
+express is still one keystroke away.
+
+==============================================================================
+6. ANNOTATIONS                                      *codereview-annotations*
 
 What gets annotated depends on where the cursor is:
 
@@ -167,6 +216,7 @@ What gets annotated depends on where the cursor is:
     a visual selection  those lines
     a hunk header       the whole hunk
     a file header       the whole file
+    a filler row        the whole file (split layout)
 
 A selection spanning more than one file is clamped to the file it started in,
 and says so. Anything touching a deleted line is inlined as a diff block
@@ -274,7 +324,7 @@ abandoned.
 Wire |codereview-opt-compose| to replace this composer with your own.
 
 ==============================================================================
-6. CAPTURE                                              *codereview-capture*
+7. CAPTURE                                              *codereview-capture*
 
 Annotating does not need a review open. |:CodeReviewAnnotate| and
 |codereview.annotate()| queue a note about the buffer you are looking at.
@@ -354,7 +404,7 @@ batch pointing where it was. Abandon it and the text is kept as a draft, like
 any other note you walked away from.
 
 ==============================================================================
-7. ADAPTERS                                            *codereview-adapters*
+8. ADAPTERS                                            *codereview-adapters*
 
 The plugin has no opinion about where a review goes, or about which pickers
 you use. Four optional functions inject that. With none of them wired
@@ -466,7 +516,7 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
         moment the composer opens a picker of its own.
 
 ==============================================================================
-8. CONFIGURATION                                  *codereview-configuration*
+9. CONFIGURATION                                  *codereview-configuration*
 
 Defaults: >
     require("codereview").setup({
@@ -474,6 +524,7 @@ Defaults: >
       untracked = true,
       syntax = true,
       max_syntax_bytes = 256 * 1024,
+      layout = "unified",
       panel = { enabled = true, width = 34, position = "left" },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
@@ -488,7 +539,7 @@ Files above it, files with no parser, and binary files all fall back to flat
 diff colours individually -- never the whole view.
 
 ==============================================================================
-9. HIGHLIGHTS                                        *codereview-highlights*
+10. HIGHLIGHTS                                        *codereview-highlights*
 
 Every group is a `default = true` link to something a colorscheme already
 defines, so overriding any of them works without the plugin fighting back: >
@@ -513,7 +564,7 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewIssue        -> DiagnosticOk
 <
 ==============================================================================
-10. PERSISTENCE                                     *codereview-persistence*
+11. PERSISTENCE                                     *codereview-persistence*
 
 Reviewed marks and the queue are written to
 `stdpath("state")/codereview/{repo}.json`, keyed by scope and diff base.
@@ -566,7 +617,7 @@ claim a line span that has since moved, and nothing will flag it -- the
 accepted cost of not making those annotations second-class.
 
 ==============================================================================
-11. LUA API                                                 *codereview-api*
+12. LUA API                                                 *codereview-api*
 
 require("codereview").setup({opts})                     *codereview.setup()*
 require("codereview").open({scope})                      *codereview.open()*
@@ -589,7 +640,7 @@ require("codereview").count()                           *codereview.count()*
 require("codereview").is_open()                       *codereview.is_open()*
 
 ==============================================================================
-12. LICENSE                                               *codereview-license*
+13. LICENSE                                               *codereview-license*
 
 MIT. Copyright (c) 2026 Felipe Valencia. See the LICENSE file in the plugin
 root for the full text.

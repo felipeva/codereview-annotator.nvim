@@ -134,12 +134,13 @@ end
 
 ---@param view CRView
 ---@param ns integer
+---@param buf integer Buffer the rows in `map` are rows of
 ---@param file CRFile
 ---@param side "before"|"after"
 ---@param map table<integer, { row: integer, col: integer }>
 ---@param ref string|nil
 ---@param lang string
-local function apply_side(view, ns, file, side, map, ref, lang)
+local function apply_side(view, ns, buf, file, side, map, ref, lang)
   if vim.tbl_isempty(map) then
     return
   end
@@ -171,7 +172,7 @@ local function apply_side(view, ns, file, side, map, ref, lang)
   for _, c in ipairs(caps) do
     local slot = map[c.line]
     if slot then
-      pcall(vim.api.nvim_buf_set_extmark, view.buf, ns, slot.row - 1, slot.col + c.cs, {
+      pcall(vim.api.nvim_buf_set_extmark, buf, ns, slot.row - 1, slot.col + c.cs, {
         end_col = slot.col + c.ce,
         hl_group = c.hl,
         priority = render.PRIORITY.syntax,
@@ -222,31 +223,48 @@ function M.apply(view, ns)
   view.syntax_painted = view.syntax_painted or {}
 
   local lo, hi = viewport(view)
+  local split = view.before_render ~= nil
 
   -- Invert the anchor map: for each file, which source line is drawn on which row, and at
   -- what byte column the code text begins.
   local per_file = {}
-  for row, a in pairs(view.render.anchors) do
-    if a.kind == "line" then
-      local entry = per_file[a.file]
-      if not entry then
-        entry = { before = {}, after = {}, visible = false }
-        per_file[a.file] = entry
-      end
-      -- A file is parsed whole once any part of it is near the window: parsing only the
-      -- visible slice would cache a partial capture set that the next scroll invalidates.
-      if row >= lo and row <= hi then
-        entry.visible = true
-      end
-      local ln = view.files[a.file].hunks[a.hunk].lines[a.line]
-      -- Context lines exist on both sides; attributing them to the post-image keeps a
-      -- single parse authoritative for everything except pure deletions.
-      if ln.new then
-        entry.after[ln.new] = { row = row, col = a.col }
-      else
-        entry.before[ln.old] = { row = row, col = a.col }
+
+  ---@param anchors table<integer, CRAnchor>|nil
+  ---@param pane "unified"|"after"|"before"
+  local function collect(anchors, pane)
+    for row, a in pairs(anchors or {}) do
+      if a.kind == "line" then
+        local entry = per_file[a.file]
+        if not entry then
+          entry = { before = {}, after = {}, visible = false }
+          per_file[a.file] = entry
+        end
+        -- A file is parsed whole once any part of it is near the window: parsing only the
+        -- visible slice would cache a partial capture set that the next scroll invalidates.
+        -- The panes hold the same rows, so one pane's bounds answer for both.
+        if row >= lo and row <= hi then
+          entry.visible = true
+        end
+        local ln = view.files[a.file].hunks[a.hunk].lines[a.line]
+        if pane == "before" then
+          -- In the split layout the pane decides the image, not the line. A context line is
+          -- drawn in both, and the copy in the before pane is the pre-image's, at the
+          -- pre-image's line number.
+          entry.before[ln.old] = { row = row, col = a.col }
+        elseif ln.new then
+          -- Unified has one buffer, so context lines are attributed to the post-image,
+          -- which keeps a single parse authoritative for everything except pure deletions.
+          entry.after[ln.new] = { row = row, col = a.col }
+        else
+          entry.before[ln.old] = { row = row, col = a.col }
+        end
       end
     end
+  end
+
+  collect(view.render.anchors, split and "after" or "unified")
+  if split then
+    collect(view.before_render.anchors, "before")
   end
 
   for fi, maps in pairs(per_file) do
@@ -256,8 +274,11 @@ function M.apply(view, ns)
       if lang then
         -- An untracked file has no committed pre-image; its "after" is the working tree.
         local after_ref = file.status == "U" and nil or view.scope.after
-        apply_side(view, ns, file, "after", maps.after, after_ref, lang)
-        apply_side(view, ns, file, "before", maps.before, view.scope.before, lang)
+        apply_side(view, ns, view.buf, file, "after", maps.after, after_ref, lang)
+        -- Each image paints onto the pane that shows it. With one pane, that is the same
+        -- buffer twice, which is what the unified layout has always done.
+        local before_buf = split and view.before_buf or view.buf
+        apply_side(view, ns, before_buf, file, "before", maps.before, view.scope.before, lang)
       end
       view.syntax_painted[file.path] = true
     end

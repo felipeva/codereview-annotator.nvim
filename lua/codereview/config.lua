@@ -17,6 +17,10 @@ M.defaults = {
   max_syntax_bytes = 256 * 1024, ---@type integer Skip syntax above this size
 
   --- UI ---
+  ---How the review view arranges a diff. `unified` stacks deleted and added lines in one
+  ---column; `split` draws the before-image and the after-image as two panes side by side.
+  ---Unified is the default, so upgrading the plugin does not change how a review looks.
+  layout = "unified", ---@type "unified"|"split"
   panel = {
     enabled = true,
     width = 34,
@@ -89,9 +93,33 @@ local function resolve_types(options)
   return types.normalise(options.types or types.defaults, { icon = options.icons.annotated })
 end
 
+---Reject a layout the render has no rendering for.
+---
+---Loudly, at `setup()`, in the same voice as a bad type list: a mistyped `layout` that
+---silently fell back to unified would leave a reviewer wondering why their configuration
+---did nothing, and the answer would be nowhere on screen.
+---@param layout any
+local function validate_layout(layout)
+  if not vim.tbl_contains(require("codereview.render").LAYOUTS, layout) then
+    error(
+      ("codereview.setup: unknown `layout` %s — expected one of %s"):format(
+        vim.inspect(layout),
+        table.concat(
+          vim.tbl_map(function(name)
+            return ("%q"):format(name)
+          end, require("codereview.render").LAYOUTS),
+          ", "
+        )
+      ),
+      0
+    )
+  end
+end
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  validate_layout(M.options.layout)
   M.options.types = resolve_types(M.options)
   return M.options
 end
