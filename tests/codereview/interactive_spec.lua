@@ -151,10 +151,30 @@ describe("annotating from insert mode", function()
   end)
 end)
 
+---Wait for the picker to have answered `n` times and the composer to have taken writing
+---back. Neither the keystroke that opens the picker nor the answer it gives is a state
+---reachable from out here, and the line the splice lands on reads as finished from the
+---moment the `@` sentinel is written -- long before the picker has been anywhere.
+---
+---Waits on insert mode as well because the composer restores it with a fed key, which the
+---editor consumes on its own schedule; the count alone can be read before it has.
+---@param n integer
+---@return fun(): boolean
+local function resumed(n)
+  return function()
+    return expr("luaeval('cr_picks')") == tostring(n) and expr("mode()"):sub(1, 1) == "i"
+  end
+end
+
 -- `@` is bound in insert mode, so this is the only place it can be pressed the way a user
 -- presses it. Headless the mapping is reachable only by feeding an `i` first, which is not
 -- what a composer opened in insert mode does.
 describe("referencing a file while typing", function()
+  -- What the splice leaves on the line, trailing space and all. `expr` trims what comes
+  -- back over the socket, so the space is only reachable from here as arithmetic on the
+  -- cursor -- which is the point: it is a place to type, not a character to look at.
+  local spliced = "compare with @src/routes.lua#L2-4 "
+
   it("opens the composer again", function()
     send("ab", function()
       return expr("mode()"):sub(1, 1) == "i"
@@ -163,13 +183,21 @@ describe("referencing a file while typing", function()
   end)
 
   it("splices the reference as the @ is typed", function()
-    send("compare with @", function()
-      return expr("getline('.')"):find("routes", 1, true) ~= nil
-    end)
-    -- Without its trailing space: `expr` trims what comes back over the socket, so the
-    -- space the splice leaves for you to keep typing is not observable from here. That it
-    -- is there at all is a headless assertion.
-    assert.same("compare with @src/routes.lua#L2-4", expr("getline('.')"))
+    send("compare with @", resumed(1))
+    assert.same(vim.trim(spliced), expr("getline('.')"))
+  end)
+
+  -- The trailing space is an invitation to keep typing, and it is only that if the cursor
+  -- is behind it. The splice goes in *after* the cursor, so without moving it the reviewer
+  -- resumes between the `@` and the path they just chose.
+  it("leaves the cursor past the reference and its trailing space", function()
+    assert.same(tostring(#spliced + 1), expr("col('.')"))
+  end)
+
+  -- The picker took focus and insert mode with it. Restoring insert mode is the composer's
+  -- job: a reviewer who asked for a reference mid-sentence did not ask to stop writing.
+  it("leaves the composer in insert mode", function()
+    assert.same("i", expr("mode()"):sub(1, 1))
   end)
 
   it("queues the note with its reference", function()
@@ -177,6 +205,46 @@ describe("referencing a file while typing", function()
       return expr("&filetype") == "codereview"
     end)
     assert.same("compare with @src/routes.lua#L2-4", expr("luaeval(\"require('codereview.queue').all()[2].note\")"))
+  end)
+end)
+
+-- Cancelling is the case the sentinel is written up front for. What it costs the reviewer
+-- should be the `@` they typed and nothing else -- not the sentence they were in the
+-- middle of.
+describe("cancelling the file picker while typing", function()
+  local typed = "look at @"
+
+  -- A picker that answers with nothing is a picker the reviewer dismissed.
+  server("--remote-send", ":lua cr_pick_answer = nil<CR>")
+
+  it("opens the composer again", function()
+    send("ab", function()
+      return expr("mode()"):sub(1, 1) == "i"
+    end)
+    assert.same("i", expr("mode()"):sub(1, 1))
+  end)
+
+  it("leaves the literal @ that was typed", function()
+    send(typed, resumed(2))
+    assert.same(typed, expr("getline('.')"))
+  end)
+
+  it("leaves the cursor after it", function()
+    assert.same(tostring(#typed + 1), expr("col('.')"))
+  end)
+
+  it("leaves the composer in insert mode", function()
+    assert.same("i", expr("mode()"):sub(1, 1))
+  end)
+
+  -- Out through the submit key rather than by abandoning: `q` reaches the review buffer
+  -- and closes the whole review if the composer has already gone, and whether it has
+  -- depends on the very mode these assertions are about.
+  it("submits what was written anyway", function()
+    send("<C-s>", function()
+      return expr("&filetype") == "codereview"
+    end)
+    assert.same(typed, expr("luaeval(\"require('codereview.queue').all()[3].note\")"))
   end)
 end)
 

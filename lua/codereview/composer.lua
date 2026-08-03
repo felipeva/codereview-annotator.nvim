@@ -129,27 +129,55 @@ function M.open(ctx, on_accept, label)
       return
     end
     pick_file(function(chosen)
-      if not (chosen and chosen.path) then
+      -- Empty when the picker was dismissed, which is the whole point of writing the
+      -- sentinel up front: cancelling costs the reviewer the `@` they typed and nothing
+      -- else, and everything below still applies to where that leaves them.
+      local spliced = ""
+      if chosen and chosen.path then
+        local payload = require("codereview.payload")
+        -- A picker is entitled to answer with an absolute path, but a reference in a note
+        -- should read the way every other reference in the batch reads. Resolved through
+        -- the same helpers the payload uses, so a symlinked working directory does not turn
+        -- a perfectly relative path into an absolute one. Outside the tree there is nothing
+        -- to be relative to, and the absolute path is the only name the file has.
+        local path = chosen.path
+        if path:sub(1, 1) == "/" then
+          local root = payload.resolve_base(vim.uv.cwd())
+          path = payload.relative_to(vim.uv.fs_realpath(path) or path, root) or path
+        end
+        -- Rendered by the module that reads references, not spelled out again here. Lines
+        -- are optional: a picker that cannot select them omits both, and the reference is
+        -- then to the file rather than to a range in it.
+        local ref = payload.ref(path, chosen.first, chosen.last)
+        -- Past the `@`: the sentinel is already in the buffer, and re-writing it would
+        -- either double it or mean re-deriving where it went.
+        spliced = ref:sub(2) .. " "
+        vim.api.nvim_buf_set_text(buf, row - 1, col, row - 1, col, { spliced })
+      end
+
+      if not vim.api.nvim_win_is_valid(win) then
         return
       end
-      local payload = require("codereview.payload")
-      -- A picker is entitled to answer with an absolute path, but a reference in a note
-      -- should read the way every other reference in the batch reads. Resolved through the
-      -- same helpers the payload uses, so a symlinked working directory does not turn a
-      -- perfectly relative path into an absolute one. Outside the tree there is nothing to
-      -- be relative to, and the absolute path is the only name the file has.
-      local path = chosen.path
-      if path:sub(1, 1) == "/" then
-        local root = payload.resolve_base(vim.uv.cwd())
-        path = payload.relative_to(vim.uv.fs_realpath(path) or path, root) or path
-      end
-      -- Rendered by the module that reads references, not spelled out again here. Lines are
-      -- optional: a picker that cannot select them omits both, and the reference is then to
-      -- the file rather than to a range in it.
-      local ref = payload.ref(path, chosen.first, chosen.last)
-      -- Past the `@`: the sentinel is already in the buffer, and re-writing it would either
-      -- double it or mean re-deriving where it went.
-      vim.api.nvim_buf_set_text(buf, row - 1, col, row - 1, col, { ref:sub(2) .. " " })
+      -- The picker took focus, and the cursor and insert mode with it, so handing writing
+      -- back is this composer's job. Past what was just written: a reference carries a
+      -- trailing space that is an invitation to keep typing, and it is only that if the
+      -- cursor is behind it.
+      local target = col + #spliced
+      vim.api.nvim_win_set_cursor(win, { row, target })
+      -- Keys rather than `startinsert`, which is a no-op on the tick a picker answers on: a
+      -- picker that closes with `stopinsert` leaves the editor still reporting insert mode
+      -- with the exit merely pending, so a request to start inserting is dropped and the
+      -- exit lands afterwards regardless. Reading the mode here is no better -- it reports
+      -- the one being left. `<C-\><C-n>` settles that first, from whichever mode the picker
+      -- really left behind, and the key after it is then read against a known state.
+      --
+      -- `A` when nothing follows, because normal mode cannot hold a cursor past the last
+      -- character of a line: the target arrives one column short there, and appending is
+      -- what recovers it. Mid-sentence the two are different places, and the end of the
+      -- line is not the one being written at.
+      local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+      local settle = vim.api.nvim_replace_termcodes("<C-\\><C-n>", true, false, true)
+      vim.api.nvim_feedkeys(settle .. (target >= #line and "A" or "i"), "n", false)
     end)
   end, { buffer = buf, desc = "Reference a file" })
 
@@ -175,7 +203,11 @@ function M.open(ctx, on_accept, label)
 
   if restored then
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(restored, "\n"))
-    vim.api.nvim_win_set_cursor(win, { vim.api.nvim_buf_line_count(buf), 0 })
+    -- The end of the draft, not the start of its last line. A draft comes back to be
+    -- carried on with, and column zero puts the next word before the reviewer's own words
+    -- rather than after them.
+    local last = vim.api.nvim_buf_line_count(buf)
+    vim.api.nvim_win_set_cursor(win, { last, #vim.api.nvim_buf_get_lines(buf, last - 1, last, false)[1] })
     -- Said out loud, because text you did not just type appearing in a buffer you are about
     -- to write in is otherwise a small mystery.
     vim.notify("Draft restored — ^D to discard", vim.log.levels.INFO, { title = "Code review" })
@@ -185,7 +217,12 @@ function M.open(ctx, on_accept, label)
   -- You opened this to write something, so start writing. Leaving insert mode again is
   -- `collect`'s job, not this one's: closing a window does not end insert by itself, and
   -- the review buffer is `nomodifiable`, where every motion would land as a failed edit.
-  vim.cmd("startinsert")
+  --
+  -- With the bang, because normal mode cannot hold a cursor past the last character of a
+  -- line: the end-of-draft position set above arrives one column short, and only the bang
+  -- makes entering insert mean the end of the line rather than that clamped column. On an
+  -- empty composer the two are the same thing.
+  vim.cmd("startinsert!")
   return win
 end
 

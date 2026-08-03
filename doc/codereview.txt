@@ -220,12 +220,20 @@ into the note before the picker opens, so cancelling leaves the character you
 typed -- and it only opens a picker where a word begins, so an email address in
 a note is an email address.
 
+Either way you are left writing where the picker left off: past the reference
+and the space after it, or past the `@` if you cancelled, and back in insert
+mode. A picker takes focus and insert mode with it, and asking for a reference
+mid-sentence is not asking to stop writing.
+
 Drafts                                                  *codereview-drafts*
 
 Abandon the composer with something in it and the text is kept. Annotate that
 file again and it is offered back, with `^D` to discard it and start clean. A
 note you actually submit clears its draft, so what you have already said never
 comes back.
+
+A restored draft leaves the cursor at its end, so your next word continues the
+sentence rather than preceding it.
 
 Drafts are keyed by the file the note is about, not by the window it was
 started in: annotating a file in the review and capturing it from an ordinary

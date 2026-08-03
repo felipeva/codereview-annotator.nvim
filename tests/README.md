@@ -28,7 +28,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
-| `codereview/interactive_init.lua` | The composer stub `interactive_spec` drives — deliberately not a spec. |
+| `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `perf.lua` | Open-time report on a 60-file diff. Not part of `make test`. |
 
 | Spec | Covers |
@@ -46,7 +46,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
-| `interactive_spec` | The insert-mode leak, in a real pty-backed Neovim |
+| `interactive_spec` | The insert-mode leak, and where a completed or cancelled `@` leaves you, in a real pty-backed Neovim |
 
 ## Fixtures
 
@@ -122,6 +122,13 @@ so the out-of-core language path is still checked locally without ever failing C
   interaction into one tick and no test can observe the order. `composer_spec` holds the
   picker's callback and fires it by hand, which is also the only way to assert that the
   composer had not opened yet.
+- **A picker stub that answers inline cannot test insert mode.** The composer's `@` is an
+  insert-mode mapping, so a stub that calls back before returning never left insert — and
+  an assertion that insert mode *comes back* then passes with nothing restoring it.
+  `interactive_init.lua`'s file picker opens a window, takes focus, `stopinsert`s and
+  answers a tick later, which is the shape a real picker has and the only one that
+  reproduces the defect. `composer_spec`'s file picker still answers inline on purpose: it
+  is asserting text and cursor, not mode.
 - **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
