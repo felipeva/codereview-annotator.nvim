@@ -828,6 +828,81 @@ end
 
 --- The queue review float ------------------------------------------------------
 
+---Put the cursor on the place a queued annotation is about.
+---
+---Says why not rather than doing nothing when it cannot, and says it differently each
+---time: a **bare note** will never have a destination, a missing review view means open
+---one, and a file the scope does not cover means change scope. One shared "cannot jump
+---there" would name none of the three remedies.
+---@param entry CRAnnotation
+---@return boolean jumped Whether the cursor actually moved; false has already reported why
+function M.jump_to_entry(entry)
+  -- One queue holds both paths' entries, and the capture path can produce an annotation
+  -- with no file behind it at all. Checked before the view, because opening a review would
+  -- not give this one anywhere to go either.
+  if entry.kind == "note" then
+    info("A bare note is about no file — there is nowhere to jump to")
+    return false
+  end
+  if not M.current() then
+    info("No review view open — open one to jump to an annotation")
+    return false
+  end
+
+  local index
+  for i, file in ipairs(V.files) do
+    if file.path == entry.path then
+      index = i
+      break
+    end
+  end
+  -- An entry captured outside a checkout has no repository-relative path, so it names the
+  -- only path it has and falls in here too: no scope of this review covers it.
+  if not index then
+    info(
+      ("%s is not in the %s scope — change scope to jump to it"):format(entry.path or entry.abs_path, V.scope.label)
+    )
+    return false
+  end
+
+  -- A file collapsed because it is reviewed must open when you deliberately jump into it,
+  -- otherwise the jump lands on a header with nothing beneath it -- the same courtesy the
+  -- file picker extends. Reviewed with nothing recorded reads as collapsed too, which is
+  -- how the render decides it.
+  local expanded = V.expanded[entry.path]
+  if expanded == nil then
+    expanded = V.reviewed[entry.path] == nil
+  end
+  if not expanded then
+    V.expanded[entry.path] = true
+    M.paint()
+  end
+
+  -- The scan `]a` already makes: the anchor map is the only thing that knows which row a
+  -- key is on now, which is what lets a stale annotation still land wherever its anchor
+  -- points. A whole-file entry's key matches no line, and neither does a line that this
+  -- diff no longer renders; both mean the file, so both land on its header.
+  local row = V.render.file_rows[index]
+  local file = V.files[index]
+  for r, a in pairs(V.render.anchors) do
+    if
+      a.file == index
+      and a.kind == "line"
+      and render.line_key(file.path, file.hunks[a.hunk].lines[a.line]) == entry.key
+    then
+      row = r
+      break
+    end
+  end
+
+  vim.api.nvim_set_current_win(V.win)
+  goto_row(row, false)
+  vim.api.nvim_win_call(V.win, function()
+    vim.cmd("normal! zz")
+  end)
+  return true
+end
+
 ---List the queued annotations, drop any of them, then submit the batch.
 function M.review_queue()
   local queue = require("codereview.queue")
@@ -916,7 +991,7 @@ function M.review_queue()
       n == 1 and "" or "s",
       stale > 0 and (" · %d stale"):format(stale) or ""
     )
-    cfg_win.footer = (" ^T %s · x drop · ^S submit · q close "):format(
+    cfg_win.footer = (" ^T %s · ⏎ jump · x drop · ^S submit · q close "):format(
       #name > 24 and (name:sub(1, 23) .. "…") or name
     )
     if vim.api.nvim_win_is_valid(win) then
@@ -935,6 +1010,29 @@ function M.review_queue()
     end
     return best and best.id or nil
   end
+
+  ---That entry as it sits in the queue.
+  ---@param id integer|nil
+  ---@return CRAnnotation|nil
+  local function queued(id)
+    for _, item in ipairs(queue.all()) do
+      if item.id == id then
+        return item
+      end
+    end
+  end
+
+  vim.keymap.set("n", "<CR>", function()
+    local entry = queued(entry_at_cursor())
+    if not entry then
+      return
+    end
+    -- Only a jump that happened costs the list: a reviewer who pressed a key that could
+    -- not act did not ask to lose what they were reading.
+    if M.jump_to_entry(entry) then
+      close()
+    end
+  end, { buffer = buf, desc = "Jump to the annotation" })
 
   vim.keymap.set("n", "x", function()
     local id = entry_at_cursor()

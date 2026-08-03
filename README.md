@@ -207,6 +207,26 @@ and `s` would shadow back-word, find-char, next-search and (if you use it) flash
 inside the buffer. `a` is append, which is dead in a `nomodifiable` buffer, so the prefix
 costs a keystroke and no motion.
 
+### In the queue float
+
+| Key | Action |
+| --- | --- |
+| `<CR>` | Jump to the annotation under the cursor |
+| `x` | Drop it |
+| `<C-t>` | Choose the delivery target |
+| `<C-s>` | Submit the batch |
+| `q` / `<Esc>` | Close, keeping the queue |
+
+A jump closes the float and centres the line the annotation is about, expanding the file
+first if it was collapsed — so the queue is a way of navigating a review and not only of
+auditing it before you send.
+
+The queue is shared with the capture path and the float opens with or without a review, so
+some of what it lists has nowhere to go: a bare note is about no file, there may be no
+review open, or the file may be outside the current scope. Each says which, and leaves the
+float open — the remedies are nothing, open a review, and change scope, and one shared
+message would name none of them.
+
 ### What gets annotated
 
 | Cursor is on | Target |

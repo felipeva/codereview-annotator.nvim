@@ -47,6 +47,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
+| `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
+| `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
 | `interactive_spec` | The insert-mode leak, and where a completed or cancelled `@` leaves you, in a real pty-backed Neovim |
 
 ## Fixtures
@@ -58,10 +60,11 @@ interchangeable, and the assertions know which one they are looking at.
   modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
-  `viewless_spec`, `capture_spec`, `delivery_spec` and `interactive_spec`.
+  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec` and
+  `interactive_spec`.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
-  so it must not. Used by `panel_spec` and `focus_spec`.
+  so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
 - **`mkbig.sh`** — 60 files, 12k changed lines, for `perf.lua` only.
 
 The sources are Lua and Markdown rather than TypeScript because Neovim core ships both
@@ -133,6 +136,11 @@ so the out-of-core language path is still checked locally without ever failing C
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.
+- **"The tree followed" needs the tree to have been somewhere else first.** It repaints only
+  when the diff cursor crosses into a *different* file than the one it last painted for, so
+  an assertion that it points at a file it was already pointing at passes with nothing
+  syncing it. `queue_jump_panel_spec` puts the highlight on another file, and asserts that
+  guard, before every case that claims a jump moved it.
 - **An immediate send asks for its target before the composer exists.** Nothing is
   floating between the two, so a picker stub that answers inline collapses the whole
   interaction into one tick and no test can observe the order. `composer_spec` holds the
