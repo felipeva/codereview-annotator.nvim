@@ -95,7 +95,7 @@ so the out-of-core language path is still checked locally without ever failing C
   the whole file instead. Feed the keys and the mapping together (`h.feed("1GVj<F5>")`), as
   `annotate_spec` does for the review path.
 - **The queue is restored once per session, so a second session means a second process.**
-  `view.ensure_queue()` latches after the first read, which is what stops a statusline
+  `state.ensure_queue()` latches after the first read, which is what stops a statusline
   calling `count()` from hitting the disk on every redraw. Clearing the queue in-process
   therefore does *not* simulate a restart — the latch is still set, nothing reloads, and an
   assertion about restoring is measuring nothing. `capture_spec` spawns
