@@ -212,3 +212,46 @@ describe("a target chosen while a review was open", function()
     assert.same("wV:p9", sent[#sent].target.pane_id)
   end)
 end)
+
+-- The caller that has no review view by construction: it captures from an ordinary buffer
+-- and never opens one. It therefore hands delivery no root, and the repository the working
+-- directory sits in has to stand in for one. Get that wrong and nothing errors -- every
+-- `@ref` in the payload just quietly becomes an absolute path with the code pasted after.
+describe("sending one annotation immediately with no review view", function()
+  local cfg = require("codereview.config").get()
+  local chooses_agent = cfg.pick_target
+  local before_sent = #sent
+
+  -- A target with no `cwd` of its own, so the payload is rendered against the root
+  -- delivery derived and not against one the adapter reported.
+  cfg.pick_target = function(cb)
+    cb({ short = "solo", pane_id = "wV:p1" })
+  end
+  cfg.compose = function(_, on_accept)
+    on_accept(nil, "sent with nothing open")
+  end
+
+  queue.clear()
+  vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(fixture, "src/routes.lua")))
+  assert(view.current() == nil, "this case is about having no view")
+  require("codereview").annotate("bug", nil, { immediate = true })
+
+  cfg.pick_target = chooses_agent
+  cfg.compose = nil
+
+  it("delivers it with no view to read a root from", function()
+    assert.same(before_sent + 1, #sent)
+    assert.same("wV:p1", sent[#sent].target.pane_id)
+    assert.is_nil(view.current(), "sending opened a review view")
+  end)
+
+  it("resolves its @ref against the working directory's repository", function()
+    local text = sent[#sent].text
+    assert.is_truthy(text:find("@src/routes.lua", 1, true), text)
+    assert.is_truthy(text:find("sent with nothing open", 1, true), text)
+  end)
+
+  it("leaves the queue out of it", function()
+    assert.same(0, queue.count())
+  end)
+end)

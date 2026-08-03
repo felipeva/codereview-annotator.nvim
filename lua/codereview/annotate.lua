@@ -451,7 +451,6 @@ end
 ---@param opts? { note_suffix?: string }
 function M.send_entry(entry, type_def, opts)
   entry.type = type_def and type_def.name
-  local view = require("codereview.view")
 
   -- Said the same way from both places the absence can be discovered: before the composer
   -- opens, and from the routing key once it is.
@@ -490,7 +489,9 @@ function M.send_entry(entry, type_def, opts)
   local function compose_and_send()
     collect(compose_ctx(entry, type_def, routing), "send", function(text)
       entry.note = note_with(text, opts)
-      if view.deliver({ entry }, to) then
+      -- No context to hand over: this note was captured from a buffer, so there is no
+      -- review whose root and scope the payload could describe.
+      if delivery.deliver({ entry }, to) then
         info(
           ("Sent %s %s to %s"):format(
             entry.type or "untyped",

@@ -795,40 +795,6 @@ function M.pick_target(on_done)
   end)
 end
 
----Render annotations as one payload and hand it to the send adapter.
----
----Shared with the immediate send, which is a batch of one (ADR-0004): one renderer, one
----delivery, and one fallback for a host that wired no `send` -- rather than a second
----output shape that could drift from this one.
----@param items CRAnnotation[]
----@param to table|nil Where it is going, or nil for whatever the adapter defaults to
----@param opts { scope_label?: string, files?: integer, reviewed?: integer }|nil
----@return boolean delivered false when it went to the `+` register instead
-function M.deliver(items, to, opts)
-  local cfg = config.get()
-  local V_ = M.current()
-  local root = V_ and V_.root or (git.root(vim.fn.getcwd()) or vim.fn.getcwd())
-  -- Resolve refs against the directory the payload is actually going to: a routed agent
-  -- reads `@path` relative to its own cwd, not this Neovim's.
-  local base = (to and to.cwd and to.cwd ~= "") and to.cwd or root
-
-  local text = require("codereview.payload").render(items, base, {
-    types = cfg.types,
-    scope_label = opts and opts.scope_label,
-    files = opts and opts.files,
-    reviewed = opts and opts.reviewed,
-  })
-
-  if not cfg.send then
-    warn("No send adapter configured — copied the batch to the + register instead")
-    vim.fn.setreg("+", text)
-    return false
-  end
-
-  cfg.send(text, to)
-  return true
-end
-
 ---Render the queue and hand it to the send adapter.
 function M.submit()
   local queue = require("codereview.queue")
@@ -857,7 +823,10 @@ function M.submit()
   -- Read unconditionally: the target outlives any view, and there may not be one.
   local target = delivery.target()
   if
-    not M.deliver(queue.all(), target, {
+    not delivery.deliver(queue.all(), target, {
+      -- Handed over rather than read back: delivery knows nothing about views, and a batch
+      -- submitted with none open is answered from the working directory instead.
+      root = V_ and V_.root or nil,
       scope_label = V_ and V_.scope.label or nil,
       files = V_ and #V_.files or nil,
       reviewed = reviewed,

@@ -1,21 +1,32 @@
----Where a batch is going, and how that choice is made.
+---Where a batch is going, how that choice is made, and what is handed over when it goes.
 ---
 ---Routing is a property of the batch, not of whichever window asked. Holding it here is
 ---what lets the winbar, the queue float and the composer all name the same choice without
 ---any of them loading a review view to read it -- and what lets it be chosen at all with
 ---nothing open.
 ---
+---The handoff is here for the same reason. A batch and a batch of one go out the same way
+---(ADR-0004), and the batch of one has no review view behind it at all; with the renderer
+---sitting on the view, sending a single note meant loading the whole review surface to
+---reach it.
+---
 ---Windows are deliberately not its business. It calls the picker adapter and keeps what
 ---comes back; putting focus back where the question was asked is the one concession, and
 ---only because the picker answers on a later tick, by which time no caller is still on the
 ---stack to do it. What a surface then has to repaint is the surface's own affair.
 local config = require("codereview.config")
+local git = require("codereview.git")
 
 local M = {}
 
 ---@param msg string
 local function info(msg)
   vim.notify(msg, vim.log.levels.INFO, { title = "Code review" })
+end
+
+---@param msg string
+local function warn(msg)
+  vim.notify(msg, vim.log.levels.WARN, { title = "Code review" })
 end
 
 ---Where the next batch goes, or nil for the adapter's default.
@@ -105,6 +116,47 @@ function M.pick_target(on_done)
   if not asked then
     info("No pick_target adapter configured — submitting locally")
   end
+end
+
+---Render annotations as one payload and hand it to the send adapter.
+---
+---Shared with the immediate send, which is a batch of one (ADR-0004): one renderer, one
+---delivery, and one fallback for a host that wired no `send` -- rather than a second
+---output shape that could drift from this one.
+---
+---Everything it renders with is handed to it, the repository root included. It used to
+---read that off the current review view, which is how a function that has no business
+---knowing about views ended up depending on one being open.
+---@param items CRAnnotation[]
+---@param to table|nil Where it is going, or nil for whatever the adapter defaults to
+---@param opts { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---       `root` is the review's, when there is one. Without it the working directory's
+---       repository stands in, which is the only answer available to a caller -- buffer
+---       capture sending a single note -- that never had a review behind it.
+---@return boolean delivered false when it went to the `+` register instead
+function M.deliver(items, to, opts)
+  local cfg = config.get()
+  opts = opts or {}
+  local root = opts.root or (git.root(vim.fn.getcwd()) or vim.fn.getcwd())
+  -- Resolve refs against the directory the payload is actually going to: a routed agent
+  -- reads `@path` relative to its own cwd, not this Neovim's.
+  local base = (to and to.cwd and to.cwd ~= "") and to.cwd or root
+
+  local text = require("codereview.payload").render(items, base, {
+    types = cfg.types,
+    scope_label = opts.scope_label,
+    files = opts.files,
+    reviewed = opts.reviewed,
+  })
+
+  if not cfg.send then
+    warn("No send adapter configured — copied the batch to the + register instead")
+    vim.fn.setreg("+", text)
+    return false
+  end
+
+  cfg.send(text, to)
+  return true
 end
 
 return M
