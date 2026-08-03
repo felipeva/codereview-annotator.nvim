@@ -320,7 +320,9 @@ That a type is optional at all follows from this: a batch of one would
 otherwise force one onto the fastest interaction there is.
 
 The queue is untouched: an annotation sent this way never joins it, and what is
-already queued is neither delivered nor cleared.
+already queued is neither delivered nor cleared. The same rule a batch submits
+under still governs it: a `send` that reports it did not go says why, and
+nothing claims the note was sent.
 
 You are asked where it goes *before* the composer opens, through
 |codereview-opt-pick_target|, so declining costs no typing -- decline and
@@ -339,12 +341,38 @@ any other note you walked away from.
 
 The plugin has no opinion about where a review goes, or about which pickers
 you use. Four optional functions inject that. With none of them wired
-everything still works except delivery, which falls back to the `+` register,
-and `@` in the composer, which stays a literal `@`.
+everything still works: the payload reaches the `+` register instead of an
+agent and the batch stays queued, and `@` in the composer stays a literal `@`.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
         produced, or nil.
+
+        Report whether the payload was *handed off* -- not whether it
+        arrived: >
+            nil     dispatched
+            true    dispatched
+            false   not dispatched; the second return is the reason
+            raises  not dispatched; the error message is the reason
+<
+        Returning nothing therefore keeps working unchanged. Exactly one of
+        these empties the queue -- a dispatch -- so an adapter that answers
+        `false, "the pane is gone"` leaves the batch queued, warns with that
+        sentence, and the submit can be retried without retyping a note. An
+        adapter that raises is caught and reported the same way rather than
+        propagating a traceback.
+
+        "Dispatched" is deliberately the narrow promise. The adapter cannot
+        know synchronously that an agent accepted the batch, and waiting for
+        that would hold the queue open for the length of an agent's work, so
+        a failure that happens after the handoff stays the adapter's own to
+        report. See `docs/adr/0005-a-send-reports-dispatch-not-arrival.md`.
+
+        Without this, the payload is copied to the `+` register -- the
+        default implementation of this contract rather than a fallback beside
+        it. It is handed the same arguments and reports a non-dispatch,
+        because a register is not a consumer, which is why an unwired host
+        keeps its queue.
 
 pick_target({cb})                                 *codereview-opt-pick_target*
         Choose a delivery target and call {cb} with it. The target may carry
@@ -528,7 +556,8 @@ require("codereview").annotate({type}, {range}, {opts})
 require("codereview").queue()                           *codereview.queue()*
         Open the queue float: drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*
-        Submit the queued annotations as one batch.
+        Submit the queued annotations as one batch. The queue is emptied
+        only if |codereview-opt-send| reports it went.
 require("codereview").count()                           *codereview.count()*
         Number of queued annotations -- useful in a statusline.
 require("codereview").is_open()                       *codereview.is_open()*

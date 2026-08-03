@@ -1,9 +1,10 @@
 ---Configuration and adapter injection.
 ---
 ---The three adapters (`send`, `pick_target`, `compose`) are what keep this plugin
----distributable. With none of them wired it still renders, annotates and queues -- only
----delivery degrades to a fallback. A host config injects its own Claude/herdr plumbing
----rather than the plugin hardcoding any.
+---distributable. With none of them wired it still renders, annotates and queues -- the
+---payload just reaches the `+` register instead of an agent, and the batch stays queued
+---because nothing consumed it. A host config injects its own Claude/herdr plumbing rather
+---than the plugin hardcoding any.
 local M = {}
 
 M.defaults = {
@@ -37,7 +38,16 @@ M.defaults = {
 
   --- Adapters (all optional) ---
   ---Deliver a rendered payload. `target` is whatever `pick_target` produced, or nil.
-  ---@type fun(payload: string, target: table|nil)|nil
+  ---
+  ---Report whether the payload was *handed off*, not whether it arrived (ADR-0005):
+  ---return nothing or `true` for dispatched, `false` and a reason for not. Raising is a
+  ---non-dispatch too, with the error message as the reason. Only a dispatch empties the
+  ---queue, so an adapter that says no leaves the batch to be retried.
+  ---
+  ---Replaces the clipboard copy the plugin ships, which is the default implementation of
+  ---this same contract rather than a fallback beside it: it is handed the same arguments
+  ---and reports a non-dispatch, because a register is not a consumer.
+  ---@type (fun(payload: string, target: table|nil): boolean?, string?)|nil
   send = nil,
   ---Choose a delivery target, calling back with it (or nil for the default).
   ---@type fun(cb: fun(target: table|nil))|nil

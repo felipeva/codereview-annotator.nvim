@@ -423,10 +423,9 @@ function M.queue_entry(entry, type_def, opts)
   -- gets here; capture from a buffer can be the very first thing a session does.
   local staled = require("codereview.state").ensure_queue()
   if staled > 0 then
-    -- Worded exactly as a review reports staleness, and said before the composer opens:
-    -- which path happened to read the queue back is not something a reviewer should be
-    -- able to hear.
-    info(("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s"))
+    -- Said before the composer opens, in the queue's own wording: which path happened to
+    -- read the queue back is not something a reviewer should be able to hear.
+    info(queue.stale_phrase(staled))
   end
   collect(compose_ctx(entry, type_def), "queue", function(text)
     entry.note = note_with(text, opts)
@@ -491,6 +490,10 @@ function M.send_entry(entry, type_def, opts)
       entry.note = note_with(text, opts)
       -- No context to hand over: this note was captured from a buffer, so there is no
       -- review whose root and scope the payload could describe.
+      --
+      -- Confirmed only on a dispatch, which is the rule a batch submits under. A send
+      -- that did not go has already said why; saying it was sent on top of that is the
+      -- one thing that would lose the note in silence.
       if delivery.deliver({ entry }, to) then
         info(
           ("Sent %s %s to %s"):format(

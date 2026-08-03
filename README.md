@@ -49,7 +49,8 @@ Everything is drawn natively, and the syntax highlighting is recovered with
 ```
 
 Nothing else is required. With no adapters wired the view renders, annotates and queues;
-only delivery falls back (the batch lands in the `+` register).
+the batch lands in the `+` register instead of an agent, and stays queued because nothing
+consumed it.
 
 ## Usage
 
@@ -126,7 +127,8 @@ That a type is optional at all is a consequence of this: a batch of one would ot
 force one onto the fastest interaction there is.
 
 The queue is untouched: an annotation sent this way never joins it, and whatever is already
-queued is neither delivered nor cleared.
+queued is neither delivered nor cleared. It is governed by the same rule a batch is, though:
+a `send` that reports it did not go says why, and nothing claims the note was sent.
 
 You are asked where it goes **before** the composer opens, through `pick_target` — so
 declining costs no typing. Decline and nothing is sent. With no `pick_target` wired there
@@ -292,8 +294,14 @@ optional functions inject that:
 
 ```lua
 opts = {
-  -- Deliver the rendered batch. Without it, the payload goes to the + register.
-  send = function(payload, target) end,
+  -- Deliver the rendered batch. Report whether it was *handed off*, not whether it
+  -- arrived: return nothing or `true` for dispatched, `false` and a reason for not.
+  -- Raising counts as not dispatched too, with the error message as the reason.
+  -- A dispatch is the one thing that empties the queue, so a batch that did not go is
+  -- still there to retry. Without this the payload goes to the + register, which is the
+  -- default implementation of this same contract — it reports a non-dispatch, because a
+  -- register is not a consumer, and that is why an unwired host keeps its queue.
+  send = function(payload, target) return true end,
 
   -- Choose a delivery target; call back with anything carrying `short` and `cwd`.
   -- `cwd` matters: refs are re-resolved against it at submit time.
@@ -317,6 +325,10 @@ opts = {
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
 }
 ```
+
+[ADR-0005](docs/adr/0005-a-send-reports-dispatch-not-arrival.md) records why "dispatched"
+is the narrow promise — the adapter most hosts wire is asynchronous, and holding the queue
+until an agent confirmed would keep a sent batch queued for the length of that agent's work.
 
 <details>
 <summary>Wiring it to a Claude session over herdr</summary>

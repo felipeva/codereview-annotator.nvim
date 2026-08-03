@@ -10,6 +10,9 @@
 ---sitting on the view, sending a single note meant loading the whole review surface to
 ---reach it.
 ---
+---And the submit, which is what holds the rule the other two serve: restore the queue,
+---deliver it, and empty it only if the send reports it went (ADR-0005).
+---
 ---Windows are deliberately not its business. It calls the picker adapter and keeps what
 ---comes back; putting focus back where the question was asked is the one concession, and
 ---only because the picker answers on a later tick, by which time no caller is still on the
@@ -118,11 +121,29 @@ function M.pick_target(on_done)
   end
 end
 
+---The default implementation of the `send` contract, and not a fallback beside it.
+---
+---ADR-0003 settled this shape for the composer; this is the same idea applied to
+---delivery. It is handed exactly what a host adapter is handed and answers through
+---exactly the same return, so there is always a send and nothing anywhere has to ask
+---whether one is wired.
+---
+---It reports a non-dispatch because that is the truth: a register is not a consumer.
+---The behaviour a host with no delivery already had -- the payload reachable, the batch
+---still queued -- then falls out of the one rule that empties the queue rather than
+---being written down a second time.
+---@param payload string
+---@param _to table|nil Nothing to route to; the register is where it goes either way
+---@return boolean dispatched, string reason
+local function to_clipboard(payload, _to)
+  vim.fn.setreg("+", payload)
+  return false, "No send adapter configured — copied the batch to the + register instead"
+end
+
 ---Render annotations as one payload and hand it to the send adapter.
 ---
----Shared with the immediate send, which is a batch of one (ADR-0004): one renderer, one
----delivery, and one fallback for a host that wired no `send` -- rather than a second
----output shape that could drift from this one.
+---Shared with the immediate send, which is a batch of one (ADR-0004): one renderer and
+---one delivery, rather than a second output shape that could drift from this one.
 ---
 ---Everything it renders with is handed to it, the repository root included. It used to
 ---read that off the current review view, which is how a function that has no business
@@ -133,7 +154,7 @@ end
 ---       `root` is the review's, when there is one. Without it the working directory's
 ---       repository stands in, which is the only answer available to a caller -- buffer
 ---       capture sending a single note -- that never had a review behind it.
----@return boolean delivered false when it went to the `+` register instead
+---@return boolean dispatched false when the send said it did not go, or raised trying
 function M.deliver(items, to, opts)
   local cfg = config.get()
   opts = opts or {}
@@ -149,13 +170,82 @@ function M.deliver(items, to, opts)
     reviewed = opts.reviewed,
   })
 
-  if not cfg.send then
-    warn("No send adapter configured — copied the batch to the + register instead")
-    vim.fn.setreg("+", text)
+  -- A raise is a non-dispatch, not a crash. A missing binary raises rather than returning
+  -- anything -- that is how the process API answers -- and letting it unwind would take
+  -- the queue's one rule with it: the batch used to survive only because the error jumped
+  -- past the line that clears it, and the reviewer read a traceback where a sentence
+  -- belongs.
+  local ok, first, second = pcall(cfg.send or to_clipboard, text, to)
+  local dispatched, reason = first, second
+  if not ok then
+    dispatched, reason = false, ("Send adapter failed: %s"):format(first)
+  end
+
+  -- Only an explicit `false` is a refusal: every adapter wired today returns nothing at
+  -- all, and nothing has to keep meaning it went. What "went" means is deliberately
+  -- narrow -- handed off, not arrived (ADR-0005).
+  if dispatched == false then
+    warn(reason or "The send adapter did not deliver the batch")
+    return false
+  end
+  return true
+end
+
+---Read the persisted queue back if this session has not, and say what came back stale.
+---
+---The latch belongs to persistence, which owns the stores it reads and answers with a
+---count. What is owed here is the sentence: submitting can be the first thing a session
+---does, and a batch has to be the one on disk before it can be the one that goes.
+local function ensure_queue()
+  local staled = require("codereview.state").ensure_queue()
+  if staled > 0 then
+    info(require("codereview.queue").stale_phrase(staled))
+  end
+end
+
+---Submit the queue as one batch, emptying it only if the send says it went.
+---
+---The rule this module exists to hold: a dispatch is what empties the queue, and nothing
+---else does. Not a raise, not an adapter that declined, not the register the shipped
+---default copies to -- each of those leaves the batch exactly where it was, to be retried
+---without a note being typed twice and with a count that still describes what is there.
+---
+---Here rather than on the review view because a batch is not a window. It can be
+---submitted with nothing open, and what remains the view's share of this is closing the
+---float that was listing the batch and repainting the diff behind it.
+---@param ctx { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---       What the review the batch came from can say about itself, when there was one.
+---@return boolean dispatched
+function M.submit(ctx)
+  local queue = require("codereview.queue")
+  ctx = ctx or {}
+
+  ensure_queue()
+  local count = queue.count()
+  if count == 0 then
+    info("Queue is empty — annotate something first")
     return false
   end
 
-  cfg.send(text, to)
+  if not M.deliver(queue.all(), target, ctx) then
+    return false
+  end
+  queue.clear()
+
+  -- Written whether or not a review is open: a batch submitted with none still has to
+  -- put the emptied queue on disk, or the entries it just sent come back on the next
+  -- start. The queue alone rather than the whole document, because submitting changes
+  -- nothing about the reviewed marks stored beside it.
+  local state = require("codereview.state")
+  state.persist_queue(ctx.root or state.ambient_root())
+
+  info(
+    ("Submitted %d annotation%s to %s"):format(
+      count,
+      count == 1 and "" or "s",
+      target and (target.short or "agent") or "local"
+    )
+  )
   return true
 end
 
