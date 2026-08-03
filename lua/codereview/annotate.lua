@@ -420,7 +420,13 @@ function M.queue_entry(entry, type_def, opts)
   -- document, so queueing into a queue this session has never read back would drop
   -- whatever the last session left. A review view has already restored by the time it
   -- gets here; capture from a buffer can be the very first thing a session does.
-  require("codereview.view").ensure_queue()
+  local staled = require("codereview.state").ensure_queue()
+  if staled > 0 then
+    -- Worded exactly as a review reports staleness, and said before the composer opens:
+    -- which path happened to read the queue back is not something a reviewer should be
+    -- able to hear.
+    info(("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s"))
+  end
   collect(compose_ctx(entry, type_def), "queue", function(text)
     entry.note = note_with(text, opts)
     queue.add(entry)

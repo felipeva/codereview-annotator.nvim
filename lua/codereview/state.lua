@@ -221,6 +221,39 @@ function M.restore_queue(root)
   return M.reconcile_queue(root)
 end
 
+---The repository the queue belongs to when no view is open.
+---@return string|nil
+local function ambient_root()
+  return require("codereview.git").root(vim.fn.getcwd())
+end
+
+-- Restored lazily, and once. `count()` is the sort of thing a statusline calls on every
+-- redraw, so reading the state file each time is not an option; and eagerly at startup is
+-- worse, because the working directory that decides which repository's queue to load may
+-- not be the one the user ends up in.
+local queue_restored = false
+
+---Load the persisted queue if this session has not seen it yet.
+---
+---Public because adding to the queue has to be able to demand it, not just reading it:
+---`persist_queue` writes memory over the document, so anything that queues an annotation
+---before the session has read the queue back would silently drop what the last session
+---left. Capture makes that reachable as the very first thing a session does.
+---
+---Counted rather than announced, as reconciliation is: how many restored annotations are
+---untrustworthy is a fact about the store, and the sentence a reviewer reads belongs to
+---whichever surface asked.
+---@return integer staled 0 once the queue has already been read back this session
+function M.ensure_queue()
+  if queue_restored then
+    return 0
+  end
+  queue_restored = true
+  -- No root is not a reason to skip: annotations with no repository behind them live in a
+  -- store that does not need one, and they would otherwise never come back.
+  return M.restore_queue(ambient_root())
+end
+
 ---Restore saved progress into a freshly opened view.
 ---@param view CRView
 ---@param scope_key string

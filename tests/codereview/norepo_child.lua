@@ -26,7 +26,7 @@ codereview.setup({
 })
 
 local queue = require("codereview.queue")
-local view = require("codereview.view")
+local state = require("codereview.state")
 
 if mode == "write" then
   vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(fixture, "src/main.lua")))
@@ -40,8 +40,10 @@ if mode == "write" then
 
   print("queued: " .. queue.count())
 else
-  -- What any new session does the first time it touches the queue.
-  view.ensure_queue()
+  -- What any new session does the first time it touches the queue. Called on the
+  -- persistence module rather than through the review view: reading the queue back does
+  -- not need a view, and this process deliberately never opens one.
+  state.ensure_queue()
   local kinds = {}
   for _, item in ipairs(queue.all()) do
     kinds[#kinds + 1] = ("%s/%s"):format(item.type, item.kind)
