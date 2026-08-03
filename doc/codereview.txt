@@ -65,6 +65,7 @@ Buffer-local, inside the review view:
     gs               Cycle scope, re-rendering in place
     gr               Re-read the diff from git
     gp               Show or hide the file tree
+    gl               Switch between the unified and split layouts
     <CR>             Open the real file here, in a new tab
     Q                Review the queue
     <C-t>            Choose the delivery target
@@ -100,6 +101,7 @@ In the file tree:                                         *codereview-tree*
     <C-p>            Jump to a file by name
     <Tab>            Back to the diff
     gp               Dismiss the tree, landing back in the diff
+    gl               Switch between the unified and split layouts
     q                Close the review
 
 The tree collapses single-child directory chains, so a monorepo shows
@@ -206,6 +208,33 @@ images, because the two runs live in different windows and cannot be in one
 selection. Pure-addition and pure-deletion ranges work, and annotating the
 hunk header captures both images inlined -- so what a split range cannot
 express is still one keystroke away.
+
+Switching layouts                                  *codereview-layout-toggle*
+
+`gl` switches between the two, from either pane and from the file tree. It
+keeps you where you were, but not on the same row: buffer rows mean nothing
+across layouts, since the same line of the same hunk sits at a different row
+in each. What is carried across is the anchor -- the same line of the same
+hunk of the same file -- and the row carrying it is found again afterwards.
+
+Which pane the cursor lands in follows the line's side: a deleted line lands
+in the left pane, an added or context line in the right. Switching back is
+unambiguous, since one anchor has one row. A cursor on filler has no
+counterpart in the unified layout at all, so it falls back to that file's
+header. The landing line is centred, because the row moved structurally and
+an exact scroll offset carried across would mean nothing.
+
+Nothing else changes. Reviewed marks, expanded state, the queue, the current
+scope, the delivery target and the tree's collapsed directories are all
+layout-independent, and annotations are re-drawn on the pane their line
+belongs to.
+
+The choice lasts for the rest of the session: closing a review and opening
+another does not quietly put you back. It resets when Neovim exits, so `layout`
+is what decides at the start of every session. It is deliberately not written
+to the state file -- that file is per repository and a layout preference is
+not, and a stored preference would silently override a `layout` you had since
+changed.
 
 ==============================================================================
 6. ANNOTATIONS                                      *codereview-annotations*
@@ -585,6 +614,12 @@ A corrupt or older state file is discarded rather than migrated.
 The queue is restored once per session, on first use, whether or not a review
 view is ever opened. Reviewed marks are kept for every scope the store knows
 about, not only the one on screen.
+
+What is deliberately NOT written there: the delivery target, which names a
+live destination a restart would make dead; and the layout `gl` last chose,
+which is a preference rather than review progress. That file is per
+repository and neither of those is; both last for the session and no longer.
+See |codereview-layout-toggle|.
 
 Judging staleness                          *codereview-persistence-staleness*
 

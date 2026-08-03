@@ -201,6 +201,36 @@ because the two runs live in different windows and cannot be in one selection.
 Pure-addition and pure-deletion ranges work, and annotating the hunk header captures both
 images inlined — so what a split range cannot express is still one keystroke away.
 
+### Switching layouts
+
+`gl` switches between the two, from either pane and from the file tree — so you can reach
+for side-by-side on the one reformatted file without editing your configuration.
+
+It keeps you where you were, but **not on the same row**. Buffer rows mean nothing across
+layouts: the same line of the same hunk sits at a different row in each. What is carried
+across is the **anchor** — the same line of the same hunk of the same file — and the row
+carrying it is found again afterwards. Three things follow, none of them a new rule:
+
+- which pane the cursor lands in follows the line's side, so a deleted line lands on the
+  left and an added or context line on the right;
+- switching back is unambiguous, since one anchor has one row;
+- a cursor on **filler** has no counterpart in the unified layout at all, so it falls back
+  to that file's header.
+
+The landing line is centred, because the row moved structurally and preserving an exact
+scroll offset across that would be preserving something meaningless.
+
+Nothing else changes across a toggle: reviewed marks, expanded state, the queue, the
+current **scope**, the delivery **target** and the tree's collapsed directories are all
+layout-independent, and your queued annotations are re-drawn on the pane their line belongs
+to.
+
+The choice lasts **for the rest of the session** — closing a review and opening another
+does not quietly put you back — and resets when Neovim exits, so `layout` is what decides
+at the start of every session. It is deliberately not written to the state file: that file
+is per repository and a layout preference is not, and a stored preference would silently
+override a `layout` you had since changed.
+
 ### Inside the view
 
 | Key | Action |
@@ -213,6 +243,7 @@ images inlined — so what a split range cannot express is still one keystroke a
 | `gs` | Cycle scope, re-rendering in place |
 | `gr` | Re-read the diff from git |
 | `gp` | Show or hide the file tree |
+| `gl` | Switch between the unified and split layouts |
 | `<CR>` | Open the real file here, in a new tab |
 | `Q` | Review the queue |
 | `<C-t>` | Choose the delivery target |
@@ -252,6 +283,7 @@ cursor last was.
 | `<C-p>` | Jump to a file by name |
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree, landing back in the diff |
+| `gl` | Switch between the unified and split layouts |
 | `q` | Close |
 
 Jumping to a file that was collapsed because it is reviewed expands it: you asked to look
@@ -490,6 +522,11 @@ has no scope behind it and is judged against the file on disk, at any scope and 
 review open. That distinction matters in a `staged` review, where the diff shows the index
 and a buffer capture holds the working tree: judging one by the other would flag a note
 about a file nobody has touched.
+
+Two things deliberately do **not** go there: the delivery target, which names a live
+destination a restart would make dead, and the layout `gl` last chose, which is a
+preference rather than review progress. The store is per repository and neither of those
+is; both last for the session and no longer.
 
 ## Development
 

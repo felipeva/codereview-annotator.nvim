@@ -11,7 +11,7 @@ make perf                                             # open-time report, not a 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 600 cases in ~5 seconds.
+The whole suite is about 800 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -25,6 +25,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
+| `codereview/layout_child.lua` | Spawned by `layout_spec` — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
@@ -37,6 +38,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
+| `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
@@ -61,10 +63,12 @@ interchangeable, and the assertions know which one they are looking at.
   modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
-  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `split_spec` and
-  `interactive_spec`. It already covers everything the split layout has to render,
-  including the files that exist on only one side and the additions between context lines
-  that produce filler — so that slice needed no fixture of its own.
+  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `split_spec`,
+  `layout_spec` and `interactive_spec`. It already covers everything the split layout has
+  to render, including the files that exist on only one side and the additions between
+  context lines that produce filler — so that slice needed no fixture of its own. The
+  layout toggle needed none either: `src/main.lua`'s deletion and its replacement collapse
+  onto one row in the split layout, which is what makes every row below them move.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
@@ -87,6 +91,14 @@ so the out-of-core language path is still checked locally without ever failing C
   across a genuine restart; calling `state.load()` twice in one process proves nothing
   about what reached the disk. `state_child.lua` writes, the spec restarts and reads. Do
   not collapse it into one process.
+- **So is `layout_spec`, and for the opposite reason.** "The chosen layout resets when
+  Neovim exits" is a claim about what a *new* process starts with, which no assertion made
+  in the choosing one can settle. `layout_child.lua` chooses the split layout and exits;
+  the spec, which has not toggled anything yet, then opens a review and finds the
+  configured layout. It also marks a file reviewed, because "nothing about the layout came
+  back" would otherwise be satisfied by nothing coming back at all — the reviewed mark is
+  what proves the store the two share is live. Its cases therefore have to run *first*,
+  before this process has chosen a layout of its own.
 - **`norepo_spec` needs a directory that is genuinely outside a checkout**, and asserts it
   rather than assuming it. If the temp directory ever sits inside a repository, every case
   about a "loose" file silently becomes a test of the ordinary in-repository path.
@@ -172,6 +184,27 @@ so the out-of-core language path is still checked locally without ever failing C
   asserts the panes really did diverge, so the assertion cannot quietly stop measuring.
   Note that `zt` in one pane propagates through `scrollbind`, so it is no use for pulling
   them apart; that was the first attempt and the guard caught it.
+- **A toggle from a row both layouts agree about proves nothing.** Most of the fixture
+  renders at the *same* row in both layouts, because only files below a collapsed
+  deletion-and-replacement pair move at all — `src/main.lua`'s deleted line is row 12 in
+  each. A round trip started there passes with the anchor scan replaced by "keep the row",
+  which is the bug. `layout_spec` starts in `src/newname.lua` and `src/routes.lua`, both
+  below that collapse, and guards every round trip by asserting the row really did change.
+- **Centring is unobservable in a window taller than its buffer.** `split_spec` runs at 45
+  lines, where the whole fixture diff fits on screen and nothing can scroll, so a `zz`
+  assertion there passes with the `zz` deleted. `layout_spec` runs at 24 for that reason,
+  and asserts centring as "a second `zz` here changes nothing" plus a guard that the window
+  had scrolled at all.
+- **Two bound panes given the same view command land somewhere neither was asked for.**
+  `scrollbind` tracks deltas, so running `zz` in the after pane scrolls the before pane
+  before the before pane has been placed, and its own `zz` then scrolls the after pane
+  back — nine rows apart, neither centred. `place` lifts both bindings while it works and
+  puts them back, which does not scroll anything. `zt` happens to be self-correcting from
+  an aligned start, which is why no file-jump assertion caught this first.
+- **Reviewed marks and expansion are per scope, so setting them before a scope change
+  loses them.** `set_scope` swaps `V.reviewed` and `V.expanded` for the new scope's tables.
+  A fixture built and *then* switched to another scope arrives empty, and a "nothing
+  changed" assertion over it compares two empty tables and passes regardless.
 - **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
