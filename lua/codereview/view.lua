@@ -2,6 +2,12 @@
 ---
 ---One view exists at a time, in its own tab page. Everything it draws comes from
 ---`render.lua`; everything it knows about position comes from that render's anchor map.
+---
+---In the split layout the view keeps its existing buffer and window as the **after** pane
+---and gains a before pane beside it. The after-image is the primary one everywhere else --
+---context lines are attributed to it, line keys prefer it, an entry's line numbers prefer
+---it, and opening a file resolves through it -- so naming it primary here is consistent
+---rather than arbitrary, and it is what keeps the unified layout untouched.
 local config = require("codereview.config")
 local git = require("codereview.git")
 local render = require("codereview.render")
@@ -22,12 +28,16 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field reviewed table<string, string>   Path -> blob at the time it was marked
 ---@field expanded table<string, boolean>
 ---@field notes table<string, table[]>     Line key -> annotations
----@field buf integer
----@field win integer
+---@field buf integer                     The after pane
+---@field win integer                     The after pane
+---@field before_buf integer|nil          nil in the unified layout
+---@field before_win integer|nil          nil in the unified layout
+---@field layout "unified"|"split"
 ---@field panel_buf integer|nil
 ---@field panel_win integer|nil
 ---@field tab integer
----@field render CRRender|nil
+---@field render CRRender|nil             The after pane's render
+---@field before_render CRRender|nil      nil in the unified layout
 ---@field panel_render CRPanelRender|nil
 
 ---@type CRView|nil
@@ -59,18 +69,114 @@ local function scope_key(scope)
   return scope.name .. ":" .. scope.before
 end
 
+--- Panes ----------------------------------------------------------------------
+
+---@return boolean
+local function has_before()
+  return V ~= nil and V.before_win ~= nil and vim.api.nvim_win_is_valid(V.before_win)
+end
+
+---Every review window there is, after pane first.
+---@return integer[]
+local function panes()
+  local out = { V.win }
+  if has_before() then
+    out[#out + 1] = V.before_win
+  end
+  return out
+end
+
+---Every review buffer there is, after pane first.
+---@return integer[]
+local function pane_bufs()
+  local out = { V.buf }
+  if V.before_buf and vim.api.nvim_buf_is_valid(V.before_buf) then
+    out[#out + 1] = V.before_buf
+  end
+  return out
+end
+
+---Which review window has focus, and the render drawn in it.
+---
+---Defaults to the after pane, which is the right answer for a caller that is in neither:
+---it is the primary pane everywhere else, and every other use of the view's window is
+---either a focus restore or a geometry read, for which the two panes are equivalent.
+---
+---Internal. Exported only because target resolution lives in another module, and is
+---exercised through that module's behaviour rather than directly.
+---@return integer win, CRRender|nil render
+function M.focused_pane()
+  if has_before() and vim.api.nvim_get_current_win() == V.before_win then
+    return V.before_win, V.before_render
+  end
+  return V.win, V.render
+end
+
+---Row the cursor is on, in whichever pane has focus. The two agree row for row, so this
+---is a question about the cursor rather than about the layout.
+---@return integer
+local function cursor_row()
+  local win = M.focused_pane()
+  return vim.api.nvim_win_get_cursor(win)[1]
+end
+
+---Put every pane on `row`, running the same view command in each.
+---
+---Explicitly rather than through `cursorbind`: the binding follows cursor *motions*, and
+---nothing here moves a cursor -- it sets one. Running the same command in both windows is
+---also what keeps their top lines identical, which the binding alone would not restore.
+---@param row integer
+---@param cmd string|nil A normal-mode view command: `zt` to put the row at the top, `zz`
+---       to centre it, nil to leave the window where it is
+local function place(row, cmd)
+  for _, win in ipairs(panes()) do
+    local last = vim.api.nvim_buf_line_count(vim.api.nvim_win_get_buf(win))
+    pcall(vim.api.nvim_win_set_cursor, win, { math.max(1, math.min(row, last)), 0 })
+    if cmd then
+      pcall(vim.api.nvim_win_call, win, function()
+        vim.cmd("normal! " .. cmd)
+      end)
+    end
+  end
+end
+
+---Put both panes back on the same row and the same top line.
+---
+---`scrollbind` and `cursorbind` track deltas rather than absolute positions, so a repaint
+---that changes the line count beneath them leaves the panes reading different code while
+---still believing they are in step. Four operations do that -- toggling expansion, toggling
+---reviewed, reloading the diff and changing scope -- and every one of them ends in a paint,
+---so the binding is re-asserted there rather than at four call sites.
+local function resync()
+  if not has_before() then
+    return
+  end
+  local from = M.focused_pane()
+  local last = vim.api.nvim_buf_line_count(V.buf)
+  local row = math.max(1, math.min(vim.api.nvim_win_get_cursor(from)[1], last))
+  local top = vim.api.nvim_win_call(from, function()
+    return vim.fn.line("w0")
+  end)
+  for _, win in ipairs(panes()) do
+    pcall(vim.api.nvim_win_call, win, function()
+      vim.fn.winrestview({ topline = math.max(1, math.min(top, last)), lnum = row, col = 0, leftcol = 0 })
+    end)
+  end
+end
+
 --- Painting --------------------------------------------------------------------
 
 ---Index of the file the diff cursor is currently inside, for the panel's highlight.
 ---@return integer|nil
 local function current_file_index()
-  if not (V.render and vim.api.nvim_win_is_valid(V.win)) then
+  local win, rendered = M.focused_pane()
+  if not (rendered and vim.api.nvim_win_is_valid(win)) then
     return nil
   end
-  local row = vim.api.nvim_win_get_cursor(V.win)[1]
+  local row = vim.api.nvim_win_get_cursor(win)[1]
   for r = row, 1, -1 do
-    if V.render.anchors[r] then
-      return V.render.anchors[r].file
+    if rendered.anchors[r] then
+      return rendered.anchors[r].file
     end
   end
   return nil
@@ -148,6 +254,36 @@ local function update_winbar()
   vim.wo[V.win].winbar = bar:gsub("%%", "%%%%")
 end
 
+---Name the revision the before pane is showing.
+---
+---The after pane's winbar already says what the review is; what it cannot say is which of
+---the two images is the base, and a reviewer should never have to infer that from the code.
+local function update_before_winbar()
+  if not has_before() then
+    return
+  end
+  local rev = V.scope.before
+  -- `:0` is git's name for the index, and a name nobody reads as one.
+  local bar = (" Before · %s"):format(rev == ":0" and "index" or rev)
+  vim.wo[V.before_win].winbar = bar:gsub("%%", "%%%%")
+end
+
+---Write one pane's render into its buffer.
+---@param buf integer
+---@param rendered CRRender
+local function write_pane(buf, rendered)
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, rendered.lines)
+  vim.bo[buf].modifiable = false
+
+  vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
+  for _, m in ipairs(rendered.marks) do
+    -- An end_col past the end of a line is a hard error; a mis-measured header should
+    -- lose its colour, not abort the whole repaint.
+    pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, m.opts)
+  end
+end
+
 ---Redraw from the files already in memory. Cheap; no git.
 ---@param keep_file integer|nil File index to park the cursor on afterwards
 function M.paint(keep_file)
@@ -158,8 +294,12 @@ function M.paint(keep_file)
   -- The queue is the source of truth for annotations; the view only ever displays a
   -- projection of it, so there is no second copy to keep in sync.
   V.notes = require("codereview.queue").by_key()
-  V.render = render.build(V.files, {
+  -- Both panes from one walk: their row counts and their anchors agree by construction
+  -- rather than because two calls happened to be handed the same arguments.
+  V.render, V.before_render = render.build(V.files, {
     width = vim.api.nvim_win_get_width(V.win),
+    before_width = has_before() and vim.api.nvim_win_get_width(V.before_win) or nil,
+    layout = has_before() and "split" or "unified",
     icons = cfg.icons,
     expanded = V.expanded,
     reviewed = V.reviewed,
@@ -167,22 +307,17 @@ function M.paint(keep_file)
     types = cfg.types,
   })
 
-  vim.bo[V.buf].modifiable = true
-  vim.api.nvim_buf_set_lines(V.buf, 0, -1, false, V.render.lines)
-  vim.bo[V.buf].modifiable = false
-
-  vim.api.nvim_buf_clear_namespace(V.buf, NS, 0, -1)
-  for _, m in ipairs(V.render.marks) do
-    -- An end_col past the end of a line is a hard error; a mis-measured header should
-    -- lose its colour, not abort the whole repaint.
-    pcall(vim.api.nvim_buf_set_extmark, V.buf, NS, m.row, m.col, m.opts)
+  write_pane(V.buf, V.render)
+  if V.before_render then
+    write_pane(V.before_buf, V.before_render)
   end
 
   paint_panel()
   update_winbar()
+  update_before_winbar()
 
   if keep_file and V.render.file_rows[keep_file] then
-    pcall(vim.api.nvim_win_set_cursor, V.win, { V.render.file_rows[keep_file], 0 })
+    place(V.render.file_rows[keep_file])
   end
 
   if config.get().syntax then
@@ -192,6 +327,8 @@ function M.paint(keep_file)
     syntax.reset_painted(V)
     syntax.apply(V, NS)
   end
+
+  resync()
 end
 
 ---Write progress to disk. Called from every mutation rather than from `paint`, which
@@ -228,15 +365,18 @@ end
 
 ---@return CRAnchor|nil
 local function anchor_at_cursor()
-  if not V.render then
+  local win, rendered = M.focused_pane()
+  if not rendered then
     return nil
   end
-  local row = vim.api.nvim_win_get_cursor(V.win)[1]
+  local row = vim.api.nvim_win_get_cursor(win)[1]
   -- Walk upward: a blank padding row still belongs to the file above it, so a cursor
-  -- resting in whitespace resolves to something sensible rather than nothing.
+  -- resting in whitespace resolves to something sensible rather than nothing. In the split
+  -- layout there is nothing to walk -- every row carries an anchor, and a filler row says
+  -- so rather than letting the cursor inherit an unrelated line above it.
   for r = row, 1, -1 do
-    if V.render.anchors[r] then
-      return V.render.anchors[r], r
+    if rendered.anchors[r] then
+      return rendered.anchors[r], r
     end
   end
   return nil
@@ -278,15 +418,12 @@ end
 
 ---Put a file header at the top of the window rather than leaving it wherever it lands:
 ---jumping to a file is a request to read it, and its first hunk should be on screen.
+---
+---Both panes, because a jump that moved only one would leave them reading different code.
 ---@param row integer
----@param top boolean
-local function goto_row(row, top)
-  vim.api.nvim_win_set_cursor(V.win, { row, 0 })
-  if top then
-    vim.api.nvim_win_call(V.win, function()
-      vim.cmd("normal! zt")
-    end)
-  end
+---@param cmd string|nil `zt`, `zz`, or nil to leave the window where it is
+local function goto_row(row, cmd)
+  place(row, cmd)
   sync_panel()
 end
 
@@ -297,13 +434,12 @@ function M.jump(what, forward)
     return
   end
   local rows = what == "file" and V.render.file_rows or V.render.hunk_rows
-  local cur = vim.api.nvim_win_get_cursor(V.win)[1]
-  local row = nearest(rows, cur, forward)
+  local row = nearest(rows, cursor_row(), forward)
   if not row then
     info(("No %s %s here"):format(forward and "next" or "previous", what))
     return
   end
-  goto_row(row, what == "file")
+  goto_row(row, what == "file" and "zt" or nil)
 end
 
 ---Jump to the next or previous file that is still unreviewed.
@@ -327,15 +463,14 @@ function M.jump_unreviewed(forward)
     return
   end
 
-  local cur = vim.api.nvim_win_get_cursor(V.win)[1]
-  local row = nearest(rows, cur, forward)
+  local row = nearest(rows, cursor_row(), forward)
   if not row then
     -- Wrap: with the reviewed files skipped there are few targets left, and stopping dead
     -- at the last one means scrolling back by hand.
     row = forward and rows[1] or rows[#rows]
     info(forward and "Wrapped to the first unreviewed file" or "Wrapped to the last unreviewed file")
   end
-  goto_row(row, true)
+  goto_row(row, "zt")
 end
 
 ---Jump to the next or previous annotated line.
@@ -344,32 +479,46 @@ function M.jump_annotation(forward)
   if not M.current() or not V.render then
     return
   end
-  local render = require("codereview.render")
-  local rows = {}
-  for row, a in pairs(V.render.anchors) do
-    local file = V.files[a.file]
-    local key
-    if a.kind == "line" then
-      key = render.line_key(file.path, file.hunks[a.hunk].lines[a.line])
-    elseif a.kind == "file" then
-      key = render.file_key(file.path)
-    end
-    if key and V.notes[key] then
-      rows[#rows + 1] = row
+  ---Rows carrying a note, and whether the before pane is the one carrying it there. Both
+  ---anchor maps are read: a note on a deleted line exists only in the before pane's, and
+  ---skipping it would make half a reviewer's remarks unreachable by `]a`.
+  local owner = {}
+  ---@param rendered CRRender|nil
+  ---@param is_before boolean
+  local function collect(rendered, is_before)
+    for row, a in pairs(rendered and rendered.anchors or {}) do
+      local file = V.files[a.file]
+      local key
+      if a.kind == "line" then
+        key = render.line_key(file.path, file.hunks[a.hunk].lines[a.line])
+      elseif a.kind == "file" and not is_before then
+        -- A whole-file note carries no side, and it hangs off the after pane's header.
+        key = render.file_key(file.path)
+      end
+      -- The after pane is collected first, so a row annotated on both sides is recorded as
+      -- its own rather than being claimed by the before pane.
+      if key and V.notes[key] and owner[row] == nil then
+        owner[row] = is_before
+      end
     end
   end
+  collect(V.render, false)
+  collect(V.before_render, true)
+
+  local rows = vim.tbl_keys(owner)
   if #rows == 0 then
     info("No annotations yet")
     return
   end
   table.sort(rows)
 
-  local cur = vim.api.nvim_win_get_cursor(V.win)[1]
-  local row = nearest(rows, cur, forward) or (forward and rows[1] or rows[#rows])
-  goto_row(row, false)
-  vim.api.nvim_win_call(V.win, function()
-    vim.cmd("normal! zz")
-  end)
+  local row = nearest(rows, cursor_row(), forward) or (forward and rows[1] or rows[#rows])
+  -- Land in the pane the note is drawn in, so the jump arrives at the code and not beside
+  -- it. A row annotated on both sides keeps whichever pane the reviewer is already in.
+  if has_before() and owner[row] and vim.api.nvim_get_current_win() ~= V.before_win then
+    vim.api.nvim_set_current_win(V.before_win)
+  end
+  goto_row(row, "zz")
 end
 
 ---Jump straight to a file, chosen from a list.
@@ -411,7 +560,7 @@ function M.pick_file()
       M.paint()
     end
     if V.render.file_rows[index] then
-      goto_row(V.render.file_rows[index], true)
+      goto_row(V.render.file_rows[index], "zt")
     end
   end)
 end
@@ -553,7 +702,7 @@ function M.set_scope(spec)
     info(("No changes in scope '%s'"):format(scope.label))
   end
   M.paint()
-  pcall(vim.api.nvim_win_set_cursor, V.win, { 1, 0 })
+  place(1)
 end
 
 ---Line in the current file that this row corresponds to.
@@ -638,11 +787,7 @@ function M.panel_select()
     M.paint()
   end
   vim.api.nvim_set_current_win(V.win)
-  vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
-  vim.api.nvim_win_call(V.win, function()
-    vim.cmd("normal! zt")
-  end)
-  sync_panel()
+  goto_row(V.render.file_rows[fi], "zt")
 end
 
 ---@param shut boolean|nil nil toggles
@@ -878,13 +1023,19 @@ function M.jump_to_entry(entry)
     M.paint()
   end
 
+  -- The entry's key is already sided, so it also says which pane the annotation belongs to,
+  -- and that pane's anchor map is the only one carrying it. No new rule: the same key that
+  -- decides where the note is drawn decides where the jump lands.
+  local to_before = has_before() and render.is_before_key(entry.key)
+  local rendered = to_before and V.before_render or V.render
+
   -- The scan `]a` already makes: the anchor map is the only thing that knows which row a
   -- key is on now, which is what lets a stale annotation still land wherever its anchor
   -- points. A whole-file entry's key matches no line, and neither does a line that this
   -- diff no longer renders; both mean the file, so both land on its header.
-  local row = V.render.file_rows[index]
+  local row = rendered.file_rows[index]
   local file = V.files[index]
-  for r, a in pairs(V.render.anchors) do
+  for r, a in pairs(rendered.anchors) do
     if
       a.file == index
       and a.kind == "line"
@@ -895,11 +1046,8 @@ function M.jump_to_entry(entry)
     end
   end
 
-  vim.api.nvim_set_current_win(V.win)
-  goto_row(row, false)
-  vim.api.nvim_win_call(V.win, function()
-    vim.cmd("normal! zz")
-  end)
+  vim.api.nvim_set_current_win(to_before and V.before_win or V.win)
+  goto_row(row, "zz")
   return true
 end
 
@@ -1089,7 +1237,10 @@ local function bind(buf, maps)
   end
 end
 
-local function setup_main_keymaps()
+---Bind the diff's keys. Every pane gets the same set: which pane a reviewer happens to be
+---in decides what a key acts on, never whether it works.
+---@param buf integer
+local function setup_main_keymaps(buf)
   -- Annotation keys are prefixed with `a` rather than bound bare. Bare `b`/`f`/`s`/`n`
   -- would shadow back-word, find-char and next-search inside the buffer; `a` (append) is
   -- dead in a nomodifiable buffer, so it costs a keystroke and no motion.
@@ -1097,16 +1248,16 @@ local function setup_main_keymaps()
   for _, t in ipairs(config.get().types) do
     vim.keymap.set({ "n", "x" }, "a" .. t.key, function()
       annotate.annotate(t.name)
-    end, { buffer = V.buf, nowait = true, silent = true, desc = "Annotate: " .. t.name })
+    end, { buffer = buf, nowait = true, silent = true, desc = "Annotate: " .. t.name })
   end
   vim.keymap.set({ "n", "x" }, "aa", annotate.annotate_pick, {
-    buffer = V.buf,
+    buffer = buf,
     nowait = true,
     silent = true,
     desc = "Annotate: pick type",
   })
 
-  bind(V.buf, {
+  bind(buf, {
     ["x"] = { annotate.drop, "Drop the annotation here" },
     ["]f"] = {
       function()
@@ -1265,6 +1416,49 @@ local function window_opts(win)
   vim.wo[win].spell = false
 end
 
+--- The before pane -------------------------------------------------------------
+
+---Add the before pane, to the left of the after pane.
+---
+---A window and a buffer of its own rather than a second rendering of the existing one: the
+---two panes hold different text, and Neovim binds scrolling and the cursor between windows,
+---not between renderings.
+local function show_before_pane()
+  vim.api.nvim_set_current_win(V.win)
+  vim.cmd("leftabove vsplit")
+  local win = vim.api.nvim_get_current_win()
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_win_set_buf(win, buf)
+  scratch(buf, "codereview")
+  window_opts(win)
+  V.before_buf, V.before_win = buf, win
+
+  -- Both window-local. `scrollopt`, which decides what a bound window keeps in step, is
+  -- global -- a plugin that set it would reach outside its own windows -- so it is left
+  -- alone. Its default gives vertical synchronisation only, and horizontal scrolling
+  -- staying independent per pane is accepted.
+  for _, w in ipairs({ V.win, win }) do
+    vim.wo[w].scrollbind = true
+    vim.wo[w].cursorbind = true
+  end
+
+  vim.api.nvim_set_current_win(V.win)
+end
+
+---Give the two panes equal width.
+---
+---Called when the windows themselves change rather than on every paint: a reviewer who has
+---dragged the border between the panes has said what they want, and a repaint is not the
+---moment to overrule them. What does change the split without being asked is the panel
+---appearing or disappearing beside it, which is what this covers.
+local function balance_panes()
+  if not has_before() then
+    return
+  end
+  local total = vim.api.nvim_win_get_width(V.before_win) + vim.api.nvim_win_get_width(V.win)
+  pcall(vim.api.nvim_win_set_width, V.before_win, math.floor(total / 2))
+end
+
 --- The panel window ------------------------------------------------------------
 
 ---Build the panel: its window, its buffer and its keymaps.
@@ -1316,6 +1510,10 @@ function M.toggle_panel()
   else
     show_panel()
   end
+  -- With three windows competing for the terminal's columns, the panel's arrival or
+  -- departure is taken out of, or given back to, whichever pane Neovim picked. Split the
+  -- difference so the two panes stay comparable, which is the whole point of the layout.
+  balance_panes()
   -- The diff just changed width and its file headers are padded to that width, so this has
   -- to repaint. The resize autocmd does not cover it: WinResized is fired from the main
   -- loop, so it lands after the toggle has returned -- and never at all if nothing else
@@ -1377,6 +1575,7 @@ function M.open(spec)
     collapsed = {},
     buf = buf,
     win = main_win,
+    layout = cfg.layout,
     tab = tab,
   }
   V.reviewed = V.per_scope[key].reviewed
@@ -1385,11 +1584,19 @@ function M.open(spec)
   queue_restored = true
   M.reconcile()
 
+  -- Before the panel, so the panel's `topleft`/`botright` split lands outside both panes
+  -- rather than between them.
+  if cfg.layout == "split" then
+    show_before_pane()
+  end
   if cfg.panel.enabled then
     show_panel()
   end
+  balance_panes()
 
-  setup_main_keymaps()
+  for _, b in ipairs(pane_bufs()) do
+    setup_main_keymaps(b)
+  end
 
   local augroup = vim.api.nvim_create_augroup("CodeReviewView", { clear = true })
 
@@ -1408,41 +1615,45 @@ function M.open(spec)
   -- submitted from an insert-mode mapping closes its window without ending insert, and
   -- focus lands here mid-insert -- no InsertEnter fires, because insert never ended.
   -- Every navigation key is then a failed edit rather than a motion.
-  vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "InsertEnter" }, {
-    group = augroup,
-    buffer = buf,
-    callback = function()
-      if vim.fn.mode():sub(1, 1) == "i" then
-        vim.schedule(function()
-          if vim.fn.mode():sub(1, 1) == "i" then
-            vim.cmd("stopinsert")
-          end
-        end)
-      end
-    end,
-  })
+  for _, b in ipairs(pane_bufs()) do
+    vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "InsertEnter" }, {
+      group = augroup,
+      buffer = b,
+      callback = function()
+        if vim.fn.mode():sub(1, 1) == "i" then
+          vim.schedule(function()
+            if vim.fn.mode():sub(1, 1) == "i" then
+              vim.cmd("stopinsert")
+            end
+          end)
+        end
+      end,
+    })
+  end
 
   -- Highlighting is bounded by the viewport, so scrolling into an un-parsed file is what
   -- triggers its parse. Cheap on every other scroll: already-painted files are skipped
   -- and already-parsed ones repaint from cache.
-  vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
-    group = augroup,
-    buffer = buf,
-    callback = function()
-      if not M.current() then
-        return
-      end
-      if config.get().syntax then
-        require("codereview.syntax").apply(V, NS)
-      end
-      -- Keeps the tree pointed at whatever the diff cursor is reading. Cheap: it returns
-      -- immediately unless the cursor crossed into a different file.
-      sync_panel()
-    end,
-  })
+  for _, b in ipairs(pane_bufs()) do
+    vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
+      group = augroup,
+      buffer = b,
+      callback = function()
+        if not M.current() then
+          return
+        end
+        if config.get().syntax then
+          require("codereview.syntax").apply(V, NS)
+        end
+        -- Keeps the tree pointed at whatever the diff cursor is reading. Cheap: it returns
+        -- immediately unless the cursor crossed into a different file.
+        sync_panel()
+      end,
+    })
+  end
 
   M.paint()
-  vim.api.nvim_win_set_cursor(main_win, { 1, 0 })
+  place(1)
 end
 
 return M

@@ -50,11 +50,18 @@ local function selected_rows(win)
 end
 
 ---Resolve what the cursor or selection is pointing at.
+---
+---Read from the pane that has focus rather than from the view's window, so that in the
+---split layout annotating a deleted line on the left captures the deleted line and
+---annotating an added line on the right captures the post-image one -- the same entries the
+---unified layout produces for the same code. In the unified layout there is one pane and
+---this is the window it always was.
 ---@param view CRView
 ---@return CRTarget|nil
 function M.resolve(view)
-  local first, last, visual = selected_rows(view.win)
-  local anchors = view.render and view.render.anchors
+  local win, rendered = require("codereview.view").focused_pane()
+  local first, last, visual = selected_rows(win)
+  local anchors = rendered and rendered.anchors
   if not anchors then
     return nil
   end
