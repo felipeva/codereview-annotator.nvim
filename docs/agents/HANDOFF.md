@@ -53,7 +53,7 @@ its own throwaway fixture.
 
 Four of those drive a second Neovim rather than asserting in-process —
 `viewless_child.lua`, `capture_child.lua`, `norepo_child.lua`, `state_child.lua`. The queue
-restores **once per session** (`view.ensure_queue` latches), so anything testing restore or
+restores **once per session** (`state.ensure_queue` latches), so anything testing restore or
 clobbering needs a second *process*, not an in-process reset.
 
 Decisions worth not re-litigating, and the four things that changed along the way:

@@ -216,29 +216,15 @@ function M.persist()
   require("codereview.state").persist_queue(ambient_root())
 end
 
--- Restored lazily, and once. `count()` is the sort of thing a statusline calls on every
--- redraw, so reading the state file each time is not an option; and eagerly at startup is
--- worse, because the working directory that decides which repository's queue to load may
--- not be the one the user ends up in.
-local queue_restored = false
-
----Load the persisted queue if this session has not seen it yet.
+---Read the persisted queue back if this session has not, and say what came back stale.
 ---
----Public because adding to the queue has to be able to demand it, not just reading it:
----`persist_queue` writes memory over the document, so anything that queues an annotation
----before the session has read the queue back would silently drop what the last session
----left. Capture makes that reachable as the very first thing a session does.
-function M.ensure_queue()
-  if queue_restored then
-    return
-  end
-  queue_restored = true
-  -- No root is not a reason to skip: annotations with no repository behind them live in a
-  -- store that does not need one, and they would otherwise never come back.
-  local staled = require("codereview.state").restore_queue(ambient_root())
+---The latch itself belongs to persistence, which owns the stores it reads and returns a
+---count rather than phrasing one. What is left here is the sentence, worded exactly as a
+---review reports staleness: with no view open this is the only moment a restored
+---annotation's untrustworthy line anchors would otherwise go unmentioned.
+local function ensure_queue()
+  local staled = require("codereview.state").ensure_queue()
   if staled > 0 then
-    -- Worded exactly as the review view reports it. With no view open this is the only
-    -- moment a restored annotation's staleness would otherwise go unmentioned.
     info(("%d annotation%s now stale"):format(staled, staled == 1 and "" or "s"))
   end
 end
@@ -847,7 +833,7 @@ end
 function M.submit()
   local queue = require("codereview.queue")
 
-  M.ensure_queue()
+  ensure_queue()
   if queue.count() == 0 then
     info("Queue is empty — annotate something first")
     return
@@ -900,7 +886,7 @@ end
 ---List the queued annotations, drop any of them, then submit the batch.
 function M.review_queue()
   local queue = require("codereview.queue")
-  M.ensure_queue()
+  ensure_queue()
   if queue.count() == 0 then
     info("Queue is empty — annotate something first")
     return
