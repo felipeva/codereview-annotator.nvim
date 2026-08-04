@@ -33,9 +33,13 @@ M.defaults = {
   ---scope, not only `since-batch`: what has already been said is worth knowing wherever
   ---you are.
   ---
-  ---On by default, and coarse on purpose -- off is the whole history off, and renders the
-  ---diff exactly as it did before the archive existed. There is no keymap beside it yet;
-  ---one can be added if the switch proves too blunt.
+  ---Each of them says whether its file has been **touched** since its batch went, and the
+  ---winbar tallies how many have not.
+  ---
+  ---On by default, and coarse on purpose -- off is the whole history off: nothing drawn,
+  ---nothing tallied, no git spent judging, and the diff renders exactly as it did before
+  ---the archive existed. There is no keymap beside it yet; one can be added if the switch
+  ---proves too blunt.
   archived = true, ---@type boolean
   panel = {
     enabled = true,

@@ -176,10 +176,20 @@ _Avoid_: hook, callback, plugin, provider
 ### Staleness
 
 **Blob**:
-The hash of a file's contents at the moment an annotation was captured. The key staleness is
-judged against.
+The hash of a file's contents at a moment worth comparing against — when an annotation was
+captured, or when a batch was **dispatched**. The key both **stale** and **touched** are
+judged with.
 
 **Stale**:
 Said of an annotation whose file has changed since it was captured, so its line numbers may
 no longer mean what they did.
 _Avoid_: dirty, outdated, invalid
+
+**Touched**:
+Said of an archived annotation whose file has changed since its batch was **dispatched** —
+per file, never per **range**. Distinct from **stale**, which is the same comparison against
+a different blob and means something else entirely: stale says *my note may be wrong*,
+touched says *the agent has been here*. The two are reported separately and must never
+become one flag. Deliberately not _addressed_: the plugin knows the file moved, not that
+anyone read the note, agreed with it or acted on it.
+_Avoid_: addressed, handled, resolved, done

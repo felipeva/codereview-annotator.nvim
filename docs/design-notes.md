@@ -272,6 +272,53 @@ it reads as a claim about the code *now*, which nothing has checked. Whether an 
 entry's file has moved since its batch was dispatched is a different question, judged
 against a different blob, and it has a word of its own.
 
+**Touchedness and staleness share a primitive and must not share a rule.** Both are blob
+comparisons, and that is the whole of what they have in common. Staleness judges a *queued*
+entry against the blob it was **captured** with and means *my note may be wrong*;
+touchedness judges an *archived* entry against the working tree as it stood when its batch
+was **dispatched**, and means *the agent has been here*. One flag would say both and
+neither — an entry captured on Monday, edited by the reviewer on Tuesday and dispatched on
+Wednesday is stale and untouched at the same time. That is also why touchedness is judged
+against the **snapshot** rather than against the entry's own `blob`: reusing that field
+makes the comparison arithmetically identical to the staleness one, which is how two rules
+become one by accident instead of by decision, and it counts the reviewer's own edits
+between annotating and submitting as the agent's work. Separate functions on `state`,
+separate highlight groups, reported separately — a sentence for staleness, a winbar segment
+for touchedness — and an archived entry's persisted `stale` flag is not drawn at all.
+
+**It is judged per file, and against the snapshot the scope already diffs against.** Mapping
+an entry's line range through the diff since the snapshot was considered and settled against:
+considerably more machinery, and the case it improves stays fuzzy either way. *The agent
+never opened this file* is exact under the per-file rule, and it is the question a reviewer
+actually has after submitting. Reading the dispatch-time blobs out of the snapshot rather
+than stamping a second copy onto each entry is what keeps `since-batch` and the untouched
+tally describing one dispatch by construction: a file the tally calls touched is exactly a
+file that scope shows.
+
+**Three things are left unjudged rather than guessed at**, and each absence is silence rather
+than a verdict: a file the current scope does not cover (absence from a scope is not evidence
+that anything changed — the rule the reviewed-mark reconciliation already holds), a path the
+snapshot does not carry (a file untracked at dispatch, which `git stash create` never
+recorded), and a **bare note**, which is about no file and lives in the store that needs no
+root. Only the *newest* batch is judged: an older one went out against an older snapshot, and
+"has this moved since the last dispatch" is not a question about it.
+
+**The scope rule is why the tally reads `0 untouched` in `since-batch`, and that is not a
+bug to special-case away.** That scope shows exactly the files that moved since the snapshot,
+so every archived entry it covers is touched by definition and the ones a reviewer is looking
+for are the ones it is not showing. Suppressing the segment there would be a case in the view
+for one scope, which is the thing `since-batch` was built to avoid — it resolves like every
+other scope and nothing downstream knows its name. The number earns its keep in `branch` and
+`worktree`, where the whole review is on screen.
+
+**The tally is computed where the diff is read, never where the winbar is built.** That bar
+is rebuilt by every paint, and a paint runs on every resize — two `git` invocations there
+would be a resize handler shelling out. It is judged on opening, refreshing, changing scope
+and the view's own submit, and the number is read off the view. The view also records the
+`archive_writes` count it judged at: an **immediate send** archives a batch of one with no
+repaint of its own, so a paint that finds the count moved drops the verdicts and the segment
+with them, rather than reporting a number about a batch that has been overtaken.
+
 **`git stash create` mints a commit and does nothing else.** No ref moves, the index is not
 touched and the working tree is not reverted, which is the only reason it is safe to run
 behind a submit. Two consequences worth knowing before reading a snapshot back: a clean

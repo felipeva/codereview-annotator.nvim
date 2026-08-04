@@ -30,7 +30,7 @@ change there is felt through.
 | `queue.lua` | The queue itself — module-level, not per-view, so reopening a view scatters nothing | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk | pure |
-| `state.lua` | Persisted review progress, and the blob-hash check that makes persisting safe | stateful (disk) |
+| `state.lua` | Persisted review progress, and the blob comparisons over it — staleness, and touchedness kept in a function of its own | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
 | `view.lua` | The review view: buffers, windows, navigation, both layouts | stateful (windows) |

@@ -211,9 +211,11 @@ end
 ---second return value is nil, which is what every existing caller already ignores.
 ---`notes` is the queue projected onto anchors; `archived` is the archive projected onto the
 ---same ones, and is optional -- absent, nil and empty are one case, and the render is then
----exactly what it was before an archive existed.
+---exactly what it was before an archive existed. `touched` is what the reconciliation made
+---of those archived entries, keyed by entry id, and is optional for the same reason: an id
+---it says nothing about is an entry nothing has judged.
 ---@param files CRFile[]
----@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, types: CRType[] }
+---@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, types: CRType[] }
 ---@return CRRender after, CRRender|nil before
 function M.build(files, opts)
   local icons = opts.icons
@@ -283,18 +285,34 @@ function M.build(files, opts)
     local group = archived and "CodeReviewArchived" or (type_def and type_def.hl or "CodeReviewNote")
     local text_group = archived and "CodeReviewArchivedNote" or "CodeReviewNote"
     local prefix = ("   %s "):format(icon)
-    -- Queued entries only. An archived one carries the flag too, because it is persisted
-    -- with the entry, but there it means "this file had moved by the time the batch went" --
-    -- a fact about a queue that no longer exists. Drawn against the code now it reads as a
-    -- claim about the code now, which nothing has checked.
-    local stale = (not archived and item.stale) and "⚠ stale  " or nil
+
+    -- One slot before the prose, and the two things that can occupy it never share an
+    -- entry -- which is the rule, not an economy. A queued entry carries staleness: its
+    -- file moved since it was *captured*, so its line anchor may be wrong and that is worth
+    -- fixing before it goes. An archived entry carries touchedness: its file has or has not
+    -- moved since its batch was *dispatched*, which says where the agent has been. An
+    -- archived entry's `stale` flag is persisted with it and is deliberately not drawn --
+    -- it is a fact about a queue that no longer exists, and against the code now it would
+    -- read as a claim about the code now that nothing has checked.
+    local flag, flag_group
+    if archived then
+      local moved = opts.touched and item.id and opts.touched[item.id]
+      if moved ~= nil then
+        -- Said of the file, never of the note. The plugin knows the bytes moved; it does
+        -- not know that anyone read the remark, agreed with it or acted on it.
+        flag = moved and "file changed  " or "file unchanged  "
+        flag_group = moved and "CodeReviewTouched" or "CodeReviewUntouched"
+      end
+    elseif item.stale then
+      flag, flag_group = "⚠ stale  ", "CodeReviewStale"
+    end
 
     local body
     if wrap_to then
       -- The marker only prefixes the first line, but wrapping the whole note to the
       -- narrower budget is what makes "nothing is clipped" true by construction rather
       -- than true of every line except one.
-      local avail = wrap_to - vim.fn.strdisplaywidth(prefix) - (stale and vim.fn.strdisplaywidth(stale) or 0)
+      local avail = wrap_to - vim.fn.strdisplaywidth(prefix) - (flag and vim.fn.strdisplaywidth(flag) or 0)
       body = wrap(item.note, math.max(8, avail))
     else
       body = vim.split(item.note, "\n", { plain = true })
@@ -305,8 +323,8 @@ function M.build(files, opts)
     for n, text in ipairs(body) do
       if n == 1 then
         local chunks = { { prefix, group } }
-        if stale then
-          chunks[#chunks + 1] = { stale, "CodeReviewStale" }
+        if flag then
+          chunks[#chunks + 1] = { flag, flag_group }
         end
         chunks[#chunks + 1] = { text, text_group }
         virt[#virt + 1] = chunks

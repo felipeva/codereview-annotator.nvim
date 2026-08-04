@@ -11,7 +11,7 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 1,080 cases in ~6 seconds.
+The whole suite is about 1,110 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -48,6 +48,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
 | `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, and the four things it refuses |
+| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally, the three things left unjudged, and that the queue's own staleness rule is untouched by any of it |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
@@ -73,7 +74,8 @@ interchangeable, and the assertions know which one they are looking at.
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
   `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `queue_float_spec`,
-  `split_spec`, `layout_spec`, `open_diff_spec`, `archive_spec` and `interactive_spec`. Its
+  `split_spec`, `layout_spec`, `open_diff_spec`, `archive_spec`, `touched_spec` and
+  `interactive_spec`. Its
   dirty working tree is what makes a snapshot worth minting, so `archive_spec` builds a
   second copy and resets it to get a clean one. It already covers everything the split layout has
   to render, including the files that exist on only one side and the additions between
@@ -164,6 +166,14 @@ so the out-of-core language path is still checked locally without ever failing C
   `archive.by_key` rebuilds only when `state.archive_writes` has moved, which `archive_batch`,
   `clear` and `clear_global` are what move. Deleting a state file directly — or writing one by
   hand — leaves a view drawing entries that no longer exist until the next dispatch.
+- **A touchedness test needs a file the agent changed *and* one it did not.** With every
+  file touched, every assertion passes with the blob comparison deleted — the same trap as
+  "a filter test needs a fixture only that filter can reject". `touched_spec` dispatches a
+  batch naming `src/main.lua` and `src/nonl.md`, edits only the first, and asserts against
+  git that exactly one of the two moved before asserting anything about either. Neither is
+  the renamed file: `git diff -M` names a rename by its *pre-image* path once the
+  post-image is gone, so deleting `src/newname.lua` takes it out of scope instead of
+  marking it touched, and the deletion case would then be measuring the scope rule.
 - **`git stash create` on a clean tree returns nothing**, which is a case rather than an
   edge to assume away: the snapshot falls back to `HEAD`. `archive_spec` builds a second
   fixture and resets it hard, because the shared one is dirty by design and can never
