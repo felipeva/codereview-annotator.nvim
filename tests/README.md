@@ -11,7 +11,7 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 910 cases in ~6 seconds.
+The whole suite is about 975 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -42,6 +42,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
+| `bounded_spec` | Emission bounded by the viewport: what a paint writes and what it leaves out, the bound it shares with the harvest, what a scroll adds and what scrolling back does not, both panes at once — on a diff taller than the window, guarded |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
@@ -83,11 +84,14 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
-- **`mkbig.sh`** — files of a given size, half of every file rewritten, for `perf.lua` only.
-  It takes counts as well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and
-  200), which is what lets the report measure two sizes without a second script: it builds a
-  60-file, 12k-line repository and a 300-file, 60k-line one, per run, in a temporary
-  directory. Neither is committed.
+- **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
+  well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
+  asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
+  12k-line repository and a 300-file, 60k-line one per run; `bounded_spec` builds a 6-file
+  one, about 1,800 rendered rows, which is the only fixture in the suite taller than a
+  window and the margin around it. Nothing built from it is committed. It costs about a
+  third of a second, which is why it is no longer kept out of `make test` — what is slow is
+  opening a review on it at the sizes the report uses, not building it.
 
 The sources are Lua and Markdown rather than TypeScript because Neovim core ships both
 parsers **and** their `highlights` queries. `syntax_spec` therefore exercises the real
@@ -201,6 +205,16 @@ so the out-of-core language path is still checked locally without ever failing C
   old map claimed. `syntax_spec` collapses a file *above* the one it checks, guards that the
   rows below really did move, and only then asserts that every syntax mark still covers its
   own token. Same trap as "a filter test needs a fixture only that filter can reject".
+- **A bounded paint is invisible on a diff that fits on screen.** Only the rows near the
+  window are written into a pane's buffer, so every extmark assertion elsewhere in the suite
+  runs on a fixture small enough to sit inside that band and passes whether or not anything
+  is bounded — the same trap as "centring is unobservable in a window taller than its
+  buffer". `bounded_spec` is the one spec that builds `mkbig`, and its first case guards
+  that the render really is taller than one paint can reach. Two of its cases judge against
+  figures the implementation cannot move — how many of the render's marks reached the buffer
+  at all, and whether the last file's marks did — because the rest derive their expectations
+  from `syntax.viewport`, and a case that asks the bound where the bound is goes quiet when
+  the bound goes away.
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.

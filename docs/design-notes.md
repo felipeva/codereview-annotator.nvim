@@ -115,6 +115,32 @@ It is also why `syntax_spec` asserts the map against the render on screen, and a
 the marks still cover their own tokens after a repaint that moved rows, rather than merely
 asserting that a map exists.
 
+**Extmark emission is bounded by the viewport, and the render is not.** A 300-file review
+produces 271,000 marks, and writing all of them into a buffer is 141 ms of a 384 ms
+repaint — paid on every resize, expansion, reviewed toggle, scope change and queued
+annotation, which are the operations that have to feel immediate. Only the rows near the
+window are emitted; the rest arrive when a reviewer scrolls to them, through the
+autocommand that already tops up highlighting. `render.build` still returns the complete
+`marks` array for both panes: that is the seam that makes this cheap, because the split,
+the spans and the anchor totality are all asserted against returned data rather than
+against a buffer, and bounding what is *written* leaves every one of those assertions
+valid. It is also why `bounded_spec` has a case asserting the render still produces the
+marks the buffer never receives — "bounded" must never be satisfiable by the render having
+stopped producing them.
+
+**The bound is the harvest's own, and rows are tracked in bands.** One margin decides how
+far past the window both the emission and the parse reach; two figures would drift, and a
+harvest reaching further than the emission is highlighting on a row with no diff background
+under it, so `syntax.viewport` is what the view asks rather than arithmetic of its own.
+What has been emitted is remembered in bands of that same margin, quantised so the record
+stays a handful of lookups rather than a set the size of the review, and so a band is
+either wholly emitted or wholly not — which is what lets both panes share one record and
+stay comparable row for row. The record is dropped where the namespace is cleared, exactly
+as `syntax_painted` is: what a band means is decided by the render it was emitted from.
+Marks are *found* rather than filtered — `render.build` appends each as it draws the row it
+belongs to, so a pane's marks are in row order and a band is a slice of them; filtering
+would be a walk of the whole review on every scroll, which is the cost this removes.
+
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
 that lengthens opening by roughly a third; paid per repaint it would be a ~50% regression on
