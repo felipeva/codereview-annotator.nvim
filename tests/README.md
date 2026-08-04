@@ -53,6 +53,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
+| `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, and dropping from anywhere inside one |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
 | `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
@@ -68,10 +69,10 @@ interchangeable, and the assertions know which one they are looking at.
   modified, deleted, added, renamed-and-edited, staged, unstaged, untracked, untracked
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
-  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `split_spec`,
-  `layout_spec`, `open_diff_spec`, `archive_spec` and `interactive_spec`. Its dirty working
-  tree is what makes a snapshot worth minting, so `archive_spec` builds a second copy and
-  resets it to get a clean one. It already covers everything the split layout has
+  `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `queue_float_spec`,
+  `split_spec`, `layout_spec`, `open_diff_spec`, `archive_spec` and `interactive_spec`. Its
+  dirty working tree is what makes a snapshot worth minting, so `archive_spec` builds a
+  second copy and resets it to get a clean one. It already covers everything the split layout has
   to render, including the files that exist on only one side and the additions between
   context lines that produce filler — so that slice needed no fixture of its own. The
   layout toggle needed none either: `src/main.lua`'s deletion and its replacement collapse
@@ -255,6 +256,12 @@ so the out-of-core language path is still checked locally without ever failing C
   in both panes on its row passes with the before pane never drawing anything, because the
   case is then reading the after pane twice. `spans_spec` uses `src/nonl.md`, the fixture's
   only pair that changes something on each side.
+- **Two entries of different types are separated by a group, not by a row.** The queue
+  float's boundary between entries is one blank row carrying no bar, and an assertion about
+  it needs two entries of the *same* annotation type — give them different ones and what
+  sits between them is a blank row plus a group heading, so the assertion is measuring the
+  gap between groups instead. `queue_float_spec` keeps a third entry of another type for
+  the claim that actually is about types.
 - **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless

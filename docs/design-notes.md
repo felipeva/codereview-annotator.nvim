@@ -32,6 +32,22 @@ scroll invalidates.
 separator are multibyte, so each rendered row records where its code text actually begins;
 assuming a fixed prefix width shifts every highlight on every changed line.
 
+**The queue float's bar is buffer text, not an extmark**, and that is what makes the
+cursor-to-entry mapping exact. Every row an entry owns carries the bar, so the float can
+record which entry *every* row belongs to instead of recording headings and guessing the
+rest by nearest-above — which is how dropping used to act on an entry whose extent was
+invisible. The blank row *inside* a note carries the bar and the row *between* two entries
+does not: a blank-line separator stopped being able to hold the boundary the moment notes
+kept their own line structure, because a note can contain one. Its highlight columns are
+byte offsets for the same reason the diff's change bar's are, and the glyph is the
+configured `icons.change_bar`, so a host that sets a wider one moves those offsets too.
+
+**That float wraps its own rows and turns `wrap` off in the window.** Letting the window
+wrap folds a long line back to column zero, where there is no gutter and no bar, and the
+entry appears to end mid-note. Notes go through the renderer's own `wrap`, by display
+width — the same helper, not a copy, because splitting by byte passes every ASCII assertion
+and breaks the first CJK or emoji note.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.

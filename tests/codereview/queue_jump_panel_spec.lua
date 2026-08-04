@@ -69,10 +69,14 @@ local function open_float()
 end
 
 ---Put the float's cursor on the only entry it is listing, and press the jump key.
+---
+---An entry's number no longer sits at column zero: it is drawn behind the reserved gutter
+---and the bar that runs down every row the entry owns, so the row is found by that prefix.
 ---@param win integer
 local function jump_from(win)
+  local bar = vim.pesc(require("codereview.config").get().icons.change_bar)
   for row, text in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false)) do
-    if text:match("^1%. ") then
+    if text:match("^%s*" .. bar .. "%s*1  ") then
       vim.api.nvim_win_set_cursor(win, { row, 0 })
       h.feed("<CR>")
       return

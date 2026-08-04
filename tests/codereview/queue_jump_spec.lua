@@ -79,13 +79,17 @@ local function open_float()
 end
 
 ---Put the float's cursor inside the numbered entry.
+---
+---An entry's number no longer sits at column zero: it is drawn behind the reserved gutter
+---and the bar that runs down every row the entry owns, so the row is found by that prefix.
 ---@param win integer
 ---@param index integer The number the float printed against the entry
 ---@param offset integer|nil Rows below the heading, for the "cursor is inside it" case
 local function cursor_on(win, index, offset)
+  local bar = vim.pesc(require("codereview.config").get().icons.change_bar)
   local buf = vim.api.nvim_win_get_buf(win)
   for row, text in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
-    if text:match("^" .. index .. "%. ") then
+    if text:match("^%s*" .. bar .. "%s*" .. index .. "  ") then
       vim.api.nvim_win_set_cursor(win, { row + (offset or 0), 0 })
       return row
     end
