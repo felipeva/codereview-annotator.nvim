@@ -56,8 +56,8 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@field augroup integer                 Autocommands belonging to this review
 ---@field render CRRender|nil             The after pane's render
 ---@field before_render CRRender|nil      nil in the unified layout
+---@field current_file integer|nil        File index the diff cursor is in; the crossing latch
 ---@field panel_render CRPanelRender|nil
----@field panel_current integer|nil       File index the tree is following; its repaint latch
 ---@field painted_bands table<integer, boolean>|nil  Row bands whose marks have been emitted
 ---@field syntax_cache table<string, CRCapture[]|false>  `path|side` -> captures; false to skip it
 ---@field syntax_painted table<string, boolean>|nil      Path -> already replayed onto this render
@@ -108,7 +108,9 @@ end
 
 -- The file tree is painted by `view_panel.lua`, which is handed the view it mutates. What
 -- is left here is the diff's own paint, and the two moments the tree comes due with it: a
--- repaint of everything, and a cursor that crossed into a different file.
+-- repaint of everything, and a cursor that crossed into a different file. Which file that
+-- is stays here -- see `current_file` below -- because it is a fact about the diff, and the
+-- tree is only the first thing to ask for it.
 
 local function update_winbar()
   if not vim.api.nvim_win_is_valid(V.win) then
@@ -298,7 +300,7 @@ function M.paint(keep_file)
   -- paint: what a band means is decided by the render it was emitted from.
   V.painted_bands = {}
 
-  view_panel.paint_panel(V)
+  view_panel.paint_panel(V, M)
   update_winbar()
   update_before_winbar()
 
@@ -323,31 +325,6 @@ function M.paint(keep_file)
   end
 
   view_layout.resync(V)
-end
-
----Everything a moved cursor comes due for, in the order it comes due.
----
----Both the diff's own marks and its highlighting are bounded by the viewport, so
----scrolling into rows nothing has been emitted onto is what emits them, and scrolling
----into an un-parsed file is what triggers its parse. One trigger for the two of them:
----they share a margin, so they come due at the same moment. Cheap on every other scroll --
----a band already emitted is a lookup, an already-painted file is skipped, and an
----already-parsed one repaints from cache.
----
----Exported so that the autocommand driving it wires one name rather than reaching into
----three internals at once. It runs on every keystroke a reviewer holds, so the guards
----here are what keep it cheap rather than decoration around it.
-function M.cursor_moved()
-  if not M.current() then
-    return
-  end
-  paint_bands()
-  if config.get().syntax then
-    require("codereview.syntax").apply(V, NS)
-  end
-  -- Keeps the tree pointed at whatever the diff cursor is reading. Cheap: it returns
-  -- immediately unless the cursor crossed into a different file.
-  view_panel.sync_panel(V)
 end
 
 ---Write progress to disk. Called from every mutation rather than from `paint`, which
@@ -405,8 +382,77 @@ local function file_at_cursor()
   return V.files[anchor.file], anchor.file
 end
 
+---Which file the diff cursor is in, as an index into `V.files`.
+---
+---The one answer to that, for everything that follows the diff from one file into the
+---next. It is a question about the diff and its anchor map, so it is asked here rather
+---than inside whichever surface happens to want it: the file tree is an interested party,
+---not the authority, and a copy kept there would put a fact about the diff behind a
+---require on the tree's module.
+---
+---The window check is the tree's own, moved with it: this is reached from a paint, and a
+---render that outlives its window by a tick must answer nil rather than raise.
+---@return integer|nil
+local function current_file()
+  local win = view_layout.focused_pane(V)
+  if not vim.api.nvim_win_is_valid(win) then
+    return nil
+  end
+  local anchor = anchor_at_cursor()
+  return anchor and anchor.file
+end
+
 M.anchor_at_cursor = anchor_at_cursor
 M.file_at_cursor = file_at_cursor
+M.current_file = current_file
+
+--- Following the diff ----------------------------------------------------------
+
+---Everything that comes due when the cursor crosses into a different file.
+---
+---The latch is the view's rather than the tree's, and it is judged whether or not there is
+---a tree to repaint. That is the whole of it: a latch that stopped running when the tree
+---was dismissed would sit on the file being read at the moment it went away, and reading
+---that same file again once the tree was back would repaint nothing. Running it always is
+---also what lets a second consumer hang off it -- the crossing is a fact about the diff,
+---and the tree is one caller of it.
+---
+---Everything that follows the diff hangs off the crossing rather than off the movement:
+---this is reached from every `CursorMoved`, and rebuilding the tree on each keystroke is
+---real work on a large review.
+local function follow_file()
+  local index = current_file()
+  if index == V.current_file then
+    return
+  end
+  V.current_file = index
+  view_panel.sync_panel(V, M)
+end
+
+---Everything a moved cursor comes due for, in the order it comes due.
+---
+---Both the diff's own marks and its highlighting are bounded by the viewport, so
+---scrolling into rows nothing has been emitted onto is what emits them, and scrolling
+---into an un-parsed file is what triggers its parse. One trigger for the two of them:
+---they share a margin, so they come due at the same moment. Cheap on every other scroll --
+---a band already emitted is a lookup, an already-painted file is skipped, and an
+---already-parsed one repaints from cache.
+---
+---Exported so that the autocommand driving it wires one name rather than reaching into
+---three internals at once. It runs on every keystroke a reviewer holds, so the guards
+---here are what keep it cheap rather than decoration around it.
+function M.cursor_moved()
+  if not M.current() then
+    return
+  end
+  paint_bands()
+  if config.get().syntax then
+    require("codereview.syntax").apply(V, NS)
+  end
+  -- Cheap: an anchor lookup, and then nothing at all unless the cursor left the file it
+  -- was in.
+  follow_file()
+end
 
 --- Actions ---------------------------------------------------------------------
 
@@ -444,11 +490,15 @@ M.nearest = nearest
 ---it is the one arrival the two halves of this share: placing the panes is
 ---`view_layout.lua`'s and following the diff with the tree is `view_panel.lua`'s, so the
 ---pair is glued where the view that owns both is.
+---
+---A jump moves the cursor itself rather than waiting for `CursorMoved`, so the crossing is
+---judged here too -- and by the same latch, so a jump that lands in the file already being
+---read costs what standing still costs.
 ---@param row integer
 ---@param cmd string|nil `zt`, `zz`, or nil to leave the window where it is
 local function goto_row(row, cmd)
   view_layout.place(V, row, cmd)
-  view_panel.sync_panel(V)
+  follow_file()
 end
 
 M.goto_row = goto_row
@@ -860,7 +910,7 @@ end
 
 ---@param shut boolean|nil nil toggles
 function M.panel_fold(shut)
-  view_panel.panel_fold(V, shut)
+  view_panel.panel_fold(V, M, shut)
 end
 
 ---@param shut boolean

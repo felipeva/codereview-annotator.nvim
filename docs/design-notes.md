@@ -336,7 +336,10 @@ tree depth, and the parent is the nearest directory row above with a smaller one
 
 **The panel repaints only when the cursor crosses into a different file.** Following the
 diff cursor runs on every `CursorMoved`; rebuilding the tree on each keystroke is real work
-on a large review.
+on a large review. The crossing is judged on the view rather than inside the tree's sync,
+and judged whether or not there is a tree — a latch that stopped with the window would sit
+on the file being read at the moment the tree was dismissed, and reading that same file
+again once it was back would repaint nothing.
 
 ## Windows, modes and focus
 
