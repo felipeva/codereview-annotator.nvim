@@ -33,6 +33,7 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field per_scope table<string, { reviewed: table<string,string>, expanded: table<string,boolean> }>
 ---@field reviewed table<string, string>   Path -> blob at the time it was marked
 ---@field expanded table<string, boolean>
+---@field collapsed table<string, boolean> Directory path -> folded shut in the file tree
 ---@field notes table<string, table[]>     Line key -> queued annotations
 ---@field archived table<string, table[]>  Line key -> archived entries; empty when off
 ---@field touched table<integer, boolean>  Archived entry id -> whether its file has moved
@@ -45,12 +46,17 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field layout "unified"|"split"
 ---@field panel_buf integer|nil
 ---@field panel_win integer|nil
+---@field queue_win integer|nil           The window a queue float is open in
 ---@field tab integer
 ---@field augroup integer                 Autocommands belonging to this review
 ---@field render CRRender|nil             The after pane's render
 ---@field before_render CRRender|nil      nil in the unified layout
 ---@field panel_render CRPanelRender|nil
+---@field panel_current integer|nil       File index the tree is following; its repaint latch
 ---@field painted_bands table<integer, boolean>|nil  Row bands whose marks have been emitted
+---@field syntax_cache table<string, CRCapture[]|false>  `path|side` -> captures; false to skip it
+---@field syntax_painted table<string, boolean>|nil      Path -> already replayed onto this render
+---@field syntax_rows table<integer, CRFileRows>|nil     File index -> where its lines are drawn
 
 ---@type CRView|nil
 local V = nil
@@ -483,6 +489,31 @@ function M.paint(keep_file)
   resync()
 end
 
+---Everything a moved cursor comes due for, in the order it comes due.
+---
+---Both the diff's own marks and its highlighting are bounded by the viewport, so
+---scrolling into rows nothing has been emitted onto is what emits them, and scrolling
+---into an un-parsed file is what triggers its parse. One trigger for the two of them:
+---they share a margin, so they come due at the same moment. Cheap on every other scroll --
+---a band already emitted is a lookup, an already-painted file is skipped, and an
+---already-parsed one repaints from cache.
+---
+---Exported so that the autocommand driving it wires one name rather than reaching into
+---three internals at once. It runs on every keystroke a reviewer holds, so the guards
+---here are what keep it cheap rather than decoration around it.
+function M.cursor_moved()
+  if not M.current() then
+    return
+  end
+  paint_bands()
+  if config.get().syntax then
+    require("codereview.syntax").apply(V, NS)
+  end
+  -- Keeps the tree pointed at whatever the diff cursor is reading. Cheap: it returns
+  -- immediately unless the cursor crossed into a different file.
+  sync_panel()
+end
+
 ---Write progress to disk. Called from every mutation rather than from `paint`, which
 ---also runs on resize and would turn a window drag into a stream of file writes.
 ---
@@ -866,7 +897,6 @@ function M.set_scope(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
-  queue_restored = true
   M.reconcile()
 
   if #files == 0 then
@@ -1394,27 +1424,13 @@ local function attach_pane(buf)
     end,
   })
 
-  -- Both the diff's own marks and its highlighting are bounded by the viewport, so
-  -- scrolling into rows nothing has been emitted onto is what emits them, and scrolling
-  -- into an un-parsed file is what triggers its parse. One trigger for the two of them:
-  -- they share a margin, so they come due at the same moment. Cheap on every other scroll --
-  -- a band already emitted is a lookup, an already-painted file is skipped, and an
-  -- already-parsed one repaints from cache.
+  -- One name rather than the three reaches behind it, wired directly rather than wrapped:
+  -- this fires on every keystroke a reviewer holds, so nothing sits between the event and
+  -- the work it comes due for.
   vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
     group = V.augroup,
     buffer = buf,
-    callback = function()
-      if not M.current() then
-        return
-      end
-      paint_bands()
-      if config.get().syntax then
-        require("codereview.syntax").apply(V, NS)
-      end
-      -- Keeps the tree pointed at whatever the diff cursor is reading. Cheap: it returns
-      -- immediately unless the cursor crossed into a different file.
-      sync_panel()
-    end,
+    callback = M.cursor_moved,
   })
 end
 
@@ -1714,7 +1730,6 @@ function M.open(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
-  queue_restored = true
   M.reconcile()
 
   -- Before the panel, so the panel's `topleft`/`botright` split lands outside both panes
