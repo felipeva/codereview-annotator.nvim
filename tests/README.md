@@ -44,6 +44,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
+| `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
 | `delivery_spec` | What a send adapter may report — nothing, true, false, a raise — the clipboard default, the one condition that empties the queue, and the draft an undispatched immediate send leaves behind |
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
@@ -64,7 +65,7 @@ interchangeable, and the assertions know which one they are looking at.
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
   `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `split_spec`,
-  `layout_spec` and `interactive_spec`. It already covers everything the split layout has
+  `layout_spec`, `open_diff_spec` and `interactive_spec`. It already covers everything the split layout has
   to render, including the files that exist on only one side and the additions between
   context lines that produce filler — so that slice needed no fixture of its own. The
   layout toggle needed none either: `src/main.lua`'s deletion and its replacement collapse
