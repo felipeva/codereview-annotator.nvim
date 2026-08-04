@@ -11,7 +11,7 @@ make perf                                             # open-time report, not a 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 880 cases in ~6 seconds.
+The whole suite is about 910 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -28,6 +28,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/layout_child.lua` | Spawned by `layout_spec` — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
+| `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch and exit — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `perf.lua` | Open-time report on a 60-file diff, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
@@ -44,6 +45,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
+| `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, and a document written before the archive existed |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
 | `delivery_spec` | What a send adapter may report — nothing, true, false, a raise — the clipboard default, the one condition that empties the queue, and the draft an undispatched immediate send leaves behind |
@@ -66,7 +68,9 @@ interchangeable, and the assertions know which one they are looking at.
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
   `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `split_spec`,
-  `layout_spec`, `open_diff_spec` and `interactive_spec`. It already covers everything the split layout has
+  `layout_spec`, `open_diff_spec`, `archive_spec` and `interactive_spec`. Its dirty working
+  tree is what makes a snapshot worth minting, so `archive_spec` builds a second copy and
+  resets it to get a clean one. It already covers everything the split layout has
   to render, including the files that exist on only one side and the additions between
   context lines that produce filler — so that slice needed no fixture of its own. The
   layout toggle needed none either: `src/main.lua`'s deletion and its replacement collapse
@@ -123,6 +127,17 @@ so the out-of-core language path is still checked locally without ever failing C
   therefore does *not* simulate a restart — the latch is still set, nothing reloads, and an
   assertion about restoring is measuring nothing. `capture_spec` spawns
   `capture_child.lua` twice for this reason.
+- **The id an archived entry holds only collides across a restart *plus* a dispatch.** The
+  queue's counter is module-level and starts at 1, so a one-process test of "a new
+  annotation does not take an id the archive already holds" passes whether or not the
+  counter is seeded — the process that dispatched is the process still counting.
+  `archive_spec` therefore dispatches in `archive_child.lua`, restarts, and queues one
+  through the ordinary capture path. It also asserts that the archive really does hold id
+  1, or the case is satisfied by an archive with nothing low enough to collide with.
+- **`git stash create` on a clean tree returns nothing**, which is a case rather than an
+  edge to assume away: the snapshot falls back to `HEAD`. `archive_spec` builds a second
+  fixture and resets it hard, because the shared one is dirty by design and can never
+  reach that branch.
 - **A send adapter that raises takes the whole `describe` with it.** Plenary runs a
   describe body immediately, so an adapter that propagates its error aborts the block
   instead of failing one case — the `it`s below it never run. `delivery_spec` asserts on
