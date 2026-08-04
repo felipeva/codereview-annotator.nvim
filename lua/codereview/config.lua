@@ -21,6 +21,12 @@ M.defaults = {
   ---column; `split` draws the before-image and the after-image as two panes side by side.
   ---Unified is the default, so upgrading the plugin does not change how a review looks.
   layout = "unified", ---@type "unified"|"split"
+  ---Emphasise the characters that differ inside a deletion and its replacement, so the eye
+  ---lands on the change instead of on the line. On by default: it is a refinement of a
+  ---rendering everyone already has rather than a mode to opt into, and it is what every
+  ---comparable review tool does. It lengthens opening a large review by roughly a third and
+  ---a repaint by nothing at all, because the work is done once per git read.
+  spans = true, ---@type boolean
   panel = {
     enabled = true,
     width = 34,
@@ -131,10 +137,23 @@ local function validate_layout(layout)
   end
 end
 
+---Reject a `spans` value that is not a boolean.
+---
+---In the same voice as a bad layout, and for the same reason: `spans = "off"` is truthy,
+---so a mistyped switch would silently leave the feature on with nothing on screen saying
+---why.
+---@param spans any
+local function validate_spans(spans)
+  if type(spans) ~= "boolean" then
+    error(("codereview.setup: `spans` must be a boolean — got %s"):format(vim.inspect(spans)), 0)
+  end
+end
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
   validate_layout(M.options.layout)
+  validate_spans(M.options.spans)
   M.options.types = resolve_types(M.options)
   return M.options
 end

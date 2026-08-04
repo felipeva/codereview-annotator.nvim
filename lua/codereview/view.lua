@@ -658,7 +658,8 @@ function M.refresh()
     return
   end
   local cfg = config.get()
-  local files, err = git.collect(V.scope, V.root, { context = cfg.context, untracked = cfg.untracked })
+  local files, err =
+    git.collect(V.scope, V.root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
   if not files then
     warn("git: " .. (err or "diff failed"))
     return
@@ -712,7 +713,8 @@ function M.set_scope(spec)
   end
 
   local cfg = config.get()
-  local files, derr = git.collect(scope, V.root, { context = cfg.context, untracked = cfg.untracked })
+  local files, derr =
+    git.collect(scope, V.root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
   if not files then
     warn("git: " .. (derr or "diff failed"))
     return
@@ -1814,7 +1816,7 @@ function M.open(spec)
     return
   end
 
-  local files, derr = git.collect(scope, root, { context = cfg.context, untracked = cfg.untracked })
+  local files, derr = git.collect(scope, root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
   if not files then
     warn("git: " .. (derr or "diff failed"))
     return
