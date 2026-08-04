@@ -444,6 +444,12 @@ at it.
 
 ### In the queue float
 
+Each annotation is a run of rows carrying a bar in its type's colour — its location, the
+code it inlines, and its note, kept as you wrote it and wrapped to the float. The bar runs
+through blank lines *inside* a note and stops between annotations, so you can always see
+where one ends. Every row belongs to the annotation it is drawn under, so `x` drops what is
+under the cursor and not what a heading further up happened to say.
+
 | Key | Action |
 | --- | --- |
 | `<CR>` | Jump to the annotation under the cursor |
