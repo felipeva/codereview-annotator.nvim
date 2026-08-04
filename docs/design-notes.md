@@ -92,6 +92,29 @@ it was over half the open time.
 **Progress is written on mutation, not on paint.** `paint` also runs on window resize, and
 persisting there turns dragging a split into a stream of file writes.
 
+**The anchor map's inversion is cached on the view, and everything that redraws drops it.**
+The treesitter replay needs the anchor map inside out: per file, which source line is drawn
+on which row and at what byte column, plus the rows that file occupies. Derived per call it
+is a walk of the whole render, and `syntax.apply` is wired to `WinScrolled` *and*
+`CursorMoved` — on a 90,000-row review that walk alone is most of the 19 ms a reviewer paid
+per keystroke, while the parse behind it was already memoised twice over. It is a pure
+function of the render and, in the split layout, of the before render, so only a repaint can
+change it: it sits on the view as `syntax_rows`, beside `syntax_cache` and `syntax_painted`,
+and follows their rule exactly — dropped when the diff is re-read and when the scope
+changes, dropped by every paint, rebuilt by the first pass after one. What it caches is the
+*inversion*; a file is still parsed whole the first time any of its rows come near the
+window, for the reason above. Held, it is about 11 MB on a 90,000-row review — the same
+tables that were previously built and thrown away on every keystroke.
+
+**Invalidating it is the careful half, not caching it.** A map that outlives the render it
+was inverted from still produces well-formed extmarks in the right groups — on rows that now
+hold unrelated code, which is worse than highlighting that is merely missing. That is why
+the paint drops it whether or not highlighting is switched on: a map left behind by a paint
+made with `syntax = false` would otherwise be replayed the moment it was switched back on.
+It is also why `syntax_spec` asserts the map against the render on screen, and asserts that
+the marks still cover their own tokens after a repaint that moved rows, rather than merely
+asserting that a map exists.
+
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
 that lengthens opening by roughly a third; paid per repaint it would be a ~50% regression on
