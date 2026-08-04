@@ -2,6 +2,8 @@
 
 Operating instructions for agents working in `codereview-annotator.nvim`.
 
+"Always talk in ASD-STE100 Simplified Technical English. Always read CONTEXT.md files, and use their ubiquitous language."
+
 ## Workflow for new changes
 
 Anything with a feature or design decision behind it runs through the skill chain below,
