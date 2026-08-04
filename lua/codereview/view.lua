@@ -35,6 +35,9 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field expanded table<string, boolean>
 ---@field notes table<string, table[]>     Line key -> queued annotations
 ---@field archived table<string, table[]>  Line key -> archived entries; empty when off
+---@field touched table<integer, boolean>  Archived entry id -> whether its file has moved
+---@field untouched integer|nil            How many of those have not; nil when none were judged
+---@field judged integer|nil               `state.archive_writes` the two above were judged at
 ---@field buf integer                     The after pane
 ---@field win integer                     The after pane
 ---@field before_buf integer|nil          nil in the unified layout
@@ -288,6 +291,12 @@ local function update_winbar()
   if notes > 0 then
     bar = bar .. (" · %d note%s"):format(notes, notes == 1 and "" or "s")
   end
+  -- Read rather than computed: this runs on every paint, and a paint runs on every resize.
+  -- The git behind the number is paid where the archive is judged, which is where the diff
+  -- is read -- see `judge_archive`.
+  if V.untouched then
+    bar = bar .. (" · %d untouched"):format(V.untouched)
+  end
   local to = delivery.target()
   if to and to.short then
     bar = bar .. (" · → %s"):format(to.short)
@@ -414,6 +423,15 @@ function M.paint(keep_file)
   -- archives a batch of one without emptying anything -- and the read behind it is a
   -- comparison until something has written.
   V.archived = cfg.archived and require("codereview.archive").by_key(V.root) or {}
+  -- What was judged against an archive that has since been overtaken describes something
+  -- else now: an **immediate send** archives a batch of one with no repaint of its own, so
+  -- the entries below may belong to a batch nothing has judged. Dropped rather than
+  -- recomputed, because judging is two git invocations and this runs on every resize --
+  -- saying nothing until the next reconcile is the honest answer, and the winbar's segment
+  -- goes with it.
+  if V.judged ~= require("codereview.state").archive_writes() then
+    V.touched, V.untouched = {}, nil
+  end
   -- Both panes from one walk: their row counts and their anchors agree by construction
   -- rather than because two calls happened to be handed the same arguments.
   V.render, V.before_render = render.build(V.files, {
@@ -425,6 +443,7 @@ function M.paint(keep_file)
     reviewed = V.reviewed,
     notes = V.notes,
     archived = V.archived,
+    touched = V.touched,
     types = cfg.types,
   })
 
@@ -758,12 +777,39 @@ function M.refresh()
   M.persist()
 end
 
+---Ask which of the last batch's files the agent has been in since it went.
+---
+---Kept apart from the reconciliation below, and reported through the winbar rather than a
+---sentence, because it says nothing a reviewer has to act on: *stale* means a note may now
+---be wrong, *untouched* only means a file has not moved. The computation is `state`'s,
+---beside the staleness rule it parallels rather than joins.
+---
+---Called where the diff is read -- opening, refreshing, changing scope, and this view's own
+---submit -- and never from a paint, which also runs on every resize.
+local function judge_archive()
+  -- Submitting reaches here with nothing open: a batch is not a window, and it can go out
+  -- of a session that never opened a review at all.
+  if not V then
+    return
+  end
+  if not config.get().archived then
+    -- One switch turns the archive off in the review view outright: nothing drawn, nothing
+    -- tallied, and no git spent deciding either.
+    V.touched, V.untouched, V.judged = {}, nil, nil
+    return
+  end
+  local state = require("codereview.state")
+  V.touched, V.untouched = state.reconcile_archive(V.root, V.files)
+  V.judged = state.archive_writes()
+end
+
 ---Re-check reviewed marks and annotations against the diff now on screen, reporting what
 ---the blob comparison invalidated.
 function M.reconcile()
   if not V then
     return
   end
+  judge_archive()
   local unmarked, staled = require("codereview.state").reconcile(V)
   local parts = {}
   if unmarked > 0 then
@@ -1159,6 +1205,11 @@ function M.submit()
   -- A batch that did not go is still queued and still drawn on the diff, so there is
   -- nothing to repaint -- and the reviewer has already been told why.
   if dispatched then
+    -- The batch that just went was snapshotted a moment ago, so every one of its entries is
+    -- untouched and the winbar should say so immediately. Judged here rather than left to
+    -- the next reconcile because a submit is the one moment a reviewer looks for that
+    -- number, and because the archive underneath it has certainly moved.
+    judge_archive()
     M.paint()
   end
 end
@@ -1651,6 +1702,7 @@ function M.open(spec)
     expanded = {},
     notes = {},
     archived = {},
+    touched = {},
     syntax_cache = {},
     collapsed = {},
     buf = buf,

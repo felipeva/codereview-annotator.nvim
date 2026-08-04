@@ -454,6 +454,55 @@ abandoned.
 
 Wire |codereview-opt-compose| to replace this composer with your own.
 
+What you already reported                             *codereview-archived*
+
+A dispatched batch does not leave the review view. Its entries keep the
+anchors they were bound to and are drawn dimmed beneath the code they were
+about, in every scope rather than only |codereview-since-batch| -- a reviewer
+who keeps going while the agent works is otherwise looking at a diff with no
+memory of what it already sent, and reports the same finding twice.
+
+An anchor carrying both draws the queued entry first: what is still to send
+outranks what has gone. `x` there drops the queued one and never the archived
+one, for the same reason |:CodeReviewLastBatch| is read-only. `archived =
+false` turns the whole of this off, and the diff then renders exactly as it
+did before the archive existed.
+
+Touched and untouched                                  *codereview-touched*
+
+Each entry of the *last* batch says whether its file has changed since that
+batch was dispatched -- `file changed` or `file unchanged` beside the note --
+and the winbar tallies the ones that have not: >
+    Code review · branch vs master · 2/7 reviewed · +40 -12 · 2 untouched
+<
+`2 untouched` answers "did it ignore something", and it is exact on the case
+that matters: a file the agent never opened. The comparison is per file, made
+against the snapshot the batch went out with -- the same commit
+|codereview-since-batch| diffs against, so a file the tally calls touched is
+exactly a file that scope shows you. A file deleted since the dispatch counts
+as touched.
+
+The word is *touched*, not *addressed*. The plugin knows the file moved. It
+does not know that anyone read your note, agreed with it or acted on it.
+
+It is also not staleness (|codereview-persistence|): that is the same kind of
+comparison against a different blob, it is about entries still in the queue,
+and it means "this note may now be wrong" rather than "something happened
+here". The two are never merged, and an archived entry never draws a stale
+flag.
+
+Three things are left unjudged rather than guessed at, because absence is not
+evidence: a file the current scope does not cover, a file that was untracked
+when the batch went (a snapshot records none), and a bare note, which is about
+no file at all. Nothing judged means no segment on the winbar rather than a
+zero to misread.
+
+That the scope decides who is judged is why the tally reads `0 untouched`
+inside |codereview-since-batch|: that scope shows exactly the files that
+moved, so every entry it covers is touched by definition, and the ones you are
+looking for are the ones it is not showing. `branch` and `worktree` are where
+the number earns its keep.
+
 ==============================================================================
 7. CAPTURE                                              *codereview-capture*
 
@@ -701,6 +750,7 @@ Defaults: >
       max_syntax_bytes = 256 * 1024,
       layout = "unified",
       spans = true,
+      archived = true,
       panel = { enabled = true, width = 34, position = "left" },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
@@ -720,6 +770,11 @@ default. On a 12,000-line diff it lengthens opening a review by roughly a
 third and a repaint by nothing at all, because the work is done once per git
 read rather than every time the view is drawn.
 
+`archived` draws already-dispatched entries on the diff and tallies the
+untouched ones on the winbar (|codereview-archived|, |codereview-touched|).
+It is on by default and coarse on purpose: off is the whole history off --
+nothing drawn, nothing tallied and no `git` spent judging.
+
 ==============================================================================
 10. HIGHLIGHTS                                        *codereview-highlights*
 
@@ -735,8 +790,17 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewFileHeader   -> Title
     CodeReviewFileReviewed -> Comment
     CodeReviewHunkHeader   -> Special
+    CodeReviewSep          -> WinSeparator
+    CodeReviewTitle        -> Title
     CodeReviewNote         -> Comment
+    CodeReviewNoteCount    -> Comment
     CodeReviewStale        -> DiagnosticWarn
+    CodeReviewArchived     -> Comment
+    CodeReviewArchivedNote -> NonText
+    CodeReviewTouched      -> NonText
+    CodeReviewUntouched    -> DiagnosticHint
+    CodeReviewQueueIndex   -> LineNr
+    CodeReviewQueueState   -> Comment
     CodeReviewPanelDir     -> Directory
     CodeReviewPanelSel     -> CursorLine
     CodeReviewBug          -> DiagnosticError

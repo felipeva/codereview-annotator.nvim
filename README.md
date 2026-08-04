@@ -397,6 +397,41 @@ Their two highlight groups are their own — `CodeReviewArchived` for the marker
 here, so a colorscheme can say how dim "already sent" looks. `archived = false` turns them
 off wholesale, and the diff then renders exactly as it did before the archive existed.
 
+### Where the agent has and has not been
+
+Each entry of the **last** batch says whether its file has changed since that batch was
+dispatched — `file changed` or `file unchanged` beside the note — and the winbar tallies the
+ones that have not:
+
+```
+ Code review · branch vs master · 2/7 reviewed · +40 -12 · 1 note · 2 untouched · → janus
+```
+
+`2 untouched` is the answer to *did it ignore something*, and it is exact on the case that
+matters: a file the agent never opened. The comparison is **per file**, against the snapshot
+the batch went out with — the same commit `since-batch` diffs against, so a file the tally
+calls touched is exactly a file that scope shows you.
+
+The word is *touched*, not *addressed*. The plugin knows the file moved. It does not know
+that anyone read your note, agreed with it, or acted on it, and it will not imply otherwise.
+It is also not **staleness**: that is the same kind of comparison against a different blob,
+it is about entries still in the queue, and it means *this note may now be wrong* rather than
+*something happened here*. The two are never merged, and an archived entry never shows a
+stale flag.
+
+Three things are left unjudged rather than guessed at — a file the current scope does not
+cover, a file that was untracked when the batch went (a snapshot does not record those), and
+a **bare note**, which is about no file at all. A file *deleted* since the dispatch counts as
+touched. Nothing judged means no segment at all rather than a zero to misread.
+
+That the scope decides who is judged is why the tally reads `0 untouched` inside
+`since-batch`: that scope shows you exactly the files that moved, so every entry it covers is
+touched by definition, and the ones you are looking for are the ones it is not showing.
+`branch` and `worktree` are where the number earns its keep.
+
+`CodeReviewTouched` and `CodeReviewUntouched` are the groups, and `archived = false` turns
+the tally off along with everything else.
+
 ### The payload
 
 Grouped by type, in the configured order, most actionable first, with anything untyped
@@ -537,7 +572,8 @@ opts = {
   max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
   layout = "unified",              -- "unified" or "split"; validated at setup
   spans = true,                    -- emphasise what changed inside a changed line
-  archived = true,                 -- draw already-dispatched entries on the diff, dimmed
+  archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
+                                   -- and tally the untouched ones on the winbar
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },

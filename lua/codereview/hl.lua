@@ -34,6 +34,15 @@ local LINKS = {
   -- screen, which is exactly what this is.
   CodeReviewArchived = "Comment",
   CodeReviewArchivedNote = "NonText",
+
+  -- Whether an archived entry's file has moved since its batch went. Deliberately *not*
+  -- `CodeReviewStale`'s group: the two answer different questions about different entries,
+  -- and one colour for both is the merge the rule itself refuses. The unremarkable answer
+  -- takes the dimmest group there is -- a file the agent changed is what reading an agent's
+  -- work expects -- and the one worth noticing takes the quietest diagnostic rather than a
+  -- warning, because a file nothing happened to is not yet a problem.
+  CodeReviewTouched = "NonText",
+  CodeReviewUntouched = "DiagnosticHint",
   CodeReviewTitle = "Title",
   CodeReviewPanelSel = "CursorLine",
   CodeReviewPanelDir = "Directory",

@@ -10,6 +10,12 @@
 ---    have not reviewed what is there now;
 ---  * an annotation whose blob moved is kept but flagged stale, because the prose is
 ---    still worth sending and only its line anchor is untrustworthy.
+---
+---A third comparison lives here and is deliberately not a third case of that one:
+---**touchedness** judges an *archived* entry against the working tree as it stood when its
+---batch was **dispatched**, and answers where an agent has been rather than whether a note
+---is still trustworthy. Same primitive, different blob, different entries, separate
+---function -- see `reconcile_archive`.
 local queue = require("codereview.queue")
 
 local M = {}
@@ -559,6 +565,100 @@ function M.reconcile(view)
   end
 
   return unmarked, staled + M.reconcile_queue(view.root)
+end
+
+---Judge the newest archived batch's files against the code its batch went out with.
+---
+---**Touchedness is not staleness, and the two must never become one flag.** Sharing the
+---blob comparison is the whole of what they share. Staleness judges a *queued* entry
+---against the blob it was **captured** with and means *my note may be wrong*; this judges
+---an *archived* entry against the working tree as it stood when its batch was
+---**dispatched** and means *the agent has been here*. One flag would say both and neither:
+---an entry captured on Monday, edited by the reviewer on Tuesday and dispatched on
+---Wednesday is stale and untouched at once, and each read off the other is wrong in the
+---direction that looks fine.
+---
+---**Judged against the snapshot, not against the entry's own blob.** That blob is the
+---capture blob, so a file the reviewer themselves edited between annotating it and
+---submitting would count as the agent's work -- and it would make this comparison
+---arithmetically identical to the staleness one, which is how two rules become one by
+---accident rather than by decision. The snapshot is what the archive already records the
+---dispatch as, so there is no second copy of that fact to drift from it, and it is what
+---`since-batch` diffs against: the tally and the diff a reviewer reads it beside therefore
+---describe one dispatch by construction.
+---
+---**Per file, not per anchor.** Mapping an entry's line range through the diff since the
+---snapshot is considerably more machinery and the case it improves stays fuzzy either way.
+---The signal worth having is *the agent never opened this file*, and that one is exact
+---under a per-file rule.
+---
+---Two batched calls, neither of which grows with the number of files -- `hash-object` for
+---the working tree and `cat-file --batch-check` for the snapshot, exactly as the two sides
+---of a diff are already hashed. One process per file was measurably more expensive than
+---every treesitter operation combined.
+---
+---Three things are left unjudged rather than guessed at:
+---  * a file the current scope does not cover, because absence from a scope is not evidence
+---    that anything changed -- the rule `reconcile` already holds;
+---  * a path the snapshot does not carry, which is a file untracked at dispatch: `git stash
+---    create` records none of those, so the snapshot has nothing to say about it;
+---  * a **bare note**, which is about no file at all. It lives in the store that needs no
+---    root and never reaches this one.
+---@param root string
+---@param files CRFile[] The scope on screen, which is what decides who is judged
+---@return table<integer, boolean> touched Keyed by entry id; an absent id was not judged
+---@return integer|nil untouched How many judged entries' files have not moved, or nil when
+---        nothing could be judged at all
+function M.reconcile_archive(root, files)
+  local batch = M.last_batch(root)
+  if not batch or not batch.snapshot then
+    return {}, nil
+  end
+
+  local in_scope = {}
+  for _, file in ipairs(files) do
+    in_scope[file.path] = true
+  end
+
+  -- Distinct paths: one batch routinely holds several entries about one file, and hashing
+  -- a path once per entry is exactly the per-file cost the batching exists to avoid.
+  local paths, seen = {}, {}
+  for _, entry in ipairs(batch.entries or {}) do
+    if entry.path and in_scope[entry.path] and not seen[entry.path] then
+      seen[entry.path] = true
+      paths[#paths + 1] = entry.path
+    end
+  end
+  if #paths == 0 then
+    return {}, nil
+  end
+
+  local git = require("codereview.git")
+  local now = git.hash_worktree(paths, root)
+  local specs = {}
+  for i, path in ipairs(paths) do
+    specs[i] = ("%s:%s"):format(batch.snapshot, path)
+  end
+  local sent = git.hash_refs(specs, root)
+
+  local moved = {}
+  for i, path in ipairs(paths) do
+    local was = sent[specs[i]]
+    if was then
+      -- A file deleted since the dispatch hashes to nothing, and nothing is as moved as a
+      -- rewrite: what the note was about is not there either way.
+      moved[path] = now[path] ~= was
+    end
+  end
+
+  local touched, untouched = {}, nil
+  for _, entry in ipairs(batch.entries or {}) do
+    if entry.id and entry.path and moved[entry.path] ~= nil then
+      touched[entry.id] = moved[entry.path]
+      untouched = (untouched or 0) + (moved[entry.path] and 0 or 1)
+    end
+  end
+  return touched, untouched
 end
 
 ---Forget everything saved for a repository.
