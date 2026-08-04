@@ -40,6 +40,7 @@ codereview.setup({
 local archive = require("codereview.archive")
 local config = require("codereview.config")
 local delivery = require("codereview.delivery")
+local git = require("codereview.git")
 local queue = require("codereview.queue")
 local state = require("codereview.state")
 local view = require("codereview.view")
@@ -600,4 +601,75 @@ describe("choosing between the two stores", function()
     local batch = assert(archive.last(nil))
     assert.same("dispatched from nowhere in particular", batch.entries[1].note)
   end)
+end)
+
+--- Where the scope and this float meet -------------------------------------------
+
+-- The case neither slice could have written, and the reason it is here.
+--
+-- `since-batch` diffs the working tree against the newest archived batch's **snapshot**;
+-- this float lists the newest archived batch's **entries**. A reviewer reads one beside the
+-- other -- that is the whole point of keeping a batch -- so if the two ever disagreed about
+-- which batch is newest, the diff on screen would be the response to one dispatch and the
+-- annotations beside it would belong to another, and nothing anywhere would say so.
+--
+-- Each side was green against a base that did not have the other, and each independently
+-- reached for the head of the archive. They now go through `state.last_batch`, and this is
+-- what makes that one query rather than two that happen to agree.
+--
+-- Two dispatches, because with one batch archived both answers are forced and agreeing
+-- costs nothing.
+describe("the scope and the float, on which batch is newest", function()
+  fresh()
+  queued({ note = "the older batch" })
+  dispatch()
+
+  -- Edited between the two dispatches, standing in for the agent's response. Without it both
+  -- `git stash create` calls mint a commit from the same tree in the same second and return
+  -- the *same* sha, so "the scope diffs against the newest batch's snapshot" is satisfied by
+  -- either batch and the case measures nothing.
+  local touched = vim.fs.joinpath(root, "src/main.lua")
+  vim.fn.writefile(vim.list_extend(vim.fn.readfile(touched), { "-- between the two batches" }), touched)
+
+  queued({ note = "the newer batch" })
+  dispatch()
+
+  local archived = state.archive(root)
+  local scope = assert(git.resolve_scope("since-batch", root))
+
+  ---The batch the scope actually resolved against, found by the snapshot it is diffing from
+  ---rather than by taking the head of the archive a third time -- which is the assumption
+  ---under test and cannot also be the way the test looks it up.
+  local diffed
+  for _, batch in ipairs(archived) do
+    if batch.snapshot == scope.before then
+      diffed = batch
+    end
+  end
+
+  local win, buf = open_float()
+  local text = lines(buf)
+
+  it("archived two batches with different snapshots, so agreeing is a choice", function()
+    assert.same(2, #archived)
+    assert.are_not.same(archived[1].snapshot, archived[2].snapshot)
+  end)
+
+  it("resolves the scope against one of them", function()
+    assert.is_truthy(diffed, ("%s is no archived batch's snapshot"):format(tostring(scope.before)))
+  end)
+
+  it("lists the entries of the very batch the scope is diffing against", function()
+    for _, entry in ipairs(diffed.entries) do
+      assert.is_truthy(vim.tbl_contains(text, note_row(entry.note)), table.concat(text, "\n"))
+    end
+    assert.is_false(vim.tbl_contains(text, note_row("the older batch")), table.concat(text, "\n"))
+  end)
+
+  it("counts what that batch held, and nothing from the other", function()
+    local n = #diffed.entries
+    assert.is_truthy(chrome(win, "title"):find(("%d annotation"):format(n), 1, true), chrome(win, "title"))
+  end)
+
+  vim.api.nvim_win_close(win, true)
 end)

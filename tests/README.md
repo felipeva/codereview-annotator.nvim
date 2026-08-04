@@ -170,6 +170,13 @@ so the out-of-core language path is still checked locally without ever failing C
   entries within reach of the next batch's stamp — and the surface then lists entries from
   two dispatches as one. `archive_float_spec` clears *both* stores between blocks
   (`state.clear` and `state.clear_global`) rather than trusting the clock to separate them.
+- **Neither the scope's spec nor the float's archives more than one batch.** `since-batch`
+  and the last-batch float both resolve "which batch went last", and with a single batch
+  archived the head and the tail of the archive are the same record — so an accessor that
+  returned the *oldest* leaves `since_batch_spec` and `diff_spec` entirely green. The case
+  that catches it is in `archive_float_spec`: two dispatches, a file edited between them so
+  the two snapshots are genuinely different shas, and the batch the scope resolved against
+  looked up *by its snapshot* rather than by taking the head a third time.
 - **A rejoin test needs the loose entry queued first.** Concatenating one store after the
   other happens to produce the right order whenever the repository entries were queued
   first, so a fixture in that order passes with the ordering deleted. `archive_float_spec`
