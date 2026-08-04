@@ -67,6 +67,8 @@ Buffer-local, inside the review view:
     gp               Show or hide the file tree
     gl               Switch between the unified and split layouts
     <CR>             Open the real file here, in a new tab
+    gd               Read this file in the host's own diff tool --
+                     bound only with |codereview-opt-open_diff| wired
     Q                Review the queue
     <C-t>            Choose the delivery target
     <C-s>            Submit the batch
@@ -92,6 +94,8 @@ was. Jumping to a file that is collapsed because it is reviewed expands it.
 In the file tree:                                         *codereview-tree*
 
     <CR> o           Open the file, or fold the directory
+    gd               Read the file under the cursor in the host's own diff
+                     tool -- bound only with |codereview-opt-open_diff| wired
     h zc             Collapse the directory; on a file, its parent
     l zo             Expand the directory
     za               Toggle the directory
@@ -435,10 +439,11 @@ any other note you walked away from.
 ==============================================================================
 8. ADAPTERS                                            *codereview-adapters*
 
-The plugin has no opinion about where a review goes, or about which pickers
-you use. Four optional functions inject that. With none of them wired
-everything still works: the payload reaches the `+` register instead of an
-agent and the batch stays queued, and `@` in the composer stays a literal `@`.
+The plugin has no opinion about where a review goes, about which pickers you
+use, or about which diff tool you read a rewrite in. Five optional functions
+inject that. With none of them wired everything still works: the payload
+reaches the `+` register instead of an agent and the batch stays queued, `@`
+in the composer stays a literal `@`, and `gd` is not bound to anything.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
@@ -544,6 +549,45 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
         recorded last -- and that stops being the annotation's window the
         moment the composer opens a picker of its own.
 
+open_diff({spec})                                   *codereview-opt-open_diff*
+        Read one file in whatever diff tool you already have -- Diffview,
+        `:Gdiffsplit`, your own `diffthis` pair. The plugin ships none of that
+        and keeps no opinion about it: it hands over the file and the two refs
+        the current scope is between and stops caring. >
+            open_diff = function(spec)
+              local rev = spec.after and (spec.before .. ".." .. spec.after)
+                or spec.before
+              vim.cmd(("DiffviewOpen %s -- %s"):format(rev, spec.path))
+            end,
+<
+        {spec} is: >
+            path    absolute path to the file, the post-image path -- for a
+                    rename the pre-image lives elsewhere in `before`
+            before  ref for the pre-image; ":0" means the index
+            after   ref for the post-image, or nil
+            line    line in the post-image, or nil
+<
+        `after` is nil for every scope whose post-image is the working tree,
+        which is most of them. That is not an error and there is no sentinel
+        for it: nil means the file on disk, which is what a diff tool would
+        have opened anyway.
+
+        `line` is the line |<CR>| would have opened the file at, deleted-line
+        fallback included -- a deleted line exists in no post-image, so it
+        resolves to the nearest preceding line that does. It is nil when the
+        file was named from the tree, which knows a file and no position in
+        it, and on a file or hunk header for the same reason.
+
+        Wiring this binds `gd` in the diff and in the tree; without it `gd`
+        is bound to nothing, because a key that silently did nothing would be
+        worse than no key.
+
+        You **cannot annotate** in whatever this opens. Nothing there has an
+        anchor map, so it is a one-way trip: read the file closely, come back
+        to the review to say anything about it. It is for the rewrite Neovim's
+        own diff mode reads better than a unified diff does -- a reformat, a
+        re-indent, a file moved wholesale -- not a second review surface.
+
 ==============================================================================
 9. CONFIGURATION                                  *codereview-configuration*
 
@@ -560,7 +604,8 @@ Defaults: >
         collapsed = "▸", expanded = "▾", change_bar = "▌",
       },
       types = nil,
-      send = nil, pick_target = nil, compose = nil,
+      send = nil, pick_target = nil, pick_file = nil,
+      compose = nil, open_diff = nil,
     })
 <
 `max_syntax_bytes` bounds the one operation with a real performance cliff.

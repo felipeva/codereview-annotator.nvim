@@ -149,7 +149,8 @@ _Avoid_: consumer, client, user config
 
 **Adapter**:
 A function the host injects to supply a capability the plugin deliberately lacks — choosing
-a target, picking a file, delivering a batch, composing a note.
+a target, picking a file, delivering a batch, composing a note, reading a file in a diff
+tool of its own.
 _Avoid_: hook, callback, plugin, provider
 
 ### Staleness
