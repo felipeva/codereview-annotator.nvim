@@ -95,6 +95,23 @@ function M.merge_base(a, b, root)
   return line({ "merge-base", a, b }, root)
 end
 
+---A commit object recording the working tree as it stands, minted and nothing else.
+---
+---`git stash create` writes the commit and prints its sha; that is the whole of what it
+---does. No ref moves, the index is left alone and the working tree is not reverted -- which
+---is what makes it safe behind a submit, where a real stash would pull the reviewer's work
+---out from under them mid-review.
+---
+---A clean tree mints nothing and prints nothing. That is an answer rather than a failure:
+---there is nothing to record that `HEAD` does not already say, so `HEAD` is what it means.
+---Untracked files are not in a `stash create` commit at all, which is the same gap the
+---branch and worktree scopes already synthesise around.
+---@param root string
+---@return string|nil sha nil only when there is no HEAD to fall back to either
+function M.snapshot(root)
+  return line({ "stash", "create" }, root) or line({ "rev-parse", "--verify", "--quiet", "HEAD" }, root)
+end
+
 --- Scopes ----------------------------------------------------------------------
 
 ---@class CRScope

@@ -14,7 +14,26 @@ local queue = require("codereview.queue")
 
 local M = {}
 
+---Bumping this discards every document written before the bump, so a key added to the
+---shape is *not* a reason to touch it. `archive` was added by defaulting it on load
+---exactly as `scopes` and `queue` already are: an older document simply lacks it, which
+---costs an empty table, where a bump would cost every reviewed mark in the file.
 local VERSION = 1
+
+---A batch as it was dispatched, kept after the queue that held it was cleared.
+---@class CRBatch
+---@field at integer            When it went
+---@field target string         Short name of where it went; "local" for the adapter's default
+---@field snapshot string|nil   Commit object recording the working tree at that moment
+---@field entries CRAnnotation[]
+
+---How many dispatched batches a store keeps, oldest dropped on write.
+---
+---Public because it is a property of the store rather than a number this file happens to
+---use. Bounded for the reason the global store sweeps on age: nothing else here will ever
+---remove a batch, and a store nothing removes from grows for the life of the state
+---directory.
+M.ARCHIVE_LIMIT = 20
 
 ---@param root string
 ---@return string
@@ -30,7 +49,7 @@ end
 function M.load(root)
   local file = M.path(root)
   if vim.fn.filereadable(file) == 0 then
-    return { version = VERSION, scopes = {}, queue = {} }
+    return { version = VERSION, scopes = {}, queue = {}, archive = {} }
   end
   local ok, decoded = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
@@ -41,10 +60,14 @@ function M.load(root)
     -- A corrupt or older file is discarded rather than migrated: the cost of losing
     -- review progress is far lower than the cost of restoring marks that mean something
     -- different than they did when written.
-    return { version = VERSION, scopes = {}, queue = {} }
+    return { version = VERSION, scopes = {}, queue = {}, archive = {} }
   end
   decoded.scopes = decoded.scopes or {}
   decoded.queue = decoded.queue or {}
+  -- A document written before the archive existed lacks the key entirely, and defaulting
+  -- it here is the whole of what it takes to read one: nothing about the marks stored
+  -- beside it means anything different than it did.
+  decoded.archive = decoded.archive or {}
   return decoded
 end
 
@@ -91,11 +114,33 @@ local function partition(items)
   return owned, loose
 end
 
----@return CRAnnotation[]
-function M.load_global()
+---Whatever is still inside the window, by each record's own stamp.
+---
+---One rule for the queued annotations and the archived batches alike: both are stamped
+---when written, and neither has anything else that could ever decide it is finished with.
+---@param records table[]|nil
+---@param now integer
+---@return table[]
+local function unswept(records, now)
+  local fresh = {}
+  for _, record in ipairs(records or {}) do
+    if type(record) == "table" and (now - (record.at or 0)) < GLOBAL_TTL_SECONDS then
+      fresh[#fresh + 1] = record
+    end
+  end
+  return fresh
+end
+
+---The whole store, swept.
+---
+---Read as one document rather than one key at a time, because a write has to put the
+---other key back: `save_global` used to encode the queue and nothing else, which with an
+---archive beside it would delete a dispatched batch every time an annotation was queued.
+---@return { queue: CRAnnotation[], archive: CRBatch[] }
+local function read_global()
   local file = M.global_path()
   if vim.fn.filereadable(file) == 0 then
-    return {}
+    return { queue = {}, archive = {} }
   end
   local ok, decoded = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
@@ -103,26 +148,41 @@ function M.load_global()
     })
   end)
   if not ok or type(decoded) ~= "table" or decoded.version ~= VERSION then
-    return {}
+    return { queue = {}, archive = {} }
   end
 
   -- The sweep, on load rather than on a timer: this is the only moment the store is
   -- read, so it is the only moment anything is in a position to drop from it.
-  local now, fresh = os.time(), {}
-  for _, item in ipairs(decoded.queue or {}) do
-    if type(item) == "table" and (now - (item.at or 0)) < GLOBAL_TTL_SECONDS then
-      fresh[#fresh + 1] = item
-    end
+  local now = os.time()
+  return { queue = unswept(decoded.queue, now), archive = unswept(decoded.archive, now) }
+end
+
+---@param doc { queue: CRAnnotation[], archive: CRBatch[] }
+---@return boolean ok
+local function write_global(doc)
+  local file = M.global_path()
+  vim.fn.mkdir(vim.fs.dirname(file), "p")
+  local ok, encoded = pcall(vim.json.encode, { version = VERSION, queue = doc.queue, archive = doc.archive })
+  if not ok then
+    return false
   end
-  return fresh
+  return pcall(vim.fn.writefile, { encoded }, file)
+end
+
+---@return CRAnnotation[]
+function M.load_global()
+  return read_global().queue
+end
+
+---The batches dispatched with nothing repository-shaped in them, newest first.
+---@return CRBatch[]
+function M.global_archive()
+  return read_global().archive
 end
 
 ---@param items CRAnnotation[]
 ---@return boolean ok
 function M.save_global(items)
-  local file = M.global_path()
-  vim.fn.mkdir(vim.fs.dirname(file), "p")
-
   local now = os.time()
   for _, item in ipairs(items) do
     -- Stamped once and then left alone. Refreshing it on every write would restart the
@@ -130,19 +190,108 @@ function M.save_global(items)
     item.at = item.at or now
   end
 
-  local ok, encoded = pcall(vim.json.encode, { version = VERSION, queue = items })
-  if not ok then
-    return false
-  end
-  return pcall(vim.fn.writefile, { encoded }, file)
+  local doc = read_global()
+  doc.queue = items
+  return write_global(doc)
 end
 
----Forget every annotation with no repository behind it.
+---Forget every annotation with no repository behind it, queued or already dispatched.
 function M.clear_global()
   local file = M.global_path()
   if vim.fn.filereadable(file) == 1 then
     vim.fn.delete(file)
   end
+end
+
+--- The archive ------------------------------------------------------------------
+
+---Add a batch to an archive, dropping the oldest once it is full.
+---
+---Newest first, because every reader of an archive wants the newest: the scope that diffs
+---against a snapshot only ever reads that one, and the rest is there to be read back.
+---@param archive CRBatch[]
+---@param batch CRBatch
+local function push(archive, batch)
+  table.insert(archive, 1, batch)
+  -- A loop rather than one removal, so a store written when the bound was larger comes
+  -- back down instead of staying over it forever.
+  while #archive > M.ARCHIVE_LIMIT do
+    table.remove(archive)
+  end
+end
+
+---Record a batch that has just been dispatched.
+---
+---Called on a dispatch and on nothing else (ADR-0005). An adapter that refused, one that
+---raised, and the register the shipped default copies to all leave the archive exactly as
+---they leave the queue -- a payload sitting in a register is not something an agent
+---received. An **immediate send** is a batch of one (ADR-0004) and arrives here as one,
+---with no special case.
+---
+---Split across the two stores on the rule that already routes the queue: an entry with a
+---repository-relative path belongs to that repository, and a bare note or a file outside a
+---checkout belongs to the store that needs no root. A batch holding both is recorded in
+---both, because that is where its entries live.
+---@param items CRAnnotation[] The batch as it went
+---@param target string Short name of where it went, as every piece of chrome names it. The
+---       label rather than the target itself: a host's target may carry anything at all,
+---       functions included, and one that will not JSON-encode would take the whole
+---       document's write down with it.
+---@param root string|nil nil outside a repository, where only the global store applies
+function M.archive_batch(items, target, root)
+  local owned, loose = partition(items)
+  -- One stamp for the batch, taken once: the two stores are recording the same dispatch.
+  local at = os.time()
+
+  if #loose > 0 then
+    local doc = read_global()
+    -- No snapshot: these entries have no repository whose working tree could be recorded,
+    -- and a snapshot of whichever checkout happened to be current would describe nothing
+    -- they are about.
+    push(doc.archive, { at = at, target = target, entries = loose })
+    write_global(doc)
+  end
+
+  if not root or #owned == 0 then
+    return
+  end
+  local data = M.load(root)
+  push(data.archive, {
+    at = at,
+    target = target,
+    -- Minted here rather than handed in. The snapshot is the working tree at the moment of
+    -- dispatch, and it is only that if it is taken at that moment.
+    snapshot = require("codereview.git").snapshot(root),
+    entries = owned,
+  })
+  M.save(root, data)
+end
+
+---The batches already dispatched from a repository, newest first.
+---
+---Entries with nothing repository-shaped about them are in `global_archive` instead, for
+---the same reason they queue there: there is no root to key a document against.
+---@param root string|nil
+---@return CRBatch[]
+function M.archive(root)
+  return root and M.load(root).archive or {}
+end
+
+---The highest id any archived entry carries, across every archive given.
+---
+---Which is what the queue's counter has to resume past. See `queue.seed`.
+---@param archives CRBatch[][]
+---@return integer
+local function highest_archived_id(archives)
+  local highest = 0
+  for _, archive in ipairs(archives) do
+    for _, batch in ipairs(archive) do
+      for _, entry in ipairs(batch.entries or {}) do
+        highest = math.max(highest, entry.id or 0)
+      end
+    end
+  end
+  return highest
 end
 
 --- Writing and reading ----------------------------------------------------------
@@ -207,11 +356,18 @@ function M.restore_queue(root)
   end
   -- Both stores, as one queue. Which store an entry came from is a persistence detail; the
   -- queue is the queue.
-  local items = root and M.load(root).queue or {}
-  vim.list_extend(items, M.load_global())
+  local loose = read_global()
+  local data = root and M.load(root) or nil
+  local items = data and data.queue or {}
+  vim.list_extend(items, loose.queue)
   if #items > 0 then
     queue.replace(items)
   end
+  -- Taken once both stores have been read, because an id is unique across the pair and the
+  -- entries carrying one are split between them. Restoring the queue alone is not enough:
+  -- a session that dispatched everything it queued restores nothing at all and still has
+  -- ids on the diff to keep clear of.
+  queue.seed(highest_archived_id({ data and data.archive or {}, loose.archive }))
   if not root then
     return 0
   end

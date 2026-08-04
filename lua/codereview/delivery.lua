@@ -170,7 +170,10 @@ end
 function M.deliver(items, to, opts)
   local cfg = config.get()
   opts = opts or {}
-  local root = opts.root or (git.root(vim.fn.getcwd()) or vim.fn.getcwd())
+  -- The repository the batch is going out of, when there is one: a note captured outside a
+  -- checkout has none, and the archive is keyed on a root exactly as the queue's store is.
+  local repo = opts.root or git.root(vim.fn.getcwd())
+  local root = repo or vim.fn.getcwd()
   -- Resolve refs against the directory the payload is actually going to: a routed agent
   -- reads `@path` relative to its own cwd, not this Neovim's.
   local base = (to and to.cwd and to.cwd ~= "") and to.cwd or root
@@ -201,6 +204,13 @@ function M.deliver(items, to, opts)
     -- caller can put the reason in a message without checking whether there is one.
     return false, reason or "The send adapter reported it did not deliver"
   end
+
+  -- The same rule doing its second job: a dispatch is what empties the queue, and it is
+  -- what records the batch. Everything that is not one has returned above, so a refusal, a
+  -- raise and the register the shipped default copies to leave the archive exactly where
+  -- they leave the batch. Here rather than in the two callers because a batch and a batch
+  -- of one go out through this function and must not diverge on the way (ADR-0004).
+  require("codereview.state").archive_batch(items, M.label_of(to), repo)
   return true
 end
 
