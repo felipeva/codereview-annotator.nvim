@@ -384,3 +384,199 @@ describe("an immediate send with no adapter wired", function()
     assert.same("an errand with nowhere to go", drafts.get(main))
   end)
 end)
+
+--- Copying the batch, which is not delivering it -------------------------------
+
+-- The other way a payload reaches the `+` register: on purpose, whatever the host has
+-- wired, rather than as the consequence of nothing being. Nothing is handed to the
+-- adapter, so a copy is not a **dispatch**, and the one condition this file exists to pin
+-- down never comes up: the queue and the archive are exactly where they were.
+--
+-- Driven through the public entry point rather than a key, as every case above is -- the
+-- surfaces that reach it have already moved once, and the contract has not.
+describe("copying the batch with a send adapter wired", function()
+  queue.clear()
+  local notes = { "the first, copied", "the second, copied", "the third, copied" }
+  for i, note in ipairs(notes) do
+    queue.add({
+      -- Two types, so "the same entries in the same order" is a claim about the queue and
+      -- not about a single group that could only come back one way.
+      type = i == 2 and "nitpick" or "bug",
+      kind = "file",
+      path = "src/main.lua",
+      abs_path = main,
+      key = ("src/main.lua:f:%d"):format(i),
+      note = note,
+    })
+  end
+  local ids = vim.tbl_map(function(entry)
+    return entry.id
+  end, queue.all())
+
+  local before_sent, before_archive = #sent, #archived()
+  vim.fn.setreg("+", "")
+  local msgs, restore = h.capture_notify()
+  codereview.copy()
+  restore()
+
+  -- Submitting works with nothing open and so does this, which is the reason there is a
+  -- public entry point at all. Asserted rather than assumed: with a review open, every
+  -- case below would be measuring the surface instead of the batch.
+  it("works with no review view open", function()
+    assert.is_nil(require("codereview.view").current())
+  end)
+
+  it("puts the payload in the + register", function()
+    assert.is_truthy(vim.fn.getreg("+"):find("the second, copied", 1, true), vim.fn.getreg("+"))
+  end)
+
+  -- The whole point of the key: a host whose adapter takes the batch somewhere real has
+  -- no other way to read what that adapter is handed.
+  it("hands the send adapter nothing", function()
+    assert.same(before_sent, #sent)
+  end)
+
+  it("leaves the queue with the same entries in the same order", function()
+    assert.same(3, queue.count())
+    assert.same(
+      notes,
+      vim.tbl_map(function(entry)
+        return entry.note
+      end, queue.all())
+    )
+    assert.same(
+      ids,
+      vim.tbl_map(function(entry)
+        return entry.id
+      end, queue.all())
+    )
+  end)
+
+  -- The claim the unwired case above already makes, said the other way round: a register
+  -- is not a consumer, whether the payload got there by default or deliberately.
+  it("archives nothing, because a copy is not a dispatch", function()
+    assert.same(before_archive, #archived())
+  end)
+
+  -- The queue looks identical afterwards, so the count is the only evidence a reviewer
+  -- gets that it was this batch that went to the register.
+  it("names how many annotations were copied", function()
+    assert.is_true(h.notified(msgs, "Copied 3 annotations to the + register"), vim.inspect(msgs))
+  end)
+
+  it("does not claim to have submitted anything", function()
+    assert.is_false(h.notified(msgs, "Submitted"), vim.inspect(msgs))
+  end)
+end)
+
+-- What the split renderer exists for, and the one claim a second renderer could pass
+-- today and fail the first time either side grew a rule of its own.
+describe("the text a copy leaves in the register", function()
+  queue_one("byte for byte")
+  vim.fn.setreg("+", "")
+  codereview.copy()
+  local copied = vim.fn.getreg("+")
+  local before = #sent
+  codereview.submit()
+
+  it("is what the send adapter is handed, byte for byte", function()
+    assert.same(before + 1, #sent)
+    assert.same(sent[#sent].text, copied)
+  end)
+end)
+
+-- `@ref`s resolve against wherever the payload is going, and a copy is going wherever the
+-- batch is. The same rule delivery already applies, reached through the same function --
+-- not a second one that agrees today.
+describe("a copy routed to a target", function()
+  cfg.pick_target = function(cb)
+    cb({ short = "elsewhere", cwd = "/somewhere/else" })
+  end
+  -- The one way the batch's target is set, whichever surface asked; the picker is the
+  -- seam here, exactly as `send` is.
+  require("codereview.delivery").pick_target()
+  queue_one("routed somewhere else")
+  vim.fn.setreg("+", "")
+  codereview.copy()
+  local copied = vim.fn.getreg("+")
+
+  it("resolves refs against the target's working directory", function()
+    assert.is_falsy(copied:find("@src/main.lua", 1, true), copied)
+    assert.is_truthy(copied:find(main, 1, true), copied)
+  end)
+end)
+
+-- The same batch, still queued because copying it did not spend it, going to the default
+-- instead. Which is what makes the pair a test of the base rather than of the entry.
+describe("a copy with no target chosen", function()
+  cfg.pick_target = function(cb)
+    cb(nil)
+  end
+  require("codereview.delivery").pick_target()
+  cfg.pick_target = nil
+  vim.fn.setreg("+", "")
+  codereview.copy()
+  local copied = vim.fn.getreg("+")
+
+  it("resolves refs against the repository root", function()
+    assert.is_truthy(copied:find("@src/main.lua", 1, true), copied)
+  end)
+end)
+
+-- The command exists so a host can reach this from anywhere -- its own keymap, a
+-- statusline, another plugin -- with no review view and without a Lua call.
+describe("the user command", function()
+  queue_one("copied by name")
+  vim.fn.setreg("+", "")
+  vim.cmd("CodeReviewCopy")
+
+  it("copies the batch exactly as the entry point does", function()
+    assert.is_truthy(vim.fn.getreg("+"):find("copied by name", 1, true), vim.fn.getreg("+"))
+  end)
+
+  it("leaves the queue where it was", function()
+    assert.same(1, queue.count())
+  end)
+end)
+
+describe("copying an empty queue", function()
+  queue.clear()
+  vim.fn.setreg("+", "left alone")
+  local msgs, restore = h.capture_notify()
+  codereview.copy()
+  restore()
+
+  it("takes the guard submitting an empty queue takes, worded the same", function()
+    assert.is_true(h.notified(msgs, "Queue is empty — annotate something first"), vim.inspect(msgs))
+  end)
+
+  it("leaves the register holding whatever was in it", function()
+    assert.same("left alone", vim.fn.getreg("+"))
+  end)
+end)
+
+-- With a review open the payload's first line describes it, which is the part of the text
+-- a copy could most easily get wrong: the context is the surface's to hand over, and copy
+-- reaching it by a route of its own is exactly how the two would drift.
+--
+-- Both keys are fed rather than called, as the submit case above is: what a surface hands
+-- delivery is not something to assert on directly, and `gy` being bound in the diff at all
+-- is only observable this way.
+describe("a copy taken with a review view open", function()
+  codereview.open("branch")
+  queue_one("copied out of a review")
+  vim.fn.setreg("+", "")
+  h.feed("gy")
+  local copied = vim.fn.getreg("+")
+  h.feed("<C-s>")
+
+  it("describes the review in its header", function()
+    local header = vim.split(copied, "\n")[1]
+    assert.is_truthy(header:find("on branch vs ", 1, true), header)
+    assert.is_truthy(header:find("reviewed)", 1, true), header)
+  end)
+
+  it("is still byte-identical to what the adapter was handed", function()
+    assert.same(sent[#sent].text, copied)
+  end)
+end)
