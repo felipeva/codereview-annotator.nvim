@@ -249,8 +249,13 @@ describe("submitting to a routed target", function()
     assert.same(0, queue.count())
   end)
 
-  it("repaints the view with no notes left", function()
-    assert.same(0, #h.virt_marks(V))
+  -- A dispatched batch does not leave the diff, it goes dim: the same remarks are drawn
+  -- again out of the archive. So "nothing left" is a claim about the *queue's* projection,
+  -- which only a repaint refreshes, and about which groups the rows still carry.
+  it("repaints the view with nothing queued left on it", function()
+    assert.same({}, V.notes)
+    local groups = h.virt_groups(V)
+    assert.is_true(groups.CodeReviewArchived or false, vim.inspect(vim.tbl_keys(groups)))
   end)
 end)
 

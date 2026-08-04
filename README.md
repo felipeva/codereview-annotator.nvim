@@ -379,6 +379,24 @@ resubmit one would be claiming the plugin can revise what an agent already recei
 raise a point again, annotate again — that is an ordinary capture, and it joins the next
 batch.
 
+### What you already reported stays on the diff
+
+A dispatched batch does not leave the review view. Its entries keep the anchors they were
+bound to and are drawn dimmed beneath the code they were about, projected exactly as live
+annotations are. A reviewer who keeps going while the agent works is otherwise looking at a
+diff with no memory of what it already sent, and reports the same finding twice.
+
+They draw in **every scope**, not only `since-batch` — knowing what has already been said is
+worth as much wherever you are. An anchor carrying both a queued and an archived entry draws
+both, the queued one first: what is still to send outranks what has already gone. `x` there
+drops the queued one and never the archived one; nothing on the diff can revise a batch that
+already went, for the same reason the last-batch float is read-only.
+
+Their two highlight groups are their own — `CodeReviewArchived` for the marker and
+`CodeReviewArchivedNote` for the prose — and are `default = true` links like everything else
+here, so a colorscheme can say how dim "already sent" looks. `archived = false` turns them
+off wholesale, and the diff then renders exactly as it did before the archive existed.
+
 ### The payload
 
 Grouped by type, in the configured order, most actionable first, with anything untyped
@@ -519,6 +537,7 @@ opts = {
   max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
   layout = "unified",              -- "unified" or "split"; validated at setup
   spans = true,                    -- emphasise what changed inside a changed line
+  archived = true,                 -- draw already-dispatched entries on the diff, dimmed
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },

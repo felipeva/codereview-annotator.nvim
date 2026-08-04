@@ -209,8 +209,11 @@ end
 ---throughout: context lines are attributed to it, line keys prefer it, an entry's line
 ---numbers prefer it, and opening a file resolves through it. In the unified layout the
 ---second return value is nil, which is what every existing caller already ignores.
+---`notes` is the queue projected onto anchors; `archived` is the archive projected onto the
+---same ones, and is optional -- absent, nil and empty are one case, and the render is then
+---exactly what it was before an archive existed.
 ---@param files CRFile[]
----@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, types: CRType[] }
+---@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, types: CRType[] }
 ---@return CRRender after, CRRender|nil before
 function M.build(files, opts)
   local icons = opts.icons
@@ -260,48 +263,84 @@ function M.build(files, opts)
     return r
   end
 
+  ---Append one annotation's virtual lines to `virt`.
+  ---
+  ---A sibling of `note_virt` rather than a loop inside it, deliberately. `note_virt` runs
+  ---once per annotatable row -- ninety thousand times on a large review, almost always to
+  ---answer "nothing here" -- and a nested closure inside it costs that answer measurably
+  ---more: it took `render.build` on 60 files from 17 ms to 23 ms, on the operation every
+  ---resize, expansion, reviewed toggle and scope change pays for.
+  ---@param virt table[]
+  ---@param item table
+  ---@param wrap_to integer|nil
+  ---@param archived boolean Drawn out of the archive rather than out of the queue
+  local function entry_virt(virt, item, wrap_to, archived)
+    local type_def = require("codereview.types").get(opts.types, item.type)
+    local icon = type_def and type_def.icon or "•"
+    -- An archived entry keeps its type's icon, because what kind of finding it was is still
+    -- worth knowing, and gives up that type's colour: severity is an instruction to act,
+    -- and this one has already been acted on.
+    local group = archived and "CodeReviewArchived" or (type_def and type_def.hl or "CodeReviewNote")
+    local text_group = archived and "CodeReviewArchivedNote" or "CodeReviewNote"
+    local prefix = ("   %s "):format(icon)
+    -- Queued entries only. An archived one carries the flag too, because it is persisted
+    -- with the entry, but there it means "this file had moved by the time the batch went" --
+    -- a fact about a queue that no longer exists. Drawn against the code now it reads as a
+    -- claim about the code now, which nothing has checked.
+    local stale = (not archived and item.stale) and "⚠ stale  " or nil
+
+    local body
+    if wrap_to then
+      -- The marker only prefixes the first line, but wrapping the whole note to the
+      -- narrower budget is what makes "nothing is clipped" true by construction rather
+      -- than true of every line except one.
+      local avail = wrap_to - vim.fn.strdisplaywidth(prefix) - (stale and vim.fn.strdisplaywidth(stale) or 0)
+      body = wrap(item.note, math.max(8, avail))
+    else
+      body = vim.split(item.note, "\n", { plain = true })
+    end
+
+    -- A multi-line note becomes multiple virtual lines; the continuation lines are
+    -- indented to the icon so the block reads as one comment.
+    for n, text in ipairs(body) do
+      if n == 1 then
+        local chunks = { { prefix, group } }
+        if stale then
+          chunks[#chunks + 1] = { stale, "CodeReviewStale" }
+        end
+        chunks[#chunks + 1] = { text, text_group }
+        virt[#virt + 1] = chunks
+      else
+        virt[#virt + 1] = { { (" "):rep(#prefix), text_group }, { text, text_group } }
+      end
+    end
+  end
+
   ---The virtual lines an annotated row draws, or nil when nothing is attached to it.
+  ---
+  ---Queued entries first, archived ones beneath them: what is still to send outranks what
+  ---has already gone. Both go into one list and therefore one extmark, so the split
+  ---layout's mirroring -- which holds the opposite pane's place by counting virtual lines --
+  ---keeps working on a count it did not have to learn anything new about.
+  ---
+  ---An anchor carrying nothing at all is the overwhelmingly common case and costs two
+  ---lookups, which is what makes a file the archive says nothing about cost nothing extra to
+  ---render however long that archive is.
   ---@param key string
   ---@param wrap_to integer|nil Pane width to wrap the note to; nil leaves it unwrapped
   ---@return table[]|nil
   local function note_virt(key, wrap_to)
-    local items = opts.notes and opts.notes[key]
-    if not items or #items == 0 then
+    local live = opts.notes and opts.notes[key]
+    local gone = opts.archived and opts.archived[key]
+    if (not live or #live == 0) and (not gone or #gone == 0) then
       return nil
     end
     local virt = {}
-    for _, item in ipairs(items) do
-      local type_def = require("codereview.types").get(opts.types, item.type)
-      local icon = type_def and type_def.icon or "•"
-      local group = type_def and type_def.hl or "CodeReviewNote"
-      local prefix = ("   %s "):format(icon)
-      local stale = item.stale and "⚠ stale  " or nil
-
-      local body
-      if wrap_to then
-        -- The marker only prefixes the first line, but wrapping the whole note to the
-        -- narrower budget is what makes "nothing is clipped" true by construction rather
-        -- than true of every line except one.
-        local avail = wrap_to - vim.fn.strdisplaywidth(prefix) - (stale and vim.fn.strdisplaywidth(stale) or 0)
-        body = wrap(item.note, math.max(8, avail))
-      else
-        body = vim.split(item.note, "\n", { plain = true })
-      end
-
-      -- A multi-line note becomes multiple virtual lines; the continuation lines are
-      -- indented to the icon so the block reads as one comment.
-      for n, text in ipairs(body) do
-        if n == 1 then
-          local chunks = { { prefix, group } }
-          if stale then
-            chunks[#chunks + 1] = { stale, "CodeReviewStale" }
-          end
-          chunks[#chunks + 1] = { text, "CodeReviewNote" }
-          virt[#virt + 1] = chunks
-        else
-          virt[#virt + 1] = { { (" "):rep(#prefix), "CodeReviewNote" }, { text, "CodeReviewNote" } }
-        end
-      end
+    for _, item in ipairs(live or {}) do
+      entry_virt(virt, item, wrap_to, false)
+    end
+    for _, item in ipairs(gone or {}) do
+      entry_virt(virt, item, wrap_to, true)
     end
     return virt
   end

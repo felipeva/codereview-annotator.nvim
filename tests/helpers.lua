@@ -163,6 +163,25 @@ function M.virt_marks(view)
   end, M.extmarks(view))
 end
 
+---The highlight groups the virtual lines on a view's diff are drawn in, as a set.
+---
+---What tells a queued annotation from an archived one without reading a colour: an entry
+---drawn out of the queue carries its annotation type's group, and one drawn out of the
+---archive carries the archive's own.
+---@param view CRView
+---@return table<string, boolean>
+function M.virt_groups(view)
+  local groups = {}
+  for _, m in ipairs(M.virt_marks(view)) do
+    for _, line in ipairs(m[4].virt_lines) do
+      for _, chunk in ipairs(line) do
+        groups[chunk[2]] = true
+      end
+    end
+  end
+  return groups
+end
+
 ---Extmarks emitted by the treesitter replay.
 ---@param view CRView
 ---@return table[]

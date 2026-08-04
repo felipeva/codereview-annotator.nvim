@@ -10,6 +10,11 @@
 ---cannot. Re-raising a point means annotating again, which is an ordinary capture and
 ---already has a path.
 ---
+---The other way it is read back is onto the diff itself: `by_key` projects archived entries
+---onto their **anchors** so the review view can draw them dimmed beneath the code they were
+---about. Same record, same read-only claim -- what differs is that one surface is asked for
+---and the other is simply there while you keep reviewing.
+---
 ---A module of its own because a buffer, a window and keys do not have to live on the review
 ---view to exist -- and because a **batch is not a window**: this opens with no review open,
 ---exactly as the queue float does, so what was asked for can be checked from anywhere.
@@ -68,6 +73,60 @@ function M.last(root)
     return loose
   end
   return owned
+end
+
+--- The archive on the diff ------------------------------------------------------
+
+---The projection last handed out, and what it was built from.
+---@type { root: string|nil, writes: integer, by_key: table<string, CRAnnotation[]> }
+local projected = { root = nil, writes = -1, by_key = {} }
+
+---Every archived entry that has an anchor, grouped by it.
+---
+---What the review view draws beneath the code, exactly as `queue.by_key` is what it draws
+---above: a reviewer who keeps working while an agent does is otherwise looking at a diff
+---with no memory of what it already sent, and reports the same finding twice. No key is
+---computed here -- an entry has carried its anchor since it was captured, which is what
+---makes an archived entry land where the live one stood rather than somewhere near it.
+---
+---**The repository's archive alone.** An entry with no repository-relative path is in the
+---store that needs no root, and its key is built from an absolute path or from nothing at
+---all, so it can never name an anchor in this repository's diff. Reading that store would
+---be a second file read that could only ever return nothing.
+---
+---**Memoised on `state.archive_writes`**, because a repaint runs on every resize,
+---expansion, reviewed toggle and scope change, and rebuilding this from a file read on each
+---of those is the cost bounding extmark emission exists to remove. Only a write moves that
+---number, so the ordinary repaint pays two comparisons.
+---
+---Newest batch first, and within a batch the order the entries went in. Every reader of an
+---archive wants the newest, and reading down from the code is then reading back in time.
+---@param root string|nil nil outside a repository, which has no archive to draw
+---@return table<string, CRAnnotation[]>
+function M.by_key(root)
+  local writes = state.archive_writes()
+  if projected.root == root and projected.writes == writes then
+    return projected.by_key
+  end
+
+  local out = {}
+  for _, batch in ipairs(state.archive(root)) do
+    for _, entry in ipairs(batch.entries or {}) do
+      -- A **bare note** is about no file and its key names no anchor. It cannot reach this
+      -- store, but nothing here should depend on that being true of every future kind.
+      if entry.key then
+        local bucket = out[entry.key]
+        if not bucket then
+          bucket = {}
+          out[entry.key] = bucket
+        end
+        bucket[#bucket + 1] = entry
+      end
+    end
+  end
+
+  projected = { root = root, writes = writes, by_key = out }
+  return out
 end
 
 --- Rendering the batch as rows -------------------------------------------------

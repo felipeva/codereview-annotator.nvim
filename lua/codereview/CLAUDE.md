@@ -14,7 +14,7 @@ change there is felt through.
 | Module | Owns | |
 | --- | --- | --- |
 | `annotate.lua` | The review path: cursor to entry, the deleted-line and hunk inlining rules, drop, grouping | stateful (queue, view) |
-| `archive.lua` | The archive read back: which batch went last, and the read-only float listing it | stateful (float) |
+| `archive.lua` | The archive read back: which batch went last, the read-only float listing it, and the projection of archived entries onto the diff's anchors | stateful (float) |
 | `capture.lua` | The capture path: the same entry from an ordinary buffer, no review view involved | stateful (queue, buffer) |
 | `composer.lua` | The shipped composer and its `@` reference picker — the default `compose` adapter, not a lesser one | stateful (float) |
 | `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff` | stateful (options) |

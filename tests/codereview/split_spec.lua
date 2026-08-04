@@ -367,6 +367,95 @@ describe("where a note is drawn", function()
   end)
 end)
 
+-- Archived entries take the same anchors live ones do, so they need no rule of their own
+-- about which pane draws them: the key is already sided, and that side is the pane. They
+-- also ride inside the *same* virtual-line block as the live entries on that anchor, which
+-- is what keeps the mirroring that holds the opposite pane's place working on a count that
+-- never had to learn they exist.
+describe("where an archived entry is drawn", function()
+  local path = "src/main.lua"
+  local del_key = render.line_key(path, { side = "del", old = 2 })
+  local add_key = render.line_key(path, { side = "add", new = 2 })
+
+  ---The row a pane draws one side of `src/main.lua`'s line 2 on.
+  ---@param rendered CRRender
+  ---@param field "old"|"new"
+  ---@return integer
+  local function row_of_line(rendered, field)
+    for r = 1, #rendered.lines do
+      local a = rendered.anchors[r]
+      if a.kind == "line" and files[a.file].path == path and files[a.file].hunks[a.hunk].lines[a.line][field] == 2 then
+        return r
+      end
+    end
+    error("no row for " .. path .. " line 2 " .. field)
+  end
+
+  it("draws one on a deleted line in the before pane, and holds the after pane's place", function()
+    local after, before = build({ archived = { [del_key] = { { note = "already sent", type = "bug" } } } })
+    local row = row_of_line(before, "old")
+    local bvirt, avirt = virt_at(before, row), virt_at(after, row)
+    assert.is_truthy(bvirt[1][#bvirt[1]][1]:find("already sent", 1, true))
+    assert.same(#bvirt, #avirt)
+    assert.same("", avirt[1][1][1])
+  end)
+
+  it("hangs one about a whole file off the after pane's header", function()
+    local after, before =
+      build({ archived = { [render.file_key(path)] = { { note = "all of it, sent", type = "bug" } } } })
+    local row = after.file_rows[index_of(path)]
+    assert.is_truthy(virt_at(after, row)[1][#virt_at(after, row)[1]][1]:find("all of it, sent", 1, true))
+    assert.same(#virt_at(after, row), #virt_at(before, row))
+  end)
+
+  it("draws a queued entry above an archived one on the same anchor, in both panes", function()
+    local after, before = build({
+      notes = { [del_key] = { { note = "still to send", type = "bug" } } },
+      archived = { [del_key] = { { note = "already sent", type = "bug" } } },
+    })
+    local row = row_of_line(before, "old")
+    local bvirt, avirt = virt_at(before, row), virt_at(after, row)
+    assert.same(2, #bvirt)
+    assert.is_truthy(bvirt[1][#bvirt[1]][1]:find("still to send", 1, true))
+    assert.is_truthy(bvirt[2][#bvirt[2]][1]:find("already sent", 1, true))
+    -- Both entries cost the after pane the same height they cost the before pane, or every
+    -- row below this one reads against different code in the two panes.
+    assert.same(#bvirt, #avirt)
+  end)
+
+  it("gives it groups of its own beside a live entry's type", function()
+    local after = build({
+      notes = { [add_key] = { { note = "still to send", type = "bug" } } },
+      archived = { [add_key] = { { note = "already sent", type = "bug" } } },
+    })
+    local groups = {}
+    for _, m in ipairs(after.marks) do
+      for _, line in ipairs(m.opts.virt_lines or {}) do
+        for _, chunk in ipairs(line) do
+          groups[chunk[2]] = true
+        end
+      end
+    end
+    assert.is_true(groups.CodeReviewBug or false, vim.inspect(vim.tbl_keys(groups)))
+    assert.is_true(groups.CodeReviewArchived or false, vim.inspect(vim.tbl_keys(groups)))
+    assert.is_true(groups.CodeReviewArchivedNote or false, vim.inspect(vim.tbl_keys(groups)))
+  end)
+
+  -- The flag is persisted with the entry, so it is there to read, and it says the file had
+  -- moved by the time the batch went -- a fact about a queue that no longer exists. Drawn
+  -- against the code now it reads as a claim about the code now, which nothing has checked.
+  it("never draws an archived entry's stale flag", function()
+    local after = build({ archived = { [add_key] = { { note = "old", type = "bug", stale = true } } } })
+    for _, m in ipairs(after.marks) do
+      for _, line in ipairs(m.opts.virt_lines or {}) do
+        for _, chunk in ipairs(line) do
+          assert.is_not.same("CodeReviewStale", chunk[2])
+        end
+      end
+    end
+  end)
+end)
+
 describe("note text in a narrow pane", function()
   local long = "a remark long enough that it cannot possibly fit inside a single narrow "
     .. "column, which is exactly the case a virtual line silently truncates because it "
