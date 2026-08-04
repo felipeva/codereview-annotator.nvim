@@ -138,6 +138,141 @@ describe("caching and laziness", function()
   end)
 end)
 
+-- The map `apply` looks rows up in, rather than rebuilding per call. Its risk is not the
+-- caching but the invalidation: a map that outlives the render it was inverted from still
+-- produces well-formed extmarks, in the right groups, on rows that now hold other code.
+describe("the row map behind the replay", function()
+  local V = view.current()
+
+  ---Assert the map describes the render that is on screen: every row it records is anchored
+  ---to that same file at that same byte column, keyed by the source line drawn there, and
+  ---each file's bounds are exactly the rows it occupies -- those are what decide whether a
+  ---file is near enough to the window to be parsed.
+  ---
+  ---Both images are read out of `V.render.anchors`, which holds for the unified layout only;
+  ---this spec never opens the split one.
+  local function agrees_with_render()
+    local rows = assert(V.syntax_rows, "no row map on the view")
+    assert.is_true(vim.tbl_count(rows) > 0, "the map covers no file")
+    for fi, per_file in pairs(rows) do
+      local first, last = math.huge, 0
+      local function check(side, key_of)
+        for line, slot in pairs(side) do
+          local a = V.render.anchors[slot.row]
+          assert.is_truthy(a, ("row %d is anchored to nothing"):format(slot.row))
+          assert.same("line", a.kind)
+          assert.same(fi, a.file)
+          assert.same(a.col, slot.col)
+          assert.same(line, key_of(V.files[a.file].hunks[a.hunk].lines[a.line]))
+          first, last = math.min(first, slot.row), math.max(last, slot.row)
+        end
+      end
+      check(per_file.after, function(ln)
+        return ln.new
+      end)
+      check(per_file.before, function(ln)
+        return ln.old
+      end)
+      assert.same({ first = first, last = last }, { first = per_file.first, last = per_file.last })
+    end
+  end
+
+  ---Every syntax extmark covers exactly the token its capture came from, judged against the
+  ---buffer as it stands now. This is the symptom a stale map produces, and the reason the
+  ---invalidation is the careful half.
+  local function marks_cover_their_tokens()
+    local marks = h.syntax_marks(V)
+    assert.is_true(#marks > 0, "nothing is highlighted")
+    local buf_lines = vim.api.nvim_buf_get_lines(V.buf, 0, -1, false)
+    for _, m in ipairs(marks) do
+      local a = V.render.anchors[m[2] + 1]
+      if a and a.kind == "line" then
+        local ln = V.files[a.file].hunks[a.hunk].lines[a.line]
+        local text = buf_lines[m[2] + 1]:sub(m[3] + 1, m[4].end_col)
+        assert.is_truthy(ln.text:find(text, 1, true), ("row %d: %q not in %q"):format(m[2] + 1, text, ln.text))
+      end
+    end
+  end
+
+  it("holds a map of the render on the view", function()
+    agrees_with_render()
+  end)
+
+  it("records the row and byte column each source line is drawn at", function()
+    local row = assert(h.line_row(V, "src/main.lua"))
+    local a = V.render.anchors[row]
+    local ln = V.files[a.file].hunks[a.hunk].lines[a.line]
+    local side = ln.new and "after" or "before"
+    assert.same({ row = row, col = a.col }, V.syntax_rows[a.file][side][ln.new or ln.old])
+  end)
+
+  -- The keystroke case: `apply` is wired to CursorMoved, so a pass with nothing new near the
+  -- window must be a lookup against the map rather than another inversion of the whole
+  -- review.
+  it("reuses the map across passes with no repaint between them", function()
+    local map = V.syntax_rows
+    syntax.apply(V, h.NS)
+    syntax.apply(V, h.NS)
+    assert.are.equal(map, V.syntax_rows)
+  end)
+
+  it("rebuilds it when a repaint produces new renders", function()
+    local map = V.syntax_rows
+    view.paint()
+    assert.are_not.equal(map, V.syntax_rows)
+    agrees_with_render()
+  end)
+
+  -- Collapsing a file moves every row below it, which is exactly what a map kept past its
+  -- render would go on pointing at. The guard is that the rows really did move: without it
+  -- the case passes on a repaint that changed nothing.
+  it("replays onto the rows a repaint moved, not the ones they replaced", function()
+    local main = assert(h.file_index(V, "src/main.lua"))
+    local routes = assert(h.file_index(V, "src/routes.lua"))
+    local was = V.render.file_rows[routes]
+
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[main], 0 })
+    view.toggle_reviewed()
+    assert.is_true(V.render.file_rows[routes] ~= was, "collapsing src/main.lua moved nothing")
+
+    agrees_with_render()
+    marks_cover_their_tokens()
+
+    view.toggle_reviewed()
+    marks_cover_their_tokens()
+  end)
+
+  -- Both `refresh` and `set_scope` discard through here, and both then repaint, so the
+  -- discard itself is the only moment either of them could skip it.
+  it("goes with the captures when the diff behind them is dropped", function()
+    assert.is_not_nil(V.syntax_rows)
+    syntax.invalidate(V)
+    assert.is_nil(V.syntax_rows)
+  end)
+
+  it("comes back from the diff a re-read produced", function()
+    view.refresh()
+    agrees_with_render()
+  end)
+
+  it("comes back from the scope a change switched to", function()
+    view.set_scope("staged")
+    assert.same(
+      { "src/routes.lua" },
+      vim.tbl_map(function(f)
+        return f.path
+      end, V.files)
+    )
+    agrees_with_render()
+
+    -- Back to where the rest of this file expects to be: the branch scope, with the cursor
+    -- inside src/main.lua, which is what puts src/routes.lua near enough to the window for
+    -- the cases below to have anything to say about it.
+    view.set_scope("branch")
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[assert(h.file_index(V, "src/main.lua"))], 0 })
+  end)
+end)
+
 describe("guardrails", function()
   local V = view.current()
 

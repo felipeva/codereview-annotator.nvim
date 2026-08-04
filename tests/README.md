@@ -41,7 +41,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
-| `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
+| `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
@@ -180,6 +180,12 @@ so the out-of-core language path is still checked locally without ever failing C
   then calls `nvim_exec_autocmds("CursorMoved", { buffer = … })`, which runs the review
   buffer's own autocommand. Timing the move alone reports microseconds and misses every
   millisecond the reviewer actually pays.
+- **A cached map only misbehaves once something has moved the rows.** The row map
+  `syntax.apply` looks up is dropped by every paint, and an assertion made after a repaint
+  that changed nothing passes with that drop deleted — every row still holds exactly what the
+  old map claimed. `syntax_spec` collapses a file *above* the one it checks, guards that the
+  rows below really did move, and only then asserts that every syntax mark still covers its
+  own token. Same trap as "a filter test needs a fixture only that filter can reject".
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.
