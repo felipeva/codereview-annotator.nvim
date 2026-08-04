@@ -65,3 +65,10 @@ Canonical label vocabulary, unmodified: `needs-triage`, `needs-info`, `ready-for
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Design notes
+
+`docs/design-notes.md` records every non-obvious constraint that cost real debugging time,
+grouped by subsystem. Several obvious-looking approaches here are wrong for reasons reading
+the code does not reveal — read the relevant group before changing rendering, diff parsing,
+blob hashing, reference resolution, or anything touching windows and modes.
