@@ -8,7 +8,9 @@
 --
 -- One level lower, and only where there is no higher way to say it, the namespace's own
 -- contents are read: that a variant is derived from the theme that is active now, and that a
--- group this plugin cannot know about has none.
+-- group this plugin cannot know about has none. The namespace holds a link to the group that
+-- holds the colour, so `muted_hl` below reads the colour through it. Read the namespace alone
+-- and you stop at a name, which says nothing about what a cell will show.
 --
 -- Lower still, the cells the reviewer's screen really holds. Those are in `muted_child.lua`,
 -- one process per reading, because `nvim__inspect_cell` tells the truth only on the first
@@ -69,6 +71,20 @@ local function cursorlines()
     end
   end
   return out
+end
+
+---What a muted window really draws `group` in.
+---
+---One hop, because the namespace names a group and that group holds the colour. Reading the
+---namespace alone stops at the name, which says nothing about what a cell will show.
+---@param group string
+---@return table
+local function muted_hl(group)
+  local entry = vim.api.nvim_get_hl(MUTED, { name = group })
+  if not entry.link then
+    return entry
+  end
+  return vim.api.nvim_get_hl(0, { name = entry.link, link = false })
 end
 
 ---@param rgb integer
@@ -353,20 +369,20 @@ describe("a group the plugin cannot know about", function()
   -- with no variant falling back to its global definition is what keeps an unrecognised
   -- theme merely less muted instead of wrongly coloured. `muted_child.lua` reads the cell.
   it("keeps a group the plugin does know about muted beside it", function()
-    local add = vim.api.nvim_get_hl(MUTED, { name = "CodeReviewAdd" })
+    local add = muted_hl("CodeReviewAdd")
     assert.is_truthy(add.bg, "CodeReviewAdd has no muted variant")
   end)
 end)
 
 describe("changing colorscheme", function()
-  local before = vim.api.nvim_get_hl(MUTED, { name = "CodeReviewAdd" }).bg
+  local before = muted_hl("CodeReviewAdd").bg
   local was = vim.api.nvim_get_hl(0, { name = "CodeReviewAdd", link = false }).bg
 
   vim.cmd("colorscheme blue")
 
   local now = vim.api.nvim_get_hl(0, { name = "CodeReviewAdd", link = false }).bg
   local backdrop = vim.api.nvim_get_hl(0, { name = "Normal", link = false }).bg or 0x000000
-  local after = vim.api.nvim_get_hl(MUTED, { name = "CodeReviewAdd" }).bg
+  local after = muted_hl("CodeReviewAdd").bg
 
   -- Without this the case below passes on a theme that happens to paint a changed line the
   -- same colour the last one did, which would prove nothing about recomputing anything.

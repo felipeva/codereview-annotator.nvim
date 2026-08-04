@@ -1472,11 +1472,12 @@ function M.open(spec)
   })
 
   -- A **muted** window's colours are blends of the theme's, so they cannot outlive it.
-  -- Declared after `hl.setup()`, which is the first thing this function does and which
-  -- re-links the plugin's own groups from its own `ColorScheme` autocommand: the two fire in
-  -- the order they were declared, so the groups this reads have been re-linked by the time
-  -- it reads them. Watched from here rather than from `hl.lua`, which would have to reach
-  -- back up into the module that owns the windows to say it.
+  -- `hl.lua` writes those blends again from its own `ColorScheme` autocommand; what this
+  -- adds is the pass that links a group the new theme gives a colour to at last. Declared
+  -- after `hl.setup()`, which is the first thing this function does: the two fire in the
+  -- order they were declared, so every blend this links to exists by the time it links.
+  -- Watched from here rather than from `hl.lua`, which would have to reach back up into the
+  -- module that owns the windows to say it.
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = V.augroup,
     callback = function()

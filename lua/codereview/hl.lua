@@ -13,6 +13,11 @@
 ---without a second list learning about it. There is deliberately no register to remember to
 ---update, because the one thing that would go wrong is invisible until someone looks at an
 ---unfocused pane.
+---
+---**The muted colours are groups of this module, not colours in a window.** A group that a
+---**muted** window draws gets a twin here, named for the group it blends. The window that
+---mutes links to that twin instead of holding a colour of its own, so the same colour is
+---reachable from outside that window. See `M.muted_group` below.
 local M = {}
 
 local LINKS = {
@@ -130,6 +135,118 @@ function M.groups()
   return out
 end
 
+--- The muted colours ------------------------------------------------------------
+
+---What the name of a blended group starts with.
+---
+---A blended group is named for the group it blends, so its name is derivable from that
+---group alone and no table maps one to the other. The dot keeps the two parts apart: a
+---treesitter capture group carries `@` and dots of its own, and `CodeReviewMuted.@keyword`
+---can only be the twin of `@keyword`. No group this plugin defines starts with
+---`CodeReviewMuted.`, so a twin shadows none of them.
+local MUTED_PREFIX = "CodeReviewMuted."
+
+---The twin of every group that has one, keyed by the group it blends.
+---@type table<string, string>
+local twins = {}
+
+---`Normal`'s background, memoised until the colorscheme changes.
+---@type integer|nil
+local toward = nil
+
+---What a muted colour is pulled toward.
+---
+---A theme that gives `Normal` no background at all has the terminal's behind it. The only
+---knowable fact about that background is which way the theme leans.
+---@return integer
+local function backdrop()
+  if not toward then
+    local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+    toward = normal.bg or (vim.o.background == "light" and 0xffffff or 0x000000)
+  end
+  return toward
+end
+
+---Pull one colour toward another, channel by channel.
+---@param colour integer 0xRRGGBB
+---@param target integer 0xRRGGBB
+---@param strength number 0 keeps the colour. 1 replaces it with `target`.
+---@return integer
+local function blend(colour, target, strength)
+  local out = 0
+  for _, place in ipairs({ 65536, 256, 1 }) do
+    local from = math.floor(colour / place) % 256
+    local to = math.floor(target / place) % 256
+    out = out + math.floor(from + (to - from) * strength + 0.5) * place
+  end
+  return out
+end
+
+---Write the twin of `group`, or report that `group` has no colour to blend.
+---
+---Only the true-colour attributes are blended. `ctermfg` and `ctermbg` are indices into a
+---palette with no channels to pull, so they are copied without a change.
+---@param group string
+---@return boolean written True if the twin now holds a blend of `group`.
+local function write_twin(group)
+  local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
+  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil) then
+    return false
+  end
+  local strength = require("codereview.config").get().muted.strength
+  local muted = vim.tbl_extend("force", {}, def)
+  muted.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
+  muted.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
+  return (pcall(vim.api.nvim_set_hl, 0, MUTED_PREFIX .. group, muted))
+end
+
+---The group that holds `group` blended toward the background, computed once.
+---
+---**A group with no colour of its own gets no twin, and that is the feature.** A caller
+---that finds nothing here must draw `group` as it is. That keeps a colorscheme this plugin
+---has never seen merely less muted instead of wrongly coloured. Nothing here reaches for a
+---palette when a lookup is empty, and nothing must.
+---
+---An empty lookup is not remembered as done. A pass that somehow runs before the theme's
+---own groups are linked again costs one more pass, not a review that stays bright until
+---the next colorscheme change.
+---@param group string
+---@return string|nil name The twin's name, or nil if `group` has nothing to blend.
+function M.muted_group(group)
+  if twins[group] then
+    return twins[group]
+  end
+  if not write_twin(group) then
+    return nil
+  end
+  twins[group] = MUTED_PREFIX .. group
+  return twins[group]
+end
+
+---Write every twin again, against the colorscheme that is active now.
+---
+---A twin holds colours the theme decides, and `:colorscheme` clears it with every other
+---global group. So `apply` writes the twins again wherever it writes the links again. A
+---caller that links to a twin needs no part of this: a link holds a name and not a colour,
+---and a link inside a highlight namespace survives `:colorscheme`.
+---
+---Every twin is written again rather than dropped. The diff on screen still carries
+---extmarks that name the capture groups the old theme resolved, and those colours must be
+---right before anything parses again.
+---
+---A group that loses its colour to the new theme keeps its twin, as a link back to itself.
+---The window then draws that group at full brightness, which is what a group with no twin
+---gets. A link that reaches no definition draws nothing at all, so every twin a caller
+---already links to must stay a definition.
+local function recolour_muted()
+  toward = nil
+  for group, twin in pairs(twins) do
+    if not write_twin(group) then
+      pcall(vim.api.nvim_set_hl, 0, twin, { link = group })
+    end
+  end
+end
+
 function M.apply()
   for group, target in pairs(LINKS) do
     vim.api.nvim_set_hl(0, group, { link = target, default = true })
@@ -147,10 +264,13 @@ function M.apply()
   if package.loaded["codereview.syntax"] then
     require("codereview.syntax").clear_hl_cache()
   end
+  -- Last, because a twin blends what the links above resolve to. With no review open there
+  -- are no twins and this costs one empty loop.
+  recolour_muted()
 end
 
 ---Re-link after a colorscheme change, since `nvim_set_hl` definitions are cleared by
----`:colorscheme`.
+---`:colorscheme`. That clears the muted twins too, so `apply` writes them again as well.
 function M.setup()
   M.apply()
   vim.api.nvim_create_autocmd("ColorScheme", {

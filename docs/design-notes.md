@@ -403,6 +403,24 @@ bright rather than going wrong. `NormalNC` is adequate only on the file tree, wh
 almost no highlights of its own, and one mechanism for the three windows is worth more than
 that.
 
+**That namespace holds links, and the link is what makes the blend reachable.** Each entry
+names the group that holds the blended colour — `CodeReviewMuted.` plus the group it blends,
+so `@keyword` becomes `CodeReviewMuted.@keyword`. A group name with `@` and dots in it is
+legal, and only a name that *starts* with `@` gets the treesitter fallback chain. Three
+facts here were measured, not assumed:
+
+- A link inside a namespace resolves through to an extmark highlight and to a line
+  background, exactly as a definition in the namespace does.
+- `:colorscheme` clears every global group, the blended ones with the rest, but it leaves
+  the namespace's links alone. So a theme change is the groups' problem and the namespace
+  needs no part of it. What the window rule does on `ColorScheme` is one more pass, for a
+  group the new theme gives a colour to at last.
+- **A link that reaches no definition draws nothing at all.** It does not fall back to the
+  global group, which is what a namespace with no entry does. So a group with no blend must
+  have *no* entry in the namespace, and a blend the new theme cannot compute keeps its
+  group as a link back to the group it blends. Either way that group draws bright. An entry
+  that points at a group the theme wiped draws a hole.
+
 **Which review window is bright is the review's last-focused one, not the current one.** The
 composer, the queue float and the archive float all take focus out of every review window, so
 a rule written against the current window mutes the whole review the moment a reviewer starts
