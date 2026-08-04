@@ -11,19 +11,31 @@
 local h = require("tests.helpers")
 
 h.ui(100, 30)
-h.cd_fixture("mkfixture")
+local fixture = h.cd_fixture("mkfixture")
+
+---What the send adapter was handed. An adapter that returns nothing dispatches, which is
+---the one condition that both empties the queue and records the batch.
+local sent = {}
 
 require("codereview").setup({
   syntax = false,
   compose = function(_, on_accept)
     on_accept(nil, "a note")
   end,
-  send = function() end,
+  send = function(text, target)
+    sent[#sent + 1] = { text = text, target = target }
+  end,
 })
 
 local view = require("codereview.view")
 local queue = require("codereview.queue")
 local config = require("codereview.config")
+local state = require("codereview.state")
+
+-- Resolved, because the archive is keyed on the root git answers with and git answers with
+-- symlinks resolved. On macOS the fixture lives under a `/var` symlink, so the unresolved
+-- form would read a document nothing ever wrote.
+local root = assert(vim.uv.fs_realpath(fixture))
 
 local NS = vim.api.nvim_create_namespace("codereview_queue")
 
@@ -447,5 +459,63 @@ describe("the float's own highlight groups", function()
     vim.api.nvim_set_hl(0, "CodeReviewQueueState", { link = "ErrorMsg" })
     hl.apply()
     assert.same("ErrorMsg", vim.api.nvim_get_hl(0, { name = "CodeReviewQueueState" }).link)
+  end)
+end)
+
+--- Where submitting from the float ends up -------------------------------------
+
+-- The case neither slice could have written, and the reason it is here.
+--
+-- This float was restructured against a base with no archive; the archive was built
+-- against a base with the old float. They meet at one keystroke: `<C-s>` closes the float
+-- and submits, and a **dispatch** is the single condition that both empties the queue and
+-- records the batch. Each side was green in isolation and nothing covered the join.
+--
+-- Driven through the float's own key rather than `view.submit()`, because what is in doubt
+-- is the path from this surface, not the rule at the end of it -- `delivery_spec` already
+-- owns which outcomes write to the archive, and `archive_spec` owns what survives a
+-- restart.
+describe("submitting from the float", function()
+  fresh()
+  queued({ note = "went out from the float" })
+  queued({ type = "nitpick", note = "and this one with it" })
+
+  local before = #state.archive(root)
+  local listed = #sent
+  local win = select(1, open_float())
+  h.feed("<C-s>")
+
+  it("hands the batch to the send adapter", function()
+    assert.same(listed + 1, #sent)
+    assert.is_truthy(sent[#sent].text:find("went out from the float", 1, true), sent[#sent].text)
+  end)
+
+  it("empties the queue", function()
+    assert.same(0, queue.count())
+  end)
+
+  -- The invariant the float's window handle is recorded for, restated here because this is
+  -- the keystroke that has to honour it: a batch that has gone must not be left on screen.
+  it("leaves no float listing a batch that has already gone", function()
+    assert.is_false(vim.api.nvim_win_is_valid(win))
+  end)
+
+  it("records the batch in the archive", function()
+    assert.same(before + 1, #state.archive(root))
+  end)
+
+  it("archives every entry the float was listing, and only those", function()
+    assert.same(
+      { "went out from the float", "and this one with it" },
+      vim.tbl_map(function(entry)
+        return entry.note
+      end, state.archive(root)[1].entries)
+    )
+  end)
+
+  -- The same name the float's own footer was reporting while it was open, so what the
+  -- archive says about where a batch went agrees with what the reviewer was told.
+  it("names where it went", function()
+    assert.same("local", state.archive(root)[1].target)
   end)
 end)
