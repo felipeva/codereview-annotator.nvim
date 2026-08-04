@@ -252,8 +252,10 @@ file, never to whatever code happens to be above it.
 Chrome is split too, so headers stay aligned as well. A hunk header shows its
 pre-image range on the left and its post-image range plus git's section
 heading on the right; a renamed file shows its old path on the left and its
-new path on the right. The right pane's winbar carries the review status; the
-left names the revision it is showing.
+new path on the right. Each pane's winbar names its own side of that rename
+too: the right carries the review status beside the post-image path, the left
+names the revision it is showing beside the pre-image path. See
+|codereview-sticky-header|.
 
 Both panes accept annotations, and the pane the cursor is in decides what is
 captured: a deleted line on the left, the post-image line on the right. The
@@ -298,6 +300,32 @@ is what decides at the start of every session. It is deliberately not written
 to the state file -- that file is per repository and a layout preference is
 not, and a stored preference would silently override a `layout` you had since
 changed.
+
+The sticky header                                  *codereview-sticky-header*
+
+Each pane's winbar names the file the cursor is in, so reading past that
+file's own header row in the diff does not cost you the file: >
+    ○ ▾ src/routes.lua  +12 -3  [2 notes]    branch vs master · 2/7 reviewed
+<
+It carries what the in-buffer file header carries -- the icon, the chevron,
+the path, the `+N -M` and the note count -- with the review summary
+right-aligned beside it. A rename follows the same rule the file header
+follows: the unified layout spells `old -> new`, and in the split layout each
+pane names its own side, so the left pane names the pre-image path beside the
+revision it is showing.
+
+The file named is the one under the *cursor*, not the one at the top of the
+window, and it is always shown rather than only once the real header has
+scrolled off -- so it names the file an annotation would attach to, which is
+what matters when you annotate twenty lines into a hunk. It works with the
+file tree dismissed, and with a review that was opened without one.
+
+On a pane too narrow to hold both halves, the summary gives way first -- and
+gives up what the file beside it now says twice (the plugin's own name, the
+review's line totals, the queue's note count) before anything only it can say.
+The path is then cut from its head, keeping its tail, because the file's own
+name is the part being kept. A review with no files at all shows the summary
+alone, with no empty file segment.
 
 What changed inside a line                                 *codereview-spans*
 

@@ -130,7 +130,8 @@ an exact scroll offset across a structural move would be preserving something me
 
 Chrome is split too: a hunk header shows its pre-image range on the left and its post-image
 range plus git's section heading on the right, and a renamed file shows its old path on the
-left and its new path on the right.
+left and its new path on the right — on the winbar as well as in the buffer, so the left
+pane's sticky header names the pre-image path beside the revision it is showing.
 
 Horizontal scrolling is **not** synchronised, because doing so would mean changing
 `scrollopt`, a global option this plugin does not own.
@@ -228,6 +229,29 @@ you were last in, not the window with the cursor in it.
 
 `muted = { enabled = false }` turns it off whole; `strength` is one number from 0 to 1
 saying how far toward the background a colour goes.
+
+### The file you are in, on the winbar
+
+A file's header row scrolls off the top as soon as you read past the first screenful of it.
+The **sticky header** keeps it:
+
+```
+ ○ ▾ src/routes.lua  +12 -3  [2 notes]        branch vs master · 2/7 reviewed · +40 -9
+```
+
+The same icon, chevron, path, `+N -M` and note count the in-buffer header carries, with the
+review summary right-aligned beside it. It names the file the **cursor** is in — not the one
+at the top of the window — so it is the file an annotation would attach to, which is what
+you are reaching for when you annotate twenty lines into a hunk. It works with the tree
+dismissed, and with a review opened without one.
+
+In the split layout each pane names its own side, so a rename reads correctly on the side
+holding the old name; the unified layout spells it `old → new`, exactly as the file header
+does. On a pane too narrow for both halves the summary gives way first — starting with what
+the file beside it now says twice — and the path keeps its tail.
+
+The bar is chrome of the review window it sits on, so it mutes with that window: on the pane
+without focus the sticky header recedes with everything else in it.
 
 ### Typed annotations
 

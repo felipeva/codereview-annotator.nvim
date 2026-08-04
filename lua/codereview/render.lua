@@ -10,6 +10,12 @@
 ---what makes row alignment a property of the returned data, guaranteed by construction,
 ---rather than an emergent property of two independent calls agreeing -- and it is what lets
 ---every property that makes the split layout correct be asserted with no window on screen.
+---
+---What a *file* is called is here too, in `file_label`, for surfaces that name one somewhere
+---other than in the diff -- the winbar's **sticky header** is the second. Which icon it
+---carries, how a rename is spelled in each layout and which files have a pre-image side are
+---rules rather than formats, and two copies of them would answer differently on the first
+---file only one of the two authors had in mind.
 local M = {}
 
 ---@class CRAnchor
@@ -121,6 +127,42 @@ end
 ---a second copy would be a second set of rules about what "too wide" means.
 M.truncate = truncate
 
+---The last `width` display columns of `text`, with `…` where the head was cut.
+---
+---`truncate`'s mirror, and the **sticky header**'s: a path that has to give up columns
+---gives up the directories above it, because the file's own name is at the end of it and
+---that is the part being kept. Cutting the other way keeps the part every file in a
+---directory shares and drops the only part that says which file this is.
+---
+---By display width, like everything else here: a path a reviewer's repository chose can
+---hold anything, and counting its bytes overshoots the moment one of them is not ASCII.
+---@param text string
+---@param width integer
+---@return string
+local function keep_tail(text, width)
+  if vim.fn.strdisplaywidth(text) <= width then
+    return text
+  end
+  -- One column goes to the ellipsis. Below two there is nothing left to say but that
+  -- something was cut, which is still worth saying.
+  if width <= 1 then
+    return "…"
+  end
+  local chars = vim.fn.strchars(text)
+  local lo, hi = 0, chars
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    if vim.fn.strdisplaywidth(vim.fn.strcharpart(text, chars - mid)) <= width - 1 then
+      lo = mid
+    else
+      hi = mid - 1
+    end
+  end
+  return "…" .. vim.fn.strcharpart(text, chars - lo)
+end
+
+M.keep_tail = keep_tail
+
 ---Longest prefix of `text` that fits in `width` display columns, and what is left.
 ---
 ---By display width rather than by characters: a note containing CJK or an emoji occupies
@@ -201,6 +243,66 @@ end
 ---@return table
 local function new_pane()
   return { lines = {}, anchors = {}, marks = {}, file_rows = {}, hunk_rows = {} }
+end
+
+---@class CRFileLabel
+---@field reviewed boolean       Whether the file is marked reviewed
+---@field expanded boolean       Whether its body is drawn, with the default already applied
+---@field notes integer          Queued annotations anywhere in it
+---@field icon string
+---@field chevron string
+---@field name string            Its path as this layout spells it: `old → new` when unified
+---@field before string|nil      The pre-image path; nil for a file with no pre-image at all
+---@field stat string            `+N -M`, or `binary`
+---@field right string           That stat, with the note count beside it when there is one
+
+---How a file is named, wherever it is named.
+---
+---Everything here is a *rule* rather than a format: which icon a file carries, whether it
+---counts as expanded when nothing has said, how a rename is spelled in each layout, and
+---which files have a pre-image side to name at all. The in-buffer file header asks, and so
+---does the **sticky header** on the winbar -- one function, because a second copy of these
+---answers would drift on the first file whose status only one of the two surfaces had in
+---mind, and a reviewer would then be told two things about one file at once.
+---@param file CRFile
+---@param opts { icons: table, reviewed: table<string, string>|nil, expanded: table<string, boolean>, notes: table<string, table[]>|nil, layout: string|nil }
+---@return CRFileLabel
+function M.file_label(file, opts)
+  local icons = opts.icons
+  local reviewed = opts.reviewed and opts.reviewed[file.path] ~= nil
+  local expanded = opts.expanded[file.path]
+  if expanded == nil then
+    expanded = not reviewed
+  end
+
+  -- Count notes on this file so the header can advertise them even when collapsed --
+  -- otherwise a reviewed file silently hides the comments you left on it.
+  local notes = 0
+  if opts.notes then
+    for key, items in pairs(opts.notes) do
+      if key:sub(1, #file.path + 1) == file.path .. ":" then
+        notes = notes + #items
+      end
+    end
+  end
+
+  local stat = file.binary and "binary" or ("+%d -%d"):format(file.added, file.removed)
+  local split = opts.layout == "split"
+  return {
+    reviewed = reviewed,
+    expanded = expanded,
+    notes = notes,
+    icon = reviewed and icons.reviewed or (notes > 0 and icons.annotated or icons.unreviewed),
+    chevron = expanded and icons.expanded or icons.collapsed,
+    -- A rename reads as a rename when each pane draws its own path; only the unified
+    -- layout, which has one header to say it in, spells the arrow out.
+    name = (not split and file.old_path) and ("%s → %s"):format(file.old_path, file.path) or file.path,
+    -- The half the before pane holds. A file that exists only on the after side has no
+    -- pre-image path at all, and neither its header row nor its winbar names one.
+    before = (file.status ~= "A" and file.status ~= "U") and (file.old_path or file.path) or nil,
+    stat = stat,
+    right = notes > 0 and ("%s  [%d note%s]"):format(stat, notes, notes == 1 and "" or "s") or stat,
+  }
 end
 
 ---Build the view.
@@ -448,33 +550,15 @@ function M.build(files, opts)
   end
 
   for fi, file in ipairs(files) do
-    local reviewed = opts.reviewed and opts.reviewed[file.path] ~= nil
-    local expanded = opts.expanded[file.path]
-    if expanded == nil then
-      expanded = not reviewed
-    end
-
-    -- Count notes on this file so the header can advertise them even when collapsed --
-    -- otherwise a reviewed file silently hides the comments you left on it.
-    local note_count = 0
-    if opts.notes then
-      for key, items in pairs(opts.notes) do
-        if key:sub(1, #file.path + 1) == file.path .. ":" then
-          note_count = note_count + #items
-        end
-      end
-    end
-
     --- File header -----------------------------------------------------------
-    local icon = reviewed and icons.reviewed or (note_count > 0 and icons.annotated or icons.unreviewed)
-    local chevron = expanded and icons.expanded or icons.collapsed
-    -- A rename reads as a rename when each pane draws its own path; only the unified
-    -- layout, which has one header to say it in, spells the arrow out.
-    local name = (not split and file.old_path) and ("%s → %s"):format(file.old_path, file.path) or file.path
+    -- Asked rather than assembled here: the winbar's sticky header names the same file by
+    -- the same rules, and this is the surface those rules are named after.
+    local label = M.file_label(file, opts)
+    local reviewed, expanded, note_count = label.reviewed, label.expanded, label.notes
+    local icon, chevron = label.icon, label.chevron
 
-    local left = ("%s %s %s"):format(icon, chevron, name)
-    local stat = file.binary and "binary" or ("+%d -%d"):format(file.added, file.removed)
-    local right = note_count > 0 and ("%s  [%d note%s]"):format(stat, note_count, note_count == 1 and "" or "s") or stat
+    local left = ("%s %s %s"):format(icon, chevron, label.name)
+    local stat, right = label.stat, label.right
 
     left = truncate(left, math.max(10, width - #right - 2))
     local pad = math.max(1, width - vim.fn.strdisplaywidth(left) - vim.fn.strdisplaywidth(right))
@@ -484,9 +568,9 @@ function M.build(files, opts)
     -- to sit under the after pane's name. A file that exists only on the after side has no
     -- pre-image path at all, so its header row is filler like the rest of it.
     local bheader = nil
-    if before and file.status ~= "A" and file.status ~= "U" then
+    if before and label.before then
       local indent = (" "):rep(vim.fn.strdisplaywidth(icon) + vim.fn.strdisplaywidth(chevron) + 2)
-      bheader = truncate(indent .. (file.old_path or file.path), before_width)
+      bheader = truncate(indent .. label.before, before_width)
     end
 
     -- The before pane's header row is chrome even when it is empty: it is where this file

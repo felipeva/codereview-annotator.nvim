@@ -38,8 +38,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
-| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, and archived entries on the diff: where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them |
-| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, and a review with no files |
+| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, and each pane's winbar naming its own side of a rename |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
@@ -397,6 +397,30 @@ so the out-of-core language path is still checked locally without ever failing C
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view_layout.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
   version of that test passes whether or not the fix exists, which is why it drives a pty.
+- **A winbar assertion has to say how wide the pane was.** Both halves of the sticky header
+  fit on a wide pane and neither one does on a narrow one, so "the summary is still there"
+  and "the summary gave way" are both true depending on a number no assertion mentions.
+  Worse, nothing resizes itself: `vim.o.columns` hands every new column to the *last*
+  window rather than sharing them, and `WinResized` never lands in a headless spec — so a
+  case that widens a terminal and asserts is usually asserting against the width it started
+  at. `render_spec` sets the pane's width outright and asserts it took, and `split_spec`
+  widens the terminal, levels the windows with `wincmd =`, repaints by hand and *guards*
+  that the before pane really did end up wide enough to hold a revision and a path at once.
+  Without that guard its rename cases pass by reading a bar the path never reached.
+- **An ASCII winbar cannot fail the byte-padding bug.** The bar is padded to the pane's
+  width by arithmetic, and by *bytes* it comes out a dozen columns short while every
+  substring assertion in the suite still passes. `render_spec` parks on `src/newname.lua`,
+  whose bar carries `○`, `▾`, `→` and `·` at once, and asserts the bar's display width is
+  the pane's width exactly — with a second assertion that the bar really is longer in bytes
+  than in columns, or the case is comparing two equal numbers and measuring nothing.
+  Replacing `view.lua`'s two `cols(...)` calls in `lay_out` with `#` must red it. Same trap
+  as "an ASCII fixture cannot fail the byte-splitting bug".
+- **The sticky header's teeth are in the case with no tree.** With the tree open, a winbar
+  hung off the tree's own repaint follows the cursor perfectly, so every case but that one
+  passes with the crossing latch put back inside `view_panel.sync_panel`. Returning early
+  from `view.lua`'s `follow_file` when `V.panel_win` is nil must red the tree-dismissed case
+  in `render_spec` — it freezes on the file that was being read when the tree went away —
+  and one case in `panel_spec`. That is the whole reason #103 moved the latch.
 - **A set comparison passes when one set was never read.** `map_spec` matches the module
   map's rows with a pattern over the table's first column, so reformatting that column —
   dropping the backticks, say — silently yields no rows, and "no row names a module that is

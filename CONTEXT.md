@@ -45,6 +45,15 @@ pure deletion, a file that exists on only one side — so the two stay row-align
 from a **pad**, the blank row after a hunk, which both panes draw.
 _Avoid_: padding, spacer
 
+**Sticky header**:
+The current file named on a **pane**'s winbar, so the file survives reading past its own
+header row in the diff. The file the *cursor* is in, not the one at the top of the viewport,
+and always shown rather than only once the real header has gone — it names the file an
+annotation would attach to. Carries what the in-buffer file header carries: the icon, the
+chevron, the path, the `+N -M` and the note count, with the review summary right-aligned
+beside it.
+_Avoid_: breadcrumb, pinned header, floating header
+
 **Span**:
 The run of characters within a paired line that differs from its counterpart, emphasised so
 the eye lands on the change rather than on the line. Not _range_: a **range** is already a

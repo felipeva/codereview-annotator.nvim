@@ -338,3 +338,211 @@ describe("line keys", function()
     })
   end)
 end)
+
+-- The sticky header: the file the cursor is in, named on the winbar so that reading past
+-- that file's own header row no longer costs a reviewer the file.
+--
+-- Asserted through the window option, as the scope above already is -- what a reviewer's
+-- editor holds after a real cursor movement, never the function that put it there. This is
+-- the *unified* layout's bar, including the rename spelled `old → new`; the per-pane rules
+-- are `split_spec`'s. Every case reads a file from well below its header row, because the
+-- header is exactly what has gone by the time this matters.
+--
+-- These blocks run last in this file and move the pane's width and the scope about, which
+-- nothing below them would survive.
+describe("the sticky header", function()
+  local V = view.current()
+
+  local function bar()
+    return vim.wo[V.win].winbar
+  end
+
+  ---Read a file the way a reviewer does -- autocmd and all, which is the only thing that
+  ---moves the crossing latch -- landing on its *last* code row rather than on its header.
+  ---@param path string
+  ---@return integer row, integer header
+  local function read_into(path)
+    local index = assert(h.file_index(V, path))
+    local last
+    for row = 1, #V.render.lines do
+      local a = V.render.anchors[row]
+      if a and a.file == index and a.kind == "line" then
+        last = row
+      end
+    end
+    assert(last, "no code rows for " .. path)
+    vim.api.nvim_set_current_win(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { last, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+    return last, V.render.file_rows[index]
+  end
+
+  local away = "src/nonl.md"
+  local row, header = read_into(away)
+  local first = V.files[1].path
+
+  -- Guards the block itself: parked on the file's header row, or on the first file in the
+  -- diff, every case below would pass with the winbar naming whatever is at the top.
+  it("really is reading a file from below its own header", function()
+    assert.is_true(row > header + 1, ("row %d is not below header %d"):format(row, header))
+    assert.is_true(first ~= away, "the file being read is the first one in the diff")
+  end)
+
+  it("names the file the cursor is in, not the one the diff starts with", function()
+    assert.is_truthy(bar():find(away, 1, true), bar())
+    assert.is_nil(bar():find(first, 1, true), bar())
+  end)
+
+  it("carries that file's own stat beside its name", function()
+    local file = V.files[assert(h.file_index(V, away))]
+    assert.is_truthy(bar():find(("+%d -%d"):format(file.added, file.removed), 1, true), bar())
+  end)
+
+  -- Two crossings rather than one: a bar that named the file it was built with and never
+  -- moved again would pass a single absolute assertion.
+  it("changes when the cursor crosses into another file", function()
+    read_into("src/main.lua")
+    assert.is_truthy(bar():find("src/main.lua", 1, true), bar())
+    assert.is_nil(bar():find(away, 1, true), bar())
+
+    read_into(away)
+    assert.is_truthy(bar():find(away, 1, true), bar())
+    assert.is_nil(bar():find("src/main.lua", 1, true), bar())
+  end)
+
+  -- The half this slice must not have cost anyone: everything the winbar said before it
+  -- existed is still on it, moved to the right rather than dropped.
+  it("keeps the review summary beside the file", function()
+    local added, removed = require("codereview.diff").totals(V.files)
+    assert.is_truthy(bar():find(V.scope.label, 1, true), bar())
+    assert.is_truthy(bar():find(("0/%d reviewed"):format(#V.files), 1, true), bar())
+    assert.is_truthy(bar():find(("+%d -%d"):format(added, removed), 1, true), bar())
+  end)
+end)
+
+-- The case the feature exists for. The tree is the one surface that answered "which file am
+-- I in" before this, it is dismissible, and a sticky header hung off the tree's own repaint
+-- would freeze exactly here -- `queue_jump_panel_spec` is the prior art for reaching this
+-- state, and this is the same reason it exists.
+describe("the sticky header with the tree dismissed", function()
+  local V = view.current()
+  view.toggle_panel()
+
+  local function bar()
+    return vim.wo[V.win].winbar
+  end
+
+  ---@param path string
+  ---@return integer index
+  local function read_into(path)
+    local index = assert(h.file_index(V, path))
+    vim.api.nvim_set_current_win(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index] + 1, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+    return index
+  end
+
+  it("really has no tree", function()
+    assert.is_nil(V.panel_win)
+    assert.is_nil(V.panel_render)
+  end)
+
+  it("still names the file the cursor crosses into", function()
+    read_into("src/main.lua")
+    assert.is_truthy(bar():find("src/main.lua", 1, true), bar())
+    read_into("src/nonl.md")
+    assert.is_truthy(bar():find("src/nonl.md", 1, true), bar())
+    assert.is_nil(bar():find("src/main.lua", 1, true), bar())
+  end)
+end)
+
+describe("the sticky header on a pane that has to choose", function()
+  local V = view.current()
+  view.toggle_panel() -- back, so the after pane has a neighbour to give columns to
+
+  local function bar()
+    return vim.wo[V.win].winbar
+  end
+
+  ---Resize the pane and repaint. `WinResized` is fired from the main loop and never lands
+  ---in a headless spec, so the repaint is this test's to drive.
+  ---@param width integer
+  ---@return integer width
+  local function resize(width)
+    vim.api.nvim_win_set_width(V.win, width)
+    view.paint()
+    local index = assert(h.file_index(V, "src/newname.lua"))
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index] + 1, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+    return vim.api.nvim_win_get_width(V.win)
+  end
+
+  local wide = resize(100)
+
+  it("really resized the pane", function()
+    assert.same(100, wide)
+  end)
+
+  -- The in-buffer header's rule, not a second one: one header per file in this layout, so
+  -- the arrow is spelled out.
+  it("spells a rename out as the file header does", function()
+    assert.is_truthy(bar():find("src/oldname.lua → src/newname.lua", 1, true), bar())
+  end)
+
+  -- The one case an ASCII assertion cannot make. This bar carries `○`, `▾`, `→` and `·`,
+  -- every one of them wider in bytes than in columns, so a bar padded by `#` overshoots the
+  -- pane by a dozen columns and this is what notices. The guard is the second assertion:
+  -- with an all-ASCII bar the two lengths agree and the case measures nothing.
+  it("fills the pane exactly, counting columns rather than bytes", function()
+    assert.same(wide, vim.fn.strdisplaywidth(bar()), bar())
+    assert.is_true(#bar() > wide, "nothing multibyte on the bar to measure")
+  end)
+
+  local narrow = resize(45)
+
+  it("really narrowed the pane", function()
+    assert.same(45, narrow)
+  end)
+
+  it("keeps the path's tail and shows the cut", function()
+    assert.is_truthy(bar():find("src/newname.lua", 1, true), bar())
+    assert.is_truthy(bar():find("…", 1, true), bar())
+    assert.is_nil(bar():find("src/oldname.lua", 1, true), bar())
+  end)
+
+  -- The summary gives way, and gives up what the file beside it now says twice before what
+  -- only it can say: the plugin's own name and the review's line totals go, the reviewed
+  -- tally is still there.
+  it("sheds the summary rather than the file", function()
+    assert.is_nil(bar():find("Code review", 1, true), bar())
+    assert.is_truthy(bar():find(("0/%d reviewed"):format(#V.files), 1, true), bar())
+  end)
+end)
+
+describe("the sticky header on a review with no files", function()
+  local V = view.current()
+  -- A revspec whose two ends are the same commit: a review that opened on a real scope and
+  -- has nothing in it, which is the only way to reach an empty one -- `open` refuses.
+  view.set_scope("HEAD..HEAD")
+
+  local function bar()
+    return vim.wo[V.win].winbar
+  end
+
+  it("really has no files", function()
+    assert.same(0, #V.files)
+  end)
+
+  -- Left-aligned and starting with the summary's first word: no file segment, and no empty
+  -- one either. A bar that drew the icons with nothing after them would fail here.
+  it("gives the summary the winbar to itself", function()
+    assert.same(" Code review", bar():sub(1, #" Code review"), bar())
+    assert.is_truthy(bar():find("0/0 reviewed", 1, true), bar())
+  end)
+
+  it("draws no chevron for a file that is not there", function()
+    local icons = config.get().icons
+    assert.is_nil(bar():find(icons.collapsed, 1, true), bar())
+    assert.is_nil(bar():find(icons.expanded, 1, true), bar())
+  end)
+end)

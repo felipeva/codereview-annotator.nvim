@@ -1210,3 +1210,68 @@ describe("syntax highlighting in the split layout", function()
     assert.is_true(#on_row > 0, ("nothing highlighted on before-pane row %d"):format(row))
   end)
 end)
+
+-- The **sticky header**, per pane. The unified layout's bar is `render_spec`'s, arrow and
+-- all; what only this layout can say is that each pane names its own side -- the after pane
+-- the post-image path, the before pane the pre-image path beside the base revision it
+-- already carried. That is the in-buffer file header's rename rule, and this is the winbar
+-- following it rather than inventing a second one.
+--
+-- Last in this file: it widens the terminal, which nothing below it would survive.
+describe("the sticky header in the split layout", function()
+  local V = view.current()
+  -- Both bars have to hold a 40-character revision and a path at once, and a third of a
+  -- 120-column terminal is not enough for that -- the pane would truncate its way to a pass
+  -- or a fail for reasons that have nothing to do with which side it names. Widening the
+  -- terminal hands every new column to the last window, so the panes are levelled after it,
+  -- and the repaint is this test's to drive: `WinResized` never lands in a headless spec.
+  vim.o.columns = 200
+  vim.cmd("wincmd =")
+  view.paint()
+
+  ---@param path string
+  local function read_into(path)
+    local index = assert(h.file_index(V, path))
+    focus(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index] + 1, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+  end
+
+  read_into("src/newname.lua")
+  local after, before = vim.wo[V.win].winbar, vim.wo[V.before_win].winbar
+
+  -- Guards the block: on a pane with no room for both, the before pane's path is dropped
+  -- rather than drawn over its revision, and every case here would be reading that instead.
+  it("really gave each pane room for a revision and a path", function()
+    local width = vim.api.nvim_win_get_width(V.before_win)
+    local need = vim.fn.strdisplaywidth(V.scope.before) + #" Before ·   src/oldname.lua "
+    assert.is_true(width >= need, ("%d columns, %d needed"):format(width, need))
+  end)
+
+  it("names the post-image path on the after pane, and only that side", function()
+    assert.is_truthy(after:find("src/newname.lua", 1, true), after)
+    assert.is_nil(after:find("src/oldname.lua", 1, true), after)
+  end)
+
+  it("names the base revision and the pre-image path on the before pane", function()
+    assert.is_truthy(before:find(V.scope.before, 1, true), before)
+    assert.is_truthy(before:find("src/oldname.lua", 1, true), before)
+  end)
+
+  it("keeps the review summary on the after pane where it has always been", function()
+    assert.is_truthy(after:find(V.scope.label, 1, true), after)
+    assert.is_truthy(after:find("reviewed", 1, true), after)
+  end)
+
+  -- A file added on the branch exists on one side only, and the before pane's header row for
+  -- it is filler. Its winbar says the same thing by naming nothing.
+  it("names no pre-image for a file that has none", function()
+    read_into("src/fresh.lua")
+    assert.is_truthy(vim.wo[V.win].winbar:find("src/fresh.lua", 1, true), vim.wo[V.win].winbar)
+    assert.is_nil(vim.wo[V.before_win].winbar:find("fresh", 1, true), vim.wo[V.before_win].winbar)
+  end)
+
+  it("still names the revision on a pane naming no file", function()
+    assert.is_truthy(vim.wo[V.before_win].winbar:find(V.scope.before, 1, true), vim.wo[V.before_win].winbar)
+  end)
+end)
