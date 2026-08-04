@@ -136,6 +136,62 @@ the receiving agent ([ADR-0002](docs/adr/0002-one-queue-one-entry-shape.md)).
 
 </details>
 
+### See what changed *inside* a changed line
+
+Rename one identifier in an eighty-column line and a plain diff shows you two eighty-column
+lines, one red and one green, with nothing pointing at the four characters that differ. So
+the **spans** that actually differ are emphasised inside the pair, and the rest of the line
+keeps its ordinary red or green — you read the change, not the line.
+
+```
+▌20 │ -const cfg = load()
+▌20 │ +const cfg = loadConfig()
+                       ▔▔▔▔▔▔ emphasised
+```
+
+On by default, in both layouts, and in both panes on the same row.
+
+```lua
+opts = { spans = false }   -- true by default; validated at setup()
+```
+
+Granularity is characters, not words, so an edit inside an identifier is pointed at
+precisely and a re-indentation is visible rather than mysterious. Where two lines share so
+little that emphasising the change would emphasise nearly all of both, they are left plainly
+coloured: that is a replacement, not an edit.
+
+<details>
+<summary>The details that occasionally matter</summary>
+
+**Which lines pair.** The i-th deletion of a contiguous run pairs with the i-th addition of
+the run that follows it — the pairing the split layout already uses to put a deletion and
+its replacement on one row. Using it in both layouts is why the same characters are
+emphasised either side of a `gl`. Where the runs are unequal the surplus lines carry
+nothing, and neither does a pure addition, a pure deletion, or a file that exists on only
+one side: there is nothing to compare them against.
+
+**When it says nothing.** Above **60% of the longer line** inside spans, the pair is left
+alone. The figure was read off real diffs rather than derived — at 70% a quarter of the
+unrelated pairs inside a long run were still being emphasised, and every genuine one-line
+edit above 60% turned out to be a replacement wearing an edit's clothes. A re-indentation is
+nowhere near it: every reformatted pair measured came in under 10%.
+
+**When the work happens.** At parse time, once per git read — never during a repaint. On a
+12,000-line diff the spans cost about as much again as a whole repaint, and a repaint runs
+on every resize, expansion, reviewed toggle and scope change. `make perf` reports the figure
+on its own line so a change that moves the work back into the render is visible.
+
+**Two highlight groups**, `CodeReviewAddSpan` and `CodeReviewDelSpan`, both taking
+`DiffText`'s **background and nothing else**. A foreground there would sit beneath the
+treesitter replay: it would lose wherever a parser had painted and win wherever one had not,
+which is emphasis that changes colour depending on which languages you have installed.
+
+The emphasis is a rendering refinement and nothing else. What you capture, what reaches the
+queue and what the payload says are untouched
+([ADR-0002](docs/adr/0002-one-queue-one-entry-shape.md)).
+
+</details>
+
 ### A file tree that tracks your progress
 
 The tree collapses single-child directory chains (`apps/api/src`, not three nested rows),
@@ -405,6 +461,7 @@ opts = {
   syntax = true,                   -- treesitter highlighting
   max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
   layout = "unified",              -- "unified" or "split"; validated at setup
+  spans = true,                    -- emphasise what changed inside a changed line
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },
@@ -414,7 +471,9 @@ opts = {
 
 Every highlight is a `default = true` link to a group your colorscheme already defines
 (`DiffAdd`, `Added`, `DiagnosticError`, …), so overriding any `CodeReview*` group works
-without the plugin fighting back.
+without the plugin fighting back. The two exceptions are `CodeReviewAddSpan` and
+`CodeReviewDelSpan`, which take `DiffText`'s background and set no foreground — still
+`default = true`, so overriding them works the same way.
 
 ## Adapters
 

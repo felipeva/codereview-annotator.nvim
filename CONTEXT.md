@@ -34,6 +34,14 @@ pure deletion, a file that exists on only one side — so the two stay row-align
 from a **pad**, the blank row after a hunk, which both panes draw.
 _Avoid_: padding, spacer
 
+**Span**:
+The run of characters within a paired line that differs from its counterpart, emphasised so
+the eye lands on the change rather than on the line. Not _range_: a **range** is already a
+span of *lines* an annotation covers, and one word must not do two jobs — the same collision
+that kept _side_ reserved for a diff line's add/del/ctx when the split layout needed a word
+for its windows. A span is a rendering concern and never part of an **entry**.
+_Avoid_: range, region, chunk
+
 **Review path**:
 Annotating from inside the review view, where the diff and its anchors decide what an
 annotation is attached to.

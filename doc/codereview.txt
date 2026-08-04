@@ -240,6 +240,45 @@ to the state file -- that file is per repository and a layout preference is
 not, and a stored preference would silently override a `layout` you had since
 changed.
 
+What changed inside a line                                 *codereview-spans*
+
+Where a deletion and an addition are two versions of the same line, the spans
+that actually differ are emphasised inside them. The rest of the line keeps
+its ordinary deletion or addition background, so the emphasis means something
+by contrast: >
+    ▌20 │ -const cfg = load()
+    ▌20 │ +const cfg = loadConfig()
+                           ^^^^^^ emphasised
+<
+On by default; switch it off with `spans = false`, validated at
+|codereview.setup()| like the other settings. With it off no span work is
+performed at all.
+
+It applies in both layouts -- stacked in the unified layout, in both panes on
+the same row in the split layout -- because the pairing rule is the split
+layout's own: the i-th deletion of a contiguous run pairs with the i-th
+addition of the run that follows it. Where the runs are unequal, the surplus
+lines carry nothing, and neither does a pure addition, a pure deletion, an
+added file, a deleted file or an untracked file. There is nothing to compare
+them against.
+
+Granularity is characters, not tokens, so an edit inside an identifier is
+pointed at precisely rather than widened to the whole word, and a
+whitespace-only change is visible rather than mysterious. Where the two lines
+share so little that emphasising the change would emphasise nearly all of both
+-- more than 60% of the longer line -- the pair is left plainly coloured: that
+is a replacement rather than an edit.
+
+Spans are computed when the diff is parsed, not when it is drawn, so a resize,
+an expansion, a reviewed toggle and a scope change all repaint at the cost
+they always did. Reloading the diff or changing scope produces spans for what
+is on screen now, because a re-read produces new lines carrying new spans.
+
+The emphasis is a rendering refinement and nothing else. What you capture,
+what reaches the queue and what the payload says are untouched.
+
+See |codereview-highlights| for the two groups it draws with.
+
 ==============================================================================
 6. ANNOTATIONS                                      *codereview-annotations*
 
@@ -598,6 +637,7 @@ Defaults: >
       syntax = true,
       max_syntax_bytes = 256 * 1024,
       layout = "unified",
+      spans = true,
       panel = { enabled = true, width = 34, position = "left" },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
@@ -611,6 +651,11 @@ Defaults: >
 `max_syntax_bytes` bounds the one operation with a real performance cliff.
 Files above it, files with no parser, and binary files all fall back to flat
 diff colours individually -- never the whole view.
+
+`spans` switches the intra-line emphasis (|codereview-spans|). It is on by
+default. On a 12,000-line diff it lengthens opening a review by roughly a
+third and a repaint by nothing at all, because the work is done once per git
+read rather than every time the view is drawn.
 
 ==============================================================================
 10. HIGHLIGHTS                                        *codereview-highlights*
@@ -637,6 +682,18 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewNitpick      -> DiagnosticHint
     CodeReviewIssue        -> DiagnosticOk
 <
+Two are not links. The intra-line spans (|codereview-spans|) take `DiffText`'s
+*background and nothing else*: >
+    CodeReviewAddSpan      -> DiffText's background
+    CodeReviewDelSpan      -> DiffText's background
+<
+A foreground there would sit beneath the treesitter replay, which is drawn at
+a higher priority -- so it would lose wherever a parser had painted and win
+wherever one had not, which is emphasis that changes colour depending on which
+languages you have installed. A background alone composes with the replay, and
+that is what keeps code readable inside an emphasised span. Both are still
+`default = true`, so overriding either works the same way as the rest.
+
 ==============================================================================
 11. PERSISTENCE                                     *codereview-persistence*
 

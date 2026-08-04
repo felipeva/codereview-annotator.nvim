@@ -36,6 +36,14 @@ assuming a fixed prefix width shifts every highlight on every changed line.
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
 
+**The intra-line span groups set a background and no foreground.** They sit at a priority
+band above the line's own diff colour and below the treesitter replay, so a foreground there
+would lose to the replay wherever a parser had painted and win wherever one had not —
+emphasis that changes colour depending on which languages the reader has installed. A
+background alone composes with the replay, which is what keeps code readable inside a span.
+It is also why the two groups copy `DiffText`'s background instead of linking to it: a link
+would carry the foreground along.
+
 ## Parsing git's output
 
 **Hunk bodies are consumed by their declared line counts**, not by scanning for the next
@@ -49,6 +57,15 @@ silently gains a trailing newline it does not have.
 files differ — the normal case — and labels the pre-image `a/dev/null`. Building the entry
 directly avoids both quirks.
 
+**Intra-line spans come from a character diff, never a byte diff.** `vim.diff` is handed
+each line as a sequence of *characters*. The obvious implementation — splitting a Lua string
+with a pattern — splits by byte, passes every ASCII test in the suite, and corrupts the first
+accented, CJK or emoji line it meets: `é` and `è` share their leading byte, so a byte-wise
+diff emphasises a trailing byte alone, which is a boundary inside a character and a
+rendering error rather than a cosmetic one. Correctness costs about 6 ms across 6,000 line
+pairs, so there is no performance argument for the other one. `src/nonl.md` in `mkfixture`
+is the only fixture line that can fail this, and it is there on purpose.
+
 ## Performance
 
 **Blob hashes are resolved in two batched calls**, `git hash-object` for working-tree
@@ -58,6 +75,14 @@ it was over half the open time.
 
 **Progress is written on mutation, not on paint.** `paint` also runs on window resize, and
 persisting there turns dragging a split into a stream of file writes.
+
+**Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
+12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
+that lengthens opening by roughly a third; paid per repaint it would be a ~50% regression on
+the operation that runs on every resize, expansion, reviewed toggle and scope change — the
+one that has to feel immediate. Invalidation is free, because a re-read produces new lines
+carrying new spans. `make perf` reports the figure on its own line, so a change that moves
+the work back into the render is visible rather than merely slow.
 
 ## References and paths
 
