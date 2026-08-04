@@ -24,6 +24,12 @@ function M.setup(opts)
     end,
   })
 
+  -- Takes no arguments and needs no review open: the batch it copies is the one the queue
+  -- holds, which is the same batch wherever it is asked for.
+  vim.api.nvim_create_user_command("CodeReviewCopy", M.copy, {
+    desc = "Copy the queued batch to the + register, without submitting it",
+  })
+
   vim.api.nvim_create_user_command("CodeReviewAnnotate", function(cmd)
     -- `cmd.range` counts the addresses given, not the lines covered. Reading line1/line2
     -- unconditionally would turn a bare `:CodeReviewAnnotate` into a one-line capture of
@@ -78,6 +84,15 @@ end
 ---Submit the queued annotations as one batch.
 function M.submit()
   require("codereview.view").submit()
+end
+
+---Copy the batch to the `+` register, without submitting it.
+---
+---Reads the payload rather than spending it: the queue keeps every entry, nothing is
+---handed to the `send` adapter and nothing is archived. Through the view, as submitting
+---is, so what is copied describes the open review when there is one.
+function M.copy()
+  require("codereview.view").copy()
 end
 
 ---@return integer

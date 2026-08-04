@@ -348,6 +348,11 @@ Because the queue is shared with the capture path and the float opens with or wi
 review, some of what it lists has nowhere to jump to: a bare note is about no file, there
 may be no review open, or the file may be outside the current scope. Each says which.
 
+`gy` — in the diff, in the float, or as `:CodeReviewCopy` from anywhere — puts the payload
+in the `+` register without submitting it. It is the same text `send` would have been
+handed, target and all, and it costs the batch nothing: the queue is untouched, so reading
+what an agent will be told is not a decision to send it.
+
 ### The payload
 
 Grouped by type, in the configured order, most actionable first, with anything untyped
@@ -397,6 +402,7 @@ worth a look before we ship this
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `Q` | Review the queue |
+| `gy` | Copy the batch to the `+` register, without submitting it |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
 | `q` | Close |
@@ -454,9 +460,13 @@ under the cursor and not what a heading further up happened to say.
 | --- | --- |
 | `<CR>` | Jump to the annotation under the cursor |
 | `x` | Drop it |
+| `gy` | Copy the batch to the `+` register, without submitting it |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
 | `q` / `<Esc>` | Close, keeping the queue |
+
+`gy` leaves the float open, because it takes nothing out of the queue — everything it is
+listing is still there.
 
 ## Configuration
 
@@ -523,7 +533,9 @@ opts = {
   -- draft. A refusal is reported as an error. Without this the payload goes to the +
   -- register, which is the default implementation of this same contract — it reports a
   -- non-dispatch (a register is not a consumer), which is why an unwired host keeps its
-  -- queue, and it is a warning rather than an error because nothing is broken.
+  -- queue, and it is a warning rather than an error because nothing is broken. `gy` puts
+  -- the payload in that register deliberately, whatever is wired here, so what an adapter
+  -- receives is readable without submitting to find out.
   send = function(payload, target) return true end,
 
   -- Choose a delivery target; call back with anything carrying `short` and `cwd`.
@@ -626,11 +638,11 @@ object minted with `git stash create`, which moves no ref, leaves the index alon
 touches your files. On a clean tree there is nothing to record that `HEAD` does not already
 say, and `HEAD` is what is stored.
 
-A dispatch writes it and nothing else does. An adapter that declined, one that raised, and
-the `+` register the default send copies to all leave it exactly as they leave the queue —
-a payload sitting in a register is not something an agent received. An immediate send is a
-batch of one and is kept as one. The most recent **twenty** batches are kept per store,
-oldest dropped on write.
+A dispatch writes it and nothing else does. An adapter that declined, one that raised, the
+`+` register the default send copies to and the one `gy` copies to deliberately all leave
+it exactly as they leave the queue — a payload sitting in a register is not something an
+agent received. An immediate send is a batch of one and is kept as one. The most recent
+**twenty** batches are kept per store, oldest dropped on write.
 
 </details>
 

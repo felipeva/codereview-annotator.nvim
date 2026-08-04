@@ -519,3 +519,55 @@ describe("submitting from the float", function()
     assert.same("local", state.archive(root)[1].target)
   end)
 end)
+
+--- Copying from the float ------------------------------------------------------
+
+-- The float is where a batch is read before it goes, so it is also where a copy of it is
+-- asked for. `gy` is `<C-s>`'s opposite in the one way that matters here: nothing is
+-- handed to the adapter, so nothing leaves the queue and nothing is archived -- which is
+-- why this key, alone among the ones that act on the batch, leaves the float open.
+--
+-- What is copied is `delivery_spec`'s to own. What this asserts is the surface: the key is
+-- bound, the footer says so, and the list is still there afterwards.
+describe("copying from the float", function()
+  fresh()
+  queued({ note = "copied from the float" })
+  queued({ type = "nitpick", note = "and this one with it" })
+
+  local before = #state.archive(root)
+  local listed = #sent
+  vim.fn.setreg("+", "")
+  local win, buf = open_float()
+  local rows = #lines(buf)
+  h.feed("gy")
+
+  it("puts the payload in the + register", function()
+    assert.is_truthy(vim.fn.getreg("+"):find("copied from the float", 1, true), vim.fn.getreg("+"))
+  end)
+
+  it("hands the send adapter nothing", function()
+    assert.same(listed, #sent)
+  end)
+
+  it("keeps the batch it was listing", function()
+    assert.same(2, queue.count())
+  end)
+
+  it("archives nothing, because a copy is not a dispatch", function()
+    assert.same(before, #state.archive(root))
+  end)
+
+  -- Where `<C-s>` must leave no float listing a batch that has gone, this must leave the
+  -- float exactly as it was: the batch has not gone, so every row is still true.
+  it("leaves the float open on the same rows", function()
+    assert.is_true(vim.api.nvim_win_is_valid(win))
+    assert.same(rows, #lines(buf))
+  end)
+
+  it("advertises the key in the footer, beside the ones already there", function()
+    local footer = vim.api.nvim_win_get_config(win).footer
+    footer = footer and tostring(footer[1][1]) or ""
+    assert.is_truthy(footer:find("gy copy", 1, true), footer)
+    assert.is_truthy(footer:find("^S submit", 1, true), footer)
+  end)
+end)
