@@ -24,10 +24,10 @@ To run the plugin from your checkout, point your plugin manager at the directory
 
 ## Before you write code
 
-**Open an issue first** for anything with a design decision behind it. The
-[Design notes](README.md#design-notes) section of the README exists because several
-obvious-looking approaches here are wrong for non-obvious reasons — a short conversation
-on an issue is cheaper than a rewritten PR.
+**Open an issue first** for anything with a design decision behind it.
+[`docs/design-notes.md`](docs/design-notes.md) exists because several obvious-looking
+approaches here are wrong for non-obvious reasons — a short conversation on an issue is
+cheaper than a rewritten PR.
 
 Typo fixes, doc corrections and obviously-correct one-line bug fixes can go straight to a
 PR.
@@ -108,7 +108,7 @@ What is in the repo for that:
 | --- | --- |
 | [`CLAUDE.md`](CLAUDE.md) | Operating instructions an agent reads on entering the repo — the workflow above, in imperative form |
 | [`docs/agents/`](docs/agents/) | Where issues live, the triage label vocabulary, and the domain-doc layout |
-| [`README.md`](README.md#design-notes) § Design notes | Every non-obvious constraint that cost real debugging time |
+| [`docs/design-notes.md`](docs/design-notes.md) | Every non-obvious constraint that cost real debugging time |
 | [`tests/README.md`](tests/README.md) | The suite's layout, and the fixture traps that will otherwise cost an afternoon |
 
 Point your agent at `CLAUDE.md` and it will follow the same branch, commit and PR

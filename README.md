@@ -4,19 +4,20 @@
 [![Neovim 0.12+](https://img.shields.io/badge/Neovim-0.12%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A code review surface for Neovim: one syntax-highlighted diff of everything a branch
-changed — unified or side by side — with vim-native navigation, typed annotations that queue
-up, reviewed-file collapsing, and a batch submit that hands the whole review to an agent as
-a single message.
+**Review a diff in Neovim, leave typed notes on it, and hand the whole review to a coding
+agent as one message.**
+
+One syntax-highlighted diff of everything a branch changed — unified or side by side — with
+vim-native navigation, a file tree, reviewed-file collapsing, and a batch submit at the end.
 
 ```
-┌─ tree ──────────────┐┌─ Code review · branch vs origin/master · 2/7 · +9 -4 ──┐
-│ ▾ apps          1/4 ││ ○ ▾ apps/api/src/main.ts                +12 -3  [3 notes]│
+┌─ tree ──────────────┐┌─ Code review · branch vs origin/master · 2/7 · +9 -4 ─────┐
+│ ▾ apps          1/4 ││ ○ ▾ apps/api/src/main.ts                 +12 -3  [3 notes]│
 │   ▾ api/src     1/2 ││ @@ -19,6 +19,8 @@ function boot()                         │
 │     ▾ routes    0/1 ││  19 │  const app = express()                              │
 │       ○ users.ts    ││ ▌20 │ -const cfg = load()                                 │
 │     ● main.ts     3 ││ ▌21 │ +const cfg = loadConfig()                           │
-│   ▾ web/src     0/2 ││ ▌    │   🐞 why the rename? no callers were updated        │
+│   ▾ web/src     0/2 ││ ▌    │   🐞 why the rename? no callers were updated       │
 │     ✓ index.ts      ││  22 │  app.listen(cfg.port)                               │
 │ ▾ packages/…    0/1 ││                                                           │
 │   ○ types.ts        ││ ✓ ▸ apps/api/src/routes.ts                       +4 -0    │
@@ -25,53 +26,9 @@ a single message.
 └─────────────────────┘└───────────────────────────────────────────────────────────┘
 ```
 
-The tree collapses single-child directory chains (`apps/api/src`, not three nested rows),
-sorts directories before files, and carries a reviewed tally on every directory so you can
-see which packages are done without opening them.
+Everything is drawn natively in Neovim — no terminal window, no browser, no web view.
 
-Everything is drawn natively, and the syntax highlighting is recovered with
-`vim.treesitter.get_string_parser` — see [Design notes](#design-notes).
-
-## What it does
-
-**Reviewing** — [scopes](#usage) for a branch, the staged or unstaged changes, the whole
-worktree, or any git revspec, cycled in place with `gs`. A [unified or split
-layout](#layouts), chosen in configuration and switched with `gl` without losing your place.
-Treesitter [syntax highlighting](#design-notes) in both panes, including deleted lines that
-exist in no post-image. A [file tree](#in-the-tree) that compacts single-child chains and
-carries per-directory reviewed tallies, dismissed and summoned with `gp`. Files marked
-reviewed against their blob, so a mark stops meaning anything once the file changes under
-it. [Navigation](#getting-around) by file, hunk, unreviewed file and annotation.
-
-**Annotating** — [typed annotations](#annotation-types) (`bug`, `fix`, `suggestion`,
-`nitpick`, `issue` by default, replaceable wholesale), each with an optional directive
-telling the receiving agent what to do with that group, plus [untyped](#no-type) for "read
-this" without saying what to do. [Five kinds](#what-gets-annotated): a line, a range, a
-hunk, a whole file, or a bare note with no file behind it at all. Captured from the review
-view or [from any ordinary buffer](#from-any-buffer) with no review open — same entry,
-either way. A [composer](#adapters) with per-target drafts that survive restarts and `@`
-references to other files. Diagnostics on the annotated lines ride along.
-
-**Delivering** — a [queue](#persistence) that survives `:qa` and restarts, in a per-repository
-store plus a global one for files outside any checkout. A [queue float](#in-the-queue-float)
-that lists the batch, jumps to any entry with `<CR>`, drops, routes and submits. A
-[payload](#the-payload) grouped by type, most actionable first, inlining a diff where an
-`@ref` cannot carry the change. [Immediate send](#sending-one-annotation-now) for a single
-annotation that skips the queue. Staleness tracked by blob hash, so an annotation whose file
-moved is flagged rather than silently trusted.
-
-**Embedding** — [four adapters](#adapters): `send`, `pick_target`, `pick_file` and
-`compose`. None are required. With none of them wired the plugin still renders, annotates
-and queues, and the batch reaches the `+` register.
-
-## Requirements
-
-- Neovim **0.12+** (`vim.treesitter.get_string_parser`, `vim.system`, `virt_lines`)
-- `git`
-- Treesitter parsers for the languages you review — optional; files without one fall back
-  to flat diff colours
-
-## Install
+## Quick start
 
 ```lua
 {
@@ -81,290 +38,119 @@ and queues, and the batch reaches the `+` register.
 }
 ```
 
-Nothing else is required. With no adapters wired the view renders, annotates and queues;
-the batch lands in the `+` register instead of an agent, and stays queued because nothing
-consumed it.
+That is the whole setup. Six things get you through a review:
 
-## Usage
-
-`:CodeReview` opens the branch review. `:CodeReview staged`, `unstaged`, `worktree`, or any
-git revspec (`:CodeReview HEAD~3`, `:CodeReview main...feature`) opens that instead.
-
-### From any buffer
-
-Annotating does not need a review open. `:CodeReviewAnnotate bug` queues a note about the
-file you are looking at; with no type it offers the same picker `aa` does.
-
-```lua
-require("codereview").annotate("bug")  -- the selection, or the whole file
-require("codereview").annotate()       -- pick the type from a menu, or decline one
-```
-
-That is the entry point to bind a key to — nothing needs to reach into the plugin's
-internal modules to capture. Bind it in both modes and the selection decides the scope:
-
-```lua
-vim.keymap.set({ "n", "x" }, "<leader>ab", function()
-  require("codereview").annotate("bug")
-end, { desc = "Annotate as a bug" })
-```
-
-| Where you are | What gets captured |
+| Do this | What happens |
 | --- | --- |
-| Normal mode | The whole file |
-| A visual selection | Exactly those lines |
-| `:'<,'>CodeReviewAnnotate bug` | Exactly those lines |
-| `:12,20CodeReviewAnnotate bug` | Lines 12 to 20 |
-| A file outside any checkout | The file, by absolute path |
-| A buffer with nothing on disk | A bare note, with no path at all |
+| `:CodeReview` | Opens the diff of everything your branch changed |
+| `ab` | Annotates the line under the cursor as a **bug** (`af` fix, `as` suggestion, `an` nitpick, `ai` issue) |
+| `R` | Marks this file reviewed — it collapses out of the way |
+| `]F` | Jumps to the next file you have **not** reviewed |
+| `Q` | Opens the queue, listing everything you have written so far |
+| `<C-s>` | Submits the batch |
 
-The last two are not second-class. They queue, submit and survive a restart like anything
-else — a scratch buffer is a fine place to leave a thought for the batch.
+Nothing else is required. With no [adapters](#adapters) wired the review still renders,
+annotates and queues; the submitted batch lands in the `+` register instead of an agent,
+and stays queued because nothing consumed it.
 
-Errors and warnings overlapping what you captured ride along with the note, so they stop
-being retyped by hand. Hints and info are left out — they are rarely why you are
-annotating, and they bury the diagnostic that is.
+**Requirements** — Neovim **0.12+** and `git`. Treesitter parsers are optional: files
+without one fall back to flat diff colours.
 
-```
-why is this branch unreachable?
+## Features
 
-Diagnostics:
-- ERROR L12 undefined global `foo` (lua_ls)
-- WARN  L14 unused local `bar` (lua_ls)
-```
+### Review any diff, not just a branch
 
-What it queues is an ordinary annotation: it records the file's blob, so it goes stale the
-same way, it appears in the same queue float next to anything captured during a review, it
-groups under its type in the same payload, and it goes out in the same batch to the same
-target. A selection travels as `@path#L12-20` when the delivery target can resolve the
-path, and inlines its code when it cannot. The buffer itself is never touched.
+`:CodeReview` opens the branch review. Pass a scope to open something else, or press `gs`
+inside the view to cycle between them in place.
 
-### Sending one annotation now
+| Command | What it shows |
+| --- | --- |
+| `:CodeReview` | Everything the branch changed against its base |
+| `:CodeReview staged` | The index |
+| `:CodeReview unstaged` | Working tree vs index |
+| `:CodeReview worktree` | Everything uncommitted |
+| `:CodeReview HEAD~3` | Any git revspec |
+| `:CodeReview main...feature` | Any range |
 
-A thought you want acted on should not have to wait for a batch you have not finished
-assembling. The same entry point sends one annotation on its own instead of queueing it:
+Files are marked reviewed **against their git blob**, so a mark stops meaning anything
+once the file changes underneath it.
 
-```lua
-require("codereview").annotate("bug", nil, { immediate = true })
-require("codereview").annotate(nil, nil, { immediate = true })  -- or pick the type, or decline one
-```
+### Unified or side by side
 
-Delivery is a property of the call, not a different door: everything above still applies —
-the same paths, the same blob, the same diagnostics, the same drafts and `@` references,
-and the same picker with its `no type` entry. It renders through the same renderer a batch
-does, so what arrives is an ordinary review payload that happens to hold one annotation
-([ADR-0004](docs/adr/0004-an-immediate-send-is-a-batch-of-one.md)) — untyped, if that is
-what you chose, in the group that carries no directive.
-
-That a type is optional at all is a consequence of this: a batch of one would otherwise
-force one onto the fastest interaction there is.
-
-The queue is untouched: an annotation sent this way never joins it, and whatever is already
-queued is neither delivered nor cleared. It is governed by the same rule a batch is, though:
-a `send` that reports it did not go says why — as an error, since something was written and
-nothing received it — and nothing claims the note was sent. The note itself is kept as a
-draft, so annotating that file again offers it back. A batch of one has no queue to wait in,
-and by the time delivery answers, the composer has closed.
-
-You are asked where it goes **before** the composer opens, through `pick_target` — so
-declining costs no typing. Decline and nothing is sent. With no `pick_target` wired there
-is nothing to choose between, so it goes with no target and `send` decides what that means.
-Because the note owns that choice rather than the batch, the composer's footer names the
-target *this note* will reach, and `^T` in the composer reroutes the note, leaving the
-batch pointing where it was.
-
-### Layouts
-
-The review view arranges a diff one of two ways. **Unified** is what has always existed and
-stays the default: deleted and added lines stacked in one column. **Split** draws the same
-diff as two **panes** — the before-image on the left, the after-image on the right — with
-corresponding code on the same screen row.
+`layout = "unified"` (the default) stacks deleted and added lines in one column.
+`layout = "split"` draws the same diff as two **panes** — the before-image on the left, the
+after-image on the right — with corresponding code on the same screen row.
 
 ```lua
-opts = { layout = "split" }   -- "unified" (default) or "split"
+opts = { layout = "split" }   -- "unified" (default) or "split"; validated at setup()
 ```
 
 ```
-┌─ tree ─────────┐┌─ Before · origin/master ────┐┌─ Code review · branch · 2/7 ─┐
-│ ▾ apps     1/4 ││     apps/api/src/main.ts    ││ ● ▾ apps/api/src/main.ts +12 │
-│   ▾ api/src1/2 ││ @@ -19,6 @@                 ││ @@ +19,8 @@ function boot()  │
-│     ● main.ts 3││  19 │  const app = express()││  19 │  const app = express() │
-│   ▾ web/src0/2 ││ ▌20 │ -const cfg = load()   ││ ▌20 │ +const cfg = loadCon…  │
-│     ✓ index.ts ││                             ││ ▌    │   🐞 why the rename?  │
-│ ○ README.md    ││                             ││ ▌21 │ +cfg.validate()       │
-│ 2/7 reviewed   ││  21 │  app.listen(cfg.port) ││  22 │  app.listen(cfg.port) │
-└────────────────┘└─────────────────────────────┘└──────────────────────────────┘
+┌─ tree ───────────┐┌─ Before · origin/master ────┐┌─ Code review · branch · 2/7 ─┐
+│ ▾ apps       1/4 ││     apps/api/src/main.ts    ││ ● ▾ apps/api/src/main.ts +12 │
+│   ▾ api/src  1/2 ││ @@ -19,6 @@                 ││ @@ +19,8 @@ function boot()  │
+│     ● main.ts  3 ││  19 │  const app = express()││  19 │  const app = express() │
+│   ▾ web/src  0/2 ││ ▌20 │ -const cfg = load()   ││ ▌20 │ +const cfg = loadCfg() │
+│     ✓ index.ts   ││                             ││ ▌   │   🐞 why the rename?   │
+│ ○ README.md      ││                             ││ ▌21 │ +cfg.validate()        │
+│ 2/7 reviewed     ││  21 │  app.listen(cfg.port) ││  22 │  app.listen(cfg.port)  │
+└──────────────────┘└─────────────────────────────┘└──────────────────────────────┘
 ```
 
-The blank rows on the left are **filler**: the addition on row 21 has no counterpart in the
-before-image, so the left pane holds its place rather than letting the two drift apart. The
-note is drawn once, in the pane its line belongs to, and the opposite pane holds that place
-too.
+The blank rows on the left are **filler**: the addition has no counterpart in the
+before-image, so the left pane holds its place rather than letting the two drift apart.
+Annotating from a filler row targets the whole file.
 
-The value is validated at `setup()`, so a typo fails loudly instead of quietly rendering
-unified. Everything the view does works in both: files collapse and expand, files are
-marked reviewed, annotations are captured and displayed on the lines they are about,
-navigation moves by file, hunk and annotation, and both panes are syntax-highlighted — the
-left from the pre-image, the right from the post-image.
+Both panes are syntax-highlighted, scroll together, and behave identically: collapsing,
+reviewed marks, capture and navigation all work the same way, and the pane you are in
+decides what is captured — a deleted line on the left, the post-image line on the right.
 
-Where one image has no counterpart — a pure addition, a pure deletion, a file that exists on
-only one side — the other pane draws **filler**: a blank row that keeps the two in step and
-that resolves to the whole file if you annotate from it, rather than to whatever code
-happens to be above it.
+**`gl` switches layouts** without losing your place, from either pane or the file tree, so
+you can reach for side-by-side on the one reformatted file without editing your config. The
+choice lasts the rest of the session and resets when Neovim exits.
 
-Chrome is split too, so headers stay aligned as well: a hunk header shows its pre-image
-range on the left and its post-image range plus git's section heading on the right, and a
-renamed file shows its old path on the left and its new path on the right. The right pane's
-winbar carries the review status; the left names the revision it is showing.
+<details>
+<summary>The details that occasionally matter</summary>
 
-You can annotate from either pane, and the pane you are in decides what is captured — a
-deleted line on the left, the post-image line on the right. **The entry is the same either
-way.** A layout is a rendering choice and nothing else, so which one was on screen never
-reaches the receiving agent
-([ADR-0002](docs/adr/0002-one-queue-one-entry-shape.md)). Notes are drawn in the pane the
-line belongs to, wrapped to that pane's width, with the opposite pane holding its place so
-reading one never knocks the two out of alignment.
+Buffer rows mean nothing across layouts — the same line of the same hunk sits at a
+different row in each. What `gl` carries across is the **anchor** (the same line, of the
+same hunk, of the same file), and the row carrying it is found again afterwards. So the
+cursor lands in the pane its line belongs to, switching back is unambiguous, and a cursor
+on filler falls back to that file's header. The landing line is centred, because preserving
+an exact scroll offset across a structural move would be preserving something meaningless.
 
-The panes scroll and move together. Horizontal scrolling does not, because synchronising it
-would mean changing `scrollopt`, which is a global option this plugin does not own.
+Chrome is split too: a hunk header shows its pre-image range on the left and its post-image
+range plus git's section heading on the right, and a renamed file shows its old path on the
+left and its new path on the right.
+
+Horizontal scrolling is **not** synchronised, because doing so would mean changing
+`scrollopt`, a global option this plugin does not own.
 
 One behavioural difference, and only one: a visual **range** cannot span both images,
 because the two runs live in different windows and cannot be in one selection.
 Pure-addition and pure-deletion ranges work, and annotating the hunk header captures both
 images inlined — so what a split range cannot express is still one keystroke away.
 
-### Switching layouts
+A layout is a rendering choice and nothing else, so which one was on screen never reaches
+the receiving agent ([ADR-0002](docs/adr/0002-one-queue-one-entry-shape.md)).
 
-`gl` switches between the two, from either pane and from the file tree — so you can reach
-for side-by-side on the one reformatted file without editing your configuration.
+</details>
 
-It keeps you where you were, but **not on the same row**. Buffer rows mean nothing across
-layouts: the same line of the same hunk sits at a different row in each. What is carried
-across is the **anchor** — the same line of the same hunk of the same file — and the row
-carrying it is found again afterwards. Three things follow, none of them a new rule:
+### A file tree that tracks your progress
 
-- which pane the cursor lands in follows the line's side, so a deleted line lands on the
-  left and an added or context line on the right;
-- switching back is unambiguous, since one anchor has one row;
-- a cursor on **filler** has no counterpart in the unified layout at all, so it falls back
-  to that file's header.
+The tree collapses single-child directory chains (`apps/api/src`, not three nested rows),
+sorts directories before files, and carries a reviewed tally on every directory — so you
+can see which packages are done without opening them. It follows the diff cursor, and
+`<Tab>` into it lands on the file you were reading.
 
-The landing line is centred, because the row moved structurally and preserving an exact
-scroll offset across that would be preserving something meaningless.
+`gp` dismisses and summons it; `panel.enabled` decides whether a review *opens* with one.
+Collapsed directories belong to the review rather than to the tree, so they are exactly as
+you left them when it comes back.
 
-Nothing else changes across a toggle: reviewed marks, expanded state, the queue, the
-current **scope**, the delivery **target** and the tree's collapsed directories are all
-layout-independent, and your queued annotations are re-drawn on the pane their line belongs
-to.
+### Typed annotations
 
-The choice lasts **for the rest of the session** — closing a review and opening another
-does not quietly put you back — and resets when Neovim exits, so `layout` is what decides
-at the start of every session. It is deliberately not written to the state file: that file
-is per repository and a layout preference is not, and a stored preference would silently
-override a `layout` you had since changed.
-
-### Inside the view
-
-| Key | Action |
-| --- | --- |
-| `ab` `af` `as` `an` `ai` | Annotate as bug / fix / suggestion / nitpick / issue |
-| `aa` | Annotate, picking the type from a menu or declining one |
-| `x` | Drop the annotation under the cursor |
-| `R` | Toggle reviewed on this file (collapses it) |
-| `za` | Toggle expansion without marking reviewed |
-| `gs` | Cycle scope, re-rendering in place |
-| `gr` | Re-read the diff from git |
-| `gp` | Show or hide the file tree |
-| `gl` | Switch between the unified and split layouts |
-| `<CR>` | Open the real file here, in a new tab |
-| `Q` | Review the queue |
-| `<C-t>` | Choose the delivery target |
-| `<C-s>` | Submit the batch |
-| `q` | Close |
-
-### Getting around
-
-| Key | Action |
-| --- | --- |
-| `]f` `[f` | Next / previous file |
-| `]F` `[F` | Next / previous **unreviewed** file — wraps |
-| `]h` `[h` | Next / previous hunk |
-| `]a` `[a` | Next / previous annotation |
-| `<C-p>` | Jump to a file by name, from a list |
-| `<Tab>` | Move between the diff and the tree |
-
-`]F` is the one that matters once a review is underway: the point of marking files reviewed
-is to stop looking at them, so the useful motion is "the next thing I have not done", not
-"the next file", which walks back through everything already finished.
-
-The tree follows the diff cursor — whatever you are reading is highlighted, and the tree
-scrolls to it. `<Tab>` into the tree lands on that same file rather than wherever the
-cursor last was.
-
-### In the tree
-
-| Key | Action |
-| --- | --- |
-| `<CR>` / `o` | Open the file, or fold the directory |
-| `h` / `zc` | Collapse the directory — on a file, collapses its parent |
-| `l` / `zo` | Expand the directory |
-| `za` | Toggle the directory |
-| `zM` / `zR` | Collapse / expand every directory |
-| `]f` `[f` | Next / previous file, skipping directory rows |
-| `R` | Toggle reviewed — **on a directory, the whole subtree** |
-| `<C-p>` | Jump to a file by name |
-| `<Tab>` | Back to the diff |
-| `gp` | Dismiss the tree, landing back in the diff |
-| `gl` | Switch between the unified and split layouts |
-| `q` | Close |
-
-Jumping to a file that was collapsed because it is reviewed expands it: you asked to look
-at it.
-
-`panel.enabled` decides whether a review *opens* with a tree; `gp` decides it from there
-on, for the rest of that review. Dismissing it hands focus back to the diff, because a
-reviewer who dismisses the tree is not asking to be left in a window that no longer
-exists. Collapsed directories belong to the review rather than to the tree, so they are
-exactly as you left them when it comes back.
-
-Annotation keys are prefixed with `a` rather than bound bare, because bare `b`, `f`, `n`
-and `s` would shadow back-word, find-char, next-search and (if you use it) flash.nvim
-inside the buffer. `a` is append, which is dead in a `nomodifiable` buffer, so the prefix
-costs a keystroke and no motion.
-
-### In the queue float
-
-| Key | Action |
-| --- | --- |
-| `<CR>` | Jump to the annotation under the cursor |
-| `x` | Drop it |
-| `<C-t>` | Choose the delivery target |
-| `<C-s>` | Submit the batch |
-| `q` / `<Esc>` | Close, keeping the queue |
-
-A jump closes the float and centres the line the annotation is about, expanding the file
-first if it was collapsed — so the queue is a way of navigating a review and not only of
-auditing it before you send.
-
-The queue is shared with the capture path and the float opens with or without a review, so
-some of what it lists has nowhere to go: a bare note is about no file, there may be no
-review open, or the file may be outside the current scope. Each says which, and leaves the
-float open — the remedies are nothing, open a review, and change scope, and one shared
-message would name none of them.
-
-### What gets annotated
-
-| Cursor is on | Target |
-| --- | --- |
-| A diff line | That line |
-| A visual selection | Those lines |
-| A hunk header | The whole hunk |
-| A file header | The whole file |
-| A filler row (split layout) | The whole file |
-
-## Annotation types
-
-A type is not decoration — it changes what the receiving agent is told to do.
+A type is not decoration — it changes what the receiving agent is told to do with that
+group of notes.
 
 | Type | Key | Group directive in the payload |
 | --- | --- | --- |
@@ -373,6 +159,14 @@ A type is not decoration — it changes what the receiving agent is told to do.
 | suggestion | `as` | evaluate; apply if sound |
 | nitpick | `an` | low priority — batch these together |
 | issue | `ai` | do NOT fix — summarize these for tracking |
+
+`aa` opens a picker instead. Its last entry is **`no type`** — a remark worth reading with
+no instruction attached. It behaves like any other entry and its group renders last, under
+a bare `## Untyped (n)` heading. Declining a type is not dismissing: escape still abandons
+the annotation entirely.
+
+<details>
+<summary>Replacing the type set</summary>
 
 `opts.types` replaces the whole set. Only `name` and `key` are required — everything else
 is derived, so adding a type costs two fields:
@@ -399,24 +193,109 @@ declines irregularly wants an explicit `label`. Order is the order groups appear
 payload, most actionable first.
 
 A list that cannot work is rejected at `setup()` naming the entry that caused it — a
-missing `name` or `key`, a duplicate of either, a `key` of `a` (which would shadow the
-`aa` type picker), or a field of the wrong type. Start from the shipped set with
+missing `name` or `key`, a duplicate of either, a `key` of `a` (which would shadow the `aa`
+picker), or a field of the wrong type. Start from the shipped set with
 `require("codereview.types").defaults`.
 
-### No type
+</details>
 
-The picker's last entry, after every configured type, is `no type`. It queues an untyped
-annotation: a remark worth reading with no instruction attached. It is an entry like any
-other — it shows on the diff, it is listed in the queue and it goes out with the batch —
-and its group renders last, under a bare `## Untyped (n)` heading, because a group with
-nothing to instruct has no directive to state.
+### Five things you can annotate
 
-Declining is not dismissing. Pressing escape still abandons the annotation entirely.
+| Cursor is on | What gets annotated |
+| --- | --- |
+| A diff line | That line |
+| A visual selection | Those lines |
+| A hunk header | The whole hunk |
+| A file header | The whole file |
+| A filler row (split layout) | The whole file |
 
-## The payload
+Plus a **bare note** with no file behind it at all — see below.
+
+### Annotate from any buffer, with no review open
+
+Capture does not need a review. `:CodeReviewAnnotate bug` queues a note about the file you
+are looking at; with no type it offers the same picker `aa` does.
+
+```lua
+require("codereview").annotate("bug")  -- the selection, or the whole file
+require("codereview").annotate()       -- pick the type from a menu, or decline one
+```
+
+That is the entry point to bind a key to — nothing needs to reach into the plugin's
+internal modules to capture. Bind it in both modes and the selection decides the scope:
+
+```lua
+vim.keymap.set({ "n", "x" }, "<leader>ab", function()
+  require("codereview").annotate("bug")
+end, { desc = "Annotate as a bug" })
+```
+
+| Where you are | What gets captured |
+| --- | --- |
+| Normal mode | The whole file |
+| A visual selection | Exactly those lines |
+| `:'<,'>CodeReviewAnnotate bug` | Exactly those lines |
+| `:12,20CodeReviewAnnotate bug` | Lines 12 to 20 |
+| A file outside any checkout | The file, by absolute path |
+| A buffer with nothing on disk | A bare note, with no path at all |
+
+The last two are not second-class: they queue, submit and survive a restart like anything
+else — a scratch buffer is a fine place to leave a thought for the batch. What you get is
+an ordinary annotation, sharing the queue, the payload grouping, the batch and the
+staleness rules with anything captured during a review. The buffer itself is never touched.
+
+**Diagnostics ride along.** Errors and warnings overlapping what you captured are attached
+to the note, so they stop being retyped by hand. Hints and info are left out — they are
+rarely why you are annotating, and they bury the diagnostic that is.
+
+```
+why is this branch unreachable?
+
+Diagnostics:
+- ERROR L12 undefined global `foo` (lua_ls)
+- WARN  L14 unused local `bar` (lua_ls)
+```
+
+### Send one annotation now
+
+A thought you want acted on should not have to wait for a batch you have not finished
+assembling. The same entry point sends one annotation on its own instead of queueing it:
+
+```lua
+require("codereview").annotate("bug", nil, { immediate = true })
+require("codereview").annotate(nil, nil, { immediate = true })  -- or pick the type
+```
+
+Delivery is a property of the call, not a different door: the same paths, the same blob,
+the same diagnostics, the same drafts and `@` references, and the same picker. What arrives
+is an ordinary review payload that happens to hold one annotation
+([ADR-0004](docs/adr/0004-an-immediate-send-is-a-batch-of-one.md)).
+
+You are asked where it goes **before** the composer opens, so declining costs no typing.
+The queue is untouched — an annotation sent this way never joins it, and whatever is
+already queued is neither delivered nor cleared. If the send does not go through, the note
+is kept as a draft so annotating that file again offers it back.
+
+### The composer
+
+Notes are written in a real buffer, not a prompt. Drafts are kept per target and survive
+restarts, and `@` references another file — [`pick_file`](#adapters) supplies the picker.
+
+### The queue and the batch
+
+Annotations accumulate in a queue that survives `:qa` and restarts. `Q` opens a float
+listing the batch, where `<CR>` jumps to any entry — closing the float and centring the
+line the annotation is about, expanding the file first if it was collapsed. The queue is
+therefore a way of navigating a review, not only of auditing it before you send.
+
+Because the queue is shared with the capture path and the float opens with or without a
+review, some of what it lists has nowhere to jump to: a bare note is about no file, there
+may be no review open, or the file may be outside the current scope. Each says which.
+
+### The payload
 
 Grouped by type, in the configured order, most actionable first, with anything untyped
-last:
+last. A diff is inlined where an `@ref` cannot carry the change.
 
 ````markdown
 Code review — 4 annotations on branch vs origin/master (8 files, 6 reviewed)
@@ -444,10 +323,120 @@ was this dropped on purpose?
 worth a look before we ship this
 ````
 
+## Keymaps
+
+### In the diff
+
+| Key | Action |
+| --- | --- |
+| `ab` `af` `as` `an` `ai` | Annotate as bug / fix / suggestion / nitpick / issue |
+| `aa` | Annotate, picking the type from a menu or declining one |
+| `x` | Drop the annotation under the cursor |
+| `R` | Toggle reviewed on this file (collapses it) |
+| `za` | Toggle expansion without marking reviewed |
+| `gs` | Cycle scope, re-rendering in place |
+| `gr` | Re-read the diff from git |
+| `gp` | Show or hide the file tree |
+| `gl` | Switch between the unified and split layouts |
+| `<CR>` | Open the real file here, in a new tab |
+| `Q` | Review the queue |
+| `<C-t>` | Choose the delivery target |
+| `<C-s>` | Submit the batch |
+| `q` | Close |
+
+Annotation keys are prefixed with `a` rather than bound bare, because bare `b`, `f`, `n`
+and `s` would shadow back-word, find-char, next-search and (if you use it) flash.nvim
+inside the buffer. `a` is append, which is dead in a `nomodifiable` buffer, so the prefix
+costs a keystroke and no motion.
+
+### Getting around
+
+| Key | Action |
+| --- | --- |
+| `]f` `[f` | Next / previous file |
+| `]F` `[F` | Next / previous **unreviewed** file — wraps |
+| `]h` `[h` | Next / previous hunk |
+| `]a` `[a` | Next / previous annotation |
+| `<C-p>` | Jump to a file by name, from a list |
+| `<Tab>` | Move between the diff and the tree |
+
+`]F` is the one that matters once a review is underway: the point of marking files reviewed
+is to stop looking at them, so the useful motion is "the next thing I have not done", not
+"the next file", which walks back through everything already finished.
+
+### In the tree
+
+| Key | Action |
+| --- | --- |
+| `<CR>` / `o` | Open the file, or fold the directory |
+| `h` / `zc` | Collapse the directory — on a file, collapses its parent |
+| `l` / `zo` | Expand the directory |
+| `za` | Toggle the directory |
+| `zM` / `zR` | Collapse / expand every directory |
+| `]f` `[f` | Next / previous file, skipping directory rows |
+| `R` | Toggle reviewed — **on a directory, the whole subtree** |
+| `<C-p>` | Jump to a file by name |
+| `<Tab>` | Back to the diff |
+| `gp` | Dismiss the tree, landing back in the diff |
+| `gl` | Switch between the unified and split layouts |
+| `q` | Close |
+
+Jumping to a file that was collapsed because it is reviewed expands it: you asked to look
+at it.
+
+### In the queue float
+
+| Key | Action |
+| --- | --- |
+| `<CR>` | Jump to the annotation under the cursor |
+| `x` | Drop it |
+| `<C-t>` | Choose the delivery target |
+| `<C-s>` | Submit the batch |
+| `q` / `<Esc>` | Close, keeping the queue |
+
+## Configuration
+
+```lua
+opts = {
+  context = 3,                     -- git diff -U
+  untracked = true,                -- show untracked files in branch/worktree scopes
+  syntax = true,                   -- treesitter highlighting
+  max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
+  layout = "unified",              -- "unified" or "split"; validated at setup
+  panel = { enabled = true, width = 34, position = "left" },
+  icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
+            collapsed = "▸", expanded = "▾", change_bar = "▌" },
+  types = nil,                     -- defaults to the five above; see Typed annotations
+}
+```
+
+Every highlight is a `default = true` link to a group your colorscheme already defines
+(`DiffAdd`, `Added`, `DiagnosticError`, …), so overriding any `CodeReview*` group works
+without the plugin fighting back.
+
 ## Adapters
 
 The plugin has no opinion about where a review goes, or about which pickers you use. Four
-optional functions inject that:
+optional functions inject that — **none are required.**
+
+| Adapter | What it supplies | Without it |
+| --- | --- | --- |
+| `send` | Delivers the rendered batch | The payload goes to the `+` register |
+| `pick_target` | Chooses a delivery target | No target; `send` decides what that means |
+| `pick_file` | Picks a file for `@` in the composer | `@` stays a literal `@`, and says so |
+| `compose` | Collects note text | The composer the plugin ships |
+
+```lua
+opts = {
+  send = function(payload, target) return true end,
+  pick_target = function(cb) cb({ short = "agent", cwd = "/path" }) end,
+  pick_file = function(cb) cb({ path = "src/main.lua", first = 12, last = 20 }) end,
+  compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
+}
+```
+
+<details>
+<summary>The full contract for each</summary>
 
 ```lua
 opts = {
@@ -489,6 +478,8 @@ opts = {
 is the narrow promise — the adapter most hosts wire is asynchronous, and holding the queue
 until an agent confirmed would keep a sent batch queued for the length of that agent's work.
 
+</details>
+
 <details>
 <summary>Wiring it to a Claude session over herdr</summary>
 
@@ -508,32 +499,11 @@ spells out which queue is which.
 
 </details>
 
-## Configuration
-
-```lua
-opts = {
-  context = 3,                     -- git diff -U
-  untracked = true,                -- show untracked files in branch/worktree scopes
-  syntax = true,                   -- treesitter highlighting
-  max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
-  layout = "unified",              -- "unified" or "split"; validated at setup
-  panel = { enabled = true, width = 34, position = "left" },
-  icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
-            collapsed = "▸", expanded = "▾", change_bar = "▌" },
-  types = nil,                     -- defaults to the five above; see Annotation types
-}
-```
-
-Every highlight is a `default = true` link to a group your colorscheme already defines
-(`DiffAdd`, `Added`, `DiagnosticError`, …), so overriding any `CodeReview*` group works
-without the plugin fighting back.
-
 ## Persistence
 
 Reviewed marks and the queue are stored per repository under
-`stdpath("state")/codereview/`, keyed by scope and diff base, and survive a restart.
-
-Each entry records the git blob it was captured against. On reload:
+`stdpath("state")/codereview/`, keyed by scope and diff base, and survive a restart. Each
+entry records the git blob it was captured against. On reload:
 
 - a **reviewed mark** whose blob moved is silently un-marked — the file changed, so you
   have not reviewed what is there now;
@@ -541,11 +511,19 @@ Each entry records the git blob it was captured against. On reload:
   still worth sending and only its line anchor is untrustworthy. A stale entry never
   travels as an `@ref`; its code is inlined instead.
 
-Annotations with no repository behind them — a bare note, or a file outside any checkout —
-have nowhere repository-shaped to live, so they go to a single store beside the others.
-Nothing ever reconciles that store against a diff, so nothing would ever clear it: entries
-older than **seven days** are dropped when it is read. That bounds its growth but not its
-staleness, which is the accepted cost of not making those annotations second-class.
+Two things deliberately do **not** persist: the delivery target, which names a live
+destination a restart would make dead, and the layout `gl` last chose, which is a
+preference rather than review progress. The store is per repository and neither of those
+is; both last for the session and no longer.
+
+<details>
+<summary>Annotations with no repository behind them</summary>
+
+A bare note, or a file outside any checkout, has nowhere repository-shaped to live, so it
+goes to a single global store beside the others. Nothing ever reconciles that store against
+a diff, so nothing would ever clear it: entries older than **seven days** are dropped when
+it is read. That bounds its growth but not its staleness, which is the accepted cost of not
+making those annotations second-class.
 
 Each kind is judged against whatever its blob was actually taken from. A review annotation
 is judged against the diff on screen, and a file the current scope does not include is not
@@ -555,10 +533,17 @@ review open. That distinction matters in a `staged` review, where the diff shows
 and a buffer capture holds the working tree: judging one by the other would flag a note
 about a file nobody has touched.
 
-Two things deliberately do **not** go there: the delivery target, which names a live
-destination a restart would make dead, and the layout `gl` last chose, which is a
-preference rather than review progress. The store is per repository and neither of those
-is; both last for the session and no longer.
+</details>
+
+## Documentation
+
+| Where | What is in it |
+| --- | --- |
+| `:help codereview` | The full reference — every command, mapping, option and Lua API |
+| [`docs/design-notes.md`](docs/design-notes.md) | Every non-obvious constraint that cost real debugging time |
+| [`docs/adr/`](docs/adr/) | The decisions behind the architecture, and why |
+| [`CONTEXT.md`](CONTEXT.md) | The project's vocabulary — *scope*, *pane*, *filler*, *dispatch*, … |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Setup, tests, the commit convention, PR shape |
 
 ## Development
 
@@ -574,135 +559,6 @@ git fixture. CI runs them on Neovim stable and nightly with plenary as the only 
 parsers ship with Neovim. See [`tests/README.md`](tests/README.md) for the layout, what is
 deliberately not covered, and the traps worth knowing before changing a fixture.
 
-[`CONTRIBUTING.md`](CONTRIBUTING.md) covers the rest: the commit convention, the branch and
-PR shape, and how to run a single spec.
-
-## Design notes
-
-Things that are non-obvious and cost real debugging time.
-
-**Only one treesitter highlighter can attach per buffer.** A unified diff holding
-TypeScript, Lua and JSON therefore cannot use `vim.treesitter.start`. Each file's content
-is parsed as a *string* instead, the `highlights` query is walked, and the captures are
-replayed as extmarks onto the rows where that content is drawn. Deleted lines come from a
-separate parse of the pre-image, since they no longer exist in the post-image.
-
-**`vim.treesitter.language.add()` is lazy in Neovim 0.12** and returns true for languages
-with no parser installed. Availability has to be proven by actually instantiating a parser,
-which is why the result is memoised per language rather than asked per file.
-
-**Highlighting is bounded by the viewport, not by the diff.** A file is parsed the first
-time any of its rows come near the window, and never otherwise. Parsing everything
-rendered instead costs 60 files × 2 sides of parsing before the view can draw — a second
-of latency for highlighting nobody can see yet. It parses the whole file once triggered,
-though: harvesting only the visible slice would cache a partial capture set that the next
-scroll invalidates.
-
-**Blob hashes are resolved in two batched calls**, `git hash-object` for working-tree
-files and `git cat-file --batch-check` for everything behind a ref. One process per file
-was, measurably, more expensive than all the treesitter work combined — on a 60-file diff
-it was over half the open time.
-
-**`nvim_win_call` propagates only the first return value.** Returning `line("w0"), line("w$")`
-from it silently loses the end of the range.
-
-**Extmark columns are byte offsets, not display columns.** The change bar and the `│`
-separator are multibyte, so each rendered row records where its code text actually begins;
-assuming a fixed prefix width shifts every highlight on every changed line.
-
-**Hunk bodies are consumed by their declared line counts**, not by scanning for the next
-`@@` or `diff --git`. A diff of a patch file contains those markers as ordinary content.
-
-**`\ No newline at end of file` arrives after the counters have run out.** When the last
-line of a hunk carries it, a counter-only loop condition drops the marker and the file
-silently gains a trailing newline it does not have.
-
-**An `@ref` shows the file as it is now, not what changed.** So anything touching a deleted
-line is inlined as a diff block instead — the line it names no longer exists, and that
-number now belongs to unrelated code. A hunk is always inlined for the same reason.
-
-**References are resolved at submit time, against the target's cwd.** The same queue can go
-to an agent whose working directory is not this one; anything outside its tree falls back
-to an absolute path with the code inlined.
-
-**That cwd is realpath'd first, and only that side.** Every `abs_path` in the queue is
-already canonical — `git rev-parse --show-toplevel` answers with symlinks resolved, and
-buffer capture realpaths for the same reason — but a target's `cwd` is whatever the adapter
-reported. On macOS a directory reached through `/var` is a symlink into `/private/var`, so
-comparing the two unresolved makes every file look like it lives outside the target's own
-tree, and the whole batch silently degrades to absolute paths with pasted snippets. It
-resolves once per submit rather than per entry, and falls back to the string it was given:
-a routed agent can name a directory that does not exist on this machine at all.
-
-**Collapsing is done at render time, not with folds.** A collapsed file's body is never
-emitted, so the buffer and the anchor map stay small on a large review, and there is one
-mechanism instead of two.
-
-**Untracked files are synthesised, not diffed.** `git diff --no-index` exits 1 when the
-files differ — the normal case — and labels the pre-image `a/dev/null`. Building the entry
-directly avoids both quirks.
-
-**Progress is written on mutation, not on paint.** `paint` also runs on window resize, and
-persisting there turns dragging a split into a stream of file writes.
-
-**The tree's parent directory is found by depth, not by proximity.** `h` on a file folds
-the directory containing it — but the nearest directory row *above* a file is often a
-sibling directory the cursor already scrolled past, not its parent. Each row records its
-tree depth, and the parent is the nearest directory row above with a smaller one.
-
-**The panel repaints only when the cursor crosses into a different file.** Following the
-diff cursor runs on every `CursorMoved`; rebuilding the tree on each keystroke is real work
-on a large review.
-
-**Closing a window does not end insert mode.** A composer opened with `startinsert` and
-submitted from an insert-mode mapping closes its float while still inserting, and focus
-lands in the review buffer mid-insert — no `InsertEnter` fires, because insert never ended.
-Every navigation key is then a failed edit against a `nomodifiable` buffer instead of a
-motion. The guard is a `BufEnter`/`WinEnter`/`InsertEnter` autocmd on the review buffer,
-and the `stopinsert` is scheduled: issued inline, returning from the insert-mode mapping
-puts Vim straight back into insert.
-
-**Insert mode is unreachable in headless Neovim.** `startinsert` needs the interactive
-input loop, so `mode()` always reports `n` under `--headless` and a headless test of the
-bug above passes whether or not the fix exists. That one is verified by driving a real
-Neovim over a pty and querying it with `--remote-expr`.
-
-**`startinsert` does nothing on the tick a picker answers on.** A picker that closes with
-`stopinsert` leaves the editor still reporting insert mode with the exit merely pending, so
-the composer's request to start inserting is dropped as redundant and the exit lands
-anyway. Reading `mode()` there is no help either — it reports the mode being left. The
-composer feeds `<C-\><C-n>` and then `i` or `A` instead, which the input loop applies once
-everything has settled, whichever mode the picker really left behind.
-
-**Normal mode cannot hold a cursor past the last character of a line.** Both places the
-composer positions a reviewer to keep typing — the end of a restored draft, the space after
-a spliced reference — are exactly that column, so setting it arrives one short. Entering
-insert with the bang (`startinsert!`, or `A` as a fed key) is what recovers it.
-
-**A picker must return focus to whoever opened it.** `pick_target` used to hardcode focus
-back to the diff window, so choosing an agent from the queue float dumped the cursor into
-the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
-leaves the float open behind it. It also has to drive its own repaint: the picker is
-asynchronous, so anything run after the call returns paints before a target exists.
-
-## Built with Claude Code
-
-This plugin was written with [Claude Code](https://claude.com/claude-code), and it is set
-up so anyone can keep working on it that way. Said plainly for two reasons: so you know
-what you are reading, and so you know agent-assisted contributions are welcome here rather
-than merely tolerated.
-
-The repo carries what an agent needs to be useful in it rather than merely fast:
-[`CLAUDE.md`](CLAUDE.md) holds the workflow in imperative form, [`docs/agents/`](docs/agents/)
-records where issues live and how they are labelled, and the *Design notes* above exist
-because several obvious-looking approaches here are wrong for reasons no amount of reading
-the code reveals. Point an agent at `CLAUDE.md` and it will follow the same branch, commit
-and PR conventions a human contributor does.
-
-The bar is the same either way — the tests pass, the design notes were read, and you can
-answer questions about the change in review. There is no requirement to disclose tool use,
-and no penalty for it.
-
 ## Contributing
 
 Issues and pull requests are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) —
@@ -713,6 +569,25 @@ Open an issue first for anything with a design decision behind it; typo fixes an
 obviously-correct one-liners can go straight to a PR. Participation is under the
 [Code of Conduct](CODE_OF_CONDUCT.md); security reports go through
 [`SECURITY.md`](SECURITY.md), not the issue tracker.
+
+### Built with Claude Code
+
+This plugin was written with [Claude Code](https://claude.com/claude-code), and it is set
+up so anyone can keep working on it that way. Said plainly for two reasons: so you know
+what you are reading, and so you know agent-assisted contributions are welcome here rather
+than merely tolerated.
+
+The repo carries what an agent needs to be useful in it rather than merely fast:
+[`CLAUDE.md`](CLAUDE.md) holds the workflow in imperative form, [`docs/agents/`](docs/agents/)
+records where issues live and how they are labelled, and
+[`docs/design-notes.md`](docs/design-notes.md) exists because several obvious-looking
+approaches here are wrong for reasons no amount of reading the code reveals. Point an agent
+at `CLAUDE.md` and it will follow the same branch, commit and PR conventions a human
+contributor does.
+
+The bar is the same either way — the tests pass, the design notes were read, and you can
+answer questions about the change in review. There is no requirement to disclose tool use,
+and no penalty for it.
 
 ## License
 

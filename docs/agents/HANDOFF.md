@@ -12,7 +12,7 @@ first.**
 | Plugin repo | `~/Codes/lua/codereview-annotator.nvim` (`master`) |
 | GitHub | https://github.com/felipeva/codereview-annotator.nvim |
 | Neovim config wiring | `~/.config/nvim/lua/plugins/codereview.lua` (`dir =` spec + 3 adapters) |
-| Design rationale | `README.md` § *Design notes* — read this before changing anything |
+| Design rationale | `docs/design-notes.md` — read this before changing anything |
 | User-facing docs | `doc/codereview.txt` |
 | Contributor workflow | `CLAUDE.md` for agents, `CONTRIBUTING.md` for humans — change both together |
 | **Tests** | `tests/README.md` — layout, fixtures, what is deliberately not covered |
