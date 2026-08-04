@@ -299,8 +299,12 @@ so the out-of-core language path is still checked locally without ever failing C
   and fed keys all propagate to the bound window, and `nvim_win_set_cursor` does not.
   Driving a binding assertion through the API therefore passes whether or not the binding
   exists — the failure mode `interactive_spec` exists to avoid — so `split_spec` drives
-  `normal!` and asserts the *other* pane followed. Removing the two `vim.wo` lines in
-  `view.lua`'s `show_before_pane` must fail three cases. The same asymmetry is why the view
+  `normal!` and asserts the *other* pane followed. The cut that bites is in
+  `view_layout.lua`'s `place`: turning its closing `bind_panes(true)` into
+  `bind_panes(false)` must fail three cases in `split_spec` and one in `layout_spec`.
+  `show_before_pane`'s own two `vim.wo` lines are belt and braces, and deleting them fails
+  nothing — `M.open` ends in `place(1)` and every jump goes through `place`, so the binding
+  is established there regardless of what built the pane. The same asymmetry is why the view
   sets both panes' cursors explicitly instead of trusting the binding to carry one across.
 - **Two panes that were never moved apart cannot be seen coming back together.** The first
   version of "both panes hold their alignment across every repaint" passed with `resync()`
@@ -357,7 +361,7 @@ so the out-of-core language path is still checked locally without ever failing C
   gap between groups instead. `queue_float_spec` keeps a third entry of another type for
   the claim that actually is about types.
 - **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
-  remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
+  remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view_layout.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
   version of that test passes whether or not the fix exists, which is why it drives a pty.
 - **A set comparison passes when one set was never read.** `map_spec` matches the module
