@@ -33,7 +33,7 @@ change there is felt through.
 | `state.lua` | Persisted review progress, and the blob comparisons over it — staleness, and touchedness kept in a function of its own | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
-| `view.lua` | The review view: buffers, windows, navigation, both layouts | stateful (windows) |
+| `view.lua` | The review view: the `CRView` it owns, the paint, navigation, the file tree, delivery, opening and closing | stateful (windows) |
 | `view_layout.lua` | Where the review's windows are: the panes, the before pane, and the toggle between the unified and split layouts | stateful (windows) |
 
 ## How they stack
