@@ -60,9 +60,9 @@ that lists the batch, jumps to any entry with `<CR>`, drops, routes and submits.
 annotation that skips the queue. Staleness tracked by blob hash, so an annotation whose file
 moved is flagged rather than silently trusted.
 
-**Embedding** — [four adapters](#adapters): `send`, `pick_target`, `pick_file` and
-`compose`. None are required. With none of them wired the plugin still renders, annotates
-and queues, and the batch reaches the `+` register.
+**Embedding** — [five adapters](#adapters): `send`, `pick_target`, `pick_file`, `compose`
+and `open_diff`. None are required. With none of them wired the plugin still renders,
+annotates and queues, and the batch reaches the `+` register.
 
 ## Requirements
 
@@ -277,6 +277,7 @@ override a `layout` you had since changed.
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
 | `<CR>` | Open the real file here, in a new tab |
+| `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `Q` | Review the queue |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
@@ -306,6 +307,7 @@ cursor last was.
 | Key | Action |
 | --- | --- |
 | `<CR>` / `o` | Open the file, or fold the directory |
+| `gd` | Read the file under the cursor in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `h` / `zc` | Collapse the directory — on a file, collapses its parent |
 | `l` / `zo` | Expand the directory |
 | `za` | Toggle the directory |
@@ -446,8 +448,8 @@ worth a look before we ship this
 
 ## Adapters
 
-The plugin has no opinion about where a review goes, or about which pickers you use. Four
-optional functions inject that:
+The plugin has no opinion about where a review goes, about which pickers you use, or about
+which diff tool you read a rewrite in. Five optional functions inject that:
 
 ```lua
 opts = {
@@ -482,8 +484,28 @@ opts = {
   -- the target *this note* will reach. Name it, and change it with `pick`. It is absent
   -- for a note joining the queue, which the batch routes.
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
+
+  -- Read one file in the diff tool you already have — DiffviewOpen, :Gdiffsplit, your own
+  -- diffthis pair. The plugin ships none of that: it hands over the file and the two refs
+  -- its scope is between and stops caring. `path` is absolute and is the post-image path,
+  -- so for a rename the pre-image lives elsewhere in `before`. `after` is nil whenever the
+  -- post-image is the working tree — that is most scopes, and it is not an error: nil
+  -- means the file on disk. `line` is nil when the file was named from the file tree,
+  -- which knows a file and no position in it.
+  --
+  -- Bound to `gd` only while this is wired, in the diff and in the tree. A key that
+  -- silently did nothing would be worse than no key.
+  open_diff = function(spec)
+    local rev = spec.after and (spec.before .. ".." .. spec.after) or spec.before
+    vim.cmd(("DiffviewOpen %s -- %s"):format(rev, vim.fn.fnameescape(spec.path)))
+  end,
 }
 ```
+
+**You cannot annotate in whatever `open_diff` opens.** Nothing there has an anchor map, so
+it is a one-way trip: read the file closely, then come back to the review to say anything
+about it. It is for the rewrite that Neovim's own diff mode reads better than a unified
+diff does — a reformat, a re-indent, a file moved wholesale — not a second review surface.
 
 [ADR-0005](docs/adr/0005-a-send-reports-dispatch-not-arrival.md) records why "dispatched"
 is the narrow promise — the adapter most hosts wire is asynchronous, and holding the queue

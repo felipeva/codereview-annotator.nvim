@@ -1,10 +1,10 @@
 ---Configuration and adapter injection.
 ---
----The three adapters (`send`, `pick_target`, `compose`) are what keep this plugin
----distributable. With none of them wired it still renders, annotates and queues -- the
----payload just reaches the `+` register instead of an agent, and the batch stays queued
----because nothing consumed it. A host config injects its own Claude/herdr plumbing rather
----than the plugin hardcoding any.
+---The adapters (`send`, `pick_target`, `pick_file`, `compose`, `open_diff`) are what keep
+---this plugin distributable. With none of them wired it still renders, annotates and
+---queues -- the payload just reaches the `+` register instead of an agent, the batch stays
+---queued because nothing consumed it, and `gd` is bound to nothing. A host config injects
+---its own Claude/herdr plumbing rather than the plugin hardcoding any.
 local M = {}
 
 M.defaults = {
@@ -76,6 +76,21 @@ M.defaults = {
   ---absent for a note joining the queue, which is routed by the batch it joins.
   ---@type fun(ctx: table, on_accept: fun(target: table|nil, text: string), label: string)|nil
   compose = nil,
+  ---Read one file in whatever diff tool the host already has -- `DiffviewOpen`, a
+  ---`:Gdiffsplit`, its own `diffthis` pair. The plugin ships none of that and keeps no
+  ---opinion about it; it hands over the file and the two refs its scope is between.
+  ---
+  ---`path` is absolute, and the post-image path -- for a rename the pre-image lives
+  ---elsewhere in `before`. `after` is nil for the scopes whose post-image is the working
+  ---tree, which the adapter must handle: nil means "the file on disk", not an error.
+  ---`line` is nil when the file was named from the file tree, which knows a file and no
+  ---position in it.
+  ---
+  ---Bound to `gd` only while this is wired -- a key that silently did nothing would be
+  ---worse than no key. Nothing the host opens has an anchor map, so it is a read-only
+  ---detour: you cannot annotate in there.
+  ---@type fun(spec: { path: string, before: string, after: string|nil, line: integer|nil })|nil
+  open_diff = nil,
 }
 
 ---@type table

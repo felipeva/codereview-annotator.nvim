@@ -781,6 +781,52 @@ function M.open_file()
   vim.cmd("normal! zz")
 end
 
+---Hand a file and the refs its scope is between to the host's diff tool, and stop caring.
+---
+---The plugin ships no diff tool and keeps no opinion about which one this is, the same way
+---it keeps none about delivery (ADR-0001): everything the host needs to fetch either image
+---is in the spec, and what it does with them is its own. Nothing it opens has an anchor
+---map, so this is a read-only detour -- there is nowhere in there to annotate from.
+---@param file CRFile
+---@param line integer|nil nil when the caller knows a file but no position in it
+local function hand_to_diff(file, line)
+  local adapter = config.get().open_diff
+  if not adapter then
+    -- Reachable only when a host bound this itself: the view binds no key without an
+    -- adapter, precisely so that pressing one can never do nothing quietly.
+    warn("No open_diff adapter configured")
+    return
+  end
+  adapter({
+    -- Absolute, because the spec carries no root to read a relative path against. From
+    -- this the host can reach both the file and the repository it is in.
+    path = vim.fs.joinpath(V.root, file.path),
+    before = V.scope.before,
+    -- nil when the post-image is the working tree, which is most scopes. Not an error and
+    -- not worth a sentinel: nil says "the file on disk", which is what a diff tool would
+    -- have opened anyway.
+    after = V.scope.after,
+    line = line,
+  })
+end
+
+---`gd`: read the file under the cursor in the host's diff tool.
+---
+---At the line `<CR>` opens, deleted-line fallback and all -- one rule about where a diff
+---row lands in the post-image, not two. A row that names no line hands over none rather
+---than inventing line 1: a file header knows which file and nothing about where in it.
+function M.open_diff()
+  if not M.current() then
+    return
+  end
+  local anchor = anchor_at_cursor()
+  if not anchor then
+    return
+  end
+  local file = V.files[anchor.file]
+  hand_to_diff(file, anchor.kind == "line" and worktree_line(file, anchor) or nil)
+end
+
 --- Panel actions ---------------------------------------------------------------
 
 ---@return integer|nil file_index, string|nil dir_path, integer row
@@ -821,6 +867,21 @@ function M.panel_select()
   end
   vim.api.nvim_set_current_win(V.win)
   goto_row(V.render.file_rows[fi], "zt")
+end
+
+---`gd` in the tree: read the file under the cursor in the host's diff tool.
+---
+---With no line. The tree knows which file you are looking at and nothing about where in
+---it, and a row that is a directory names no file at all.
+function M.panel_open_diff()
+  if not M.current() then
+    return
+  end
+  local fi = panel_at_cursor()
+  if not fi then
+    return
+  end
+  hand_to_diff(V.files[fi], nil)
 end
 
 ---@param shut boolean|nil nil toggles
@@ -1361,6 +1422,14 @@ local function setup_main_keymaps(buf)
     ["<C-s>"] = { M.submit, "Submit the batch" },
     ["q"] = { M.close, "Close the review" },
   })
+
+  -- Only once the adapter is injected. Every adapter is nil by default, and a key that
+  -- silently does nothing is worse than no key at all -- it also keeps `gd` free for
+  -- whatever a host that wired no diff tool would rather have there. From the same `g`
+  -- family as the commands above, and clear of `gt`/`gT`.
+  if config.get().open_diff then
+    bind(buf, { ["gd"] = { M.open_diff, "Read this file in the host's diff tool" } })
+  end
 end
 
 local function setup_panel_keymaps()
@@ -1428,6 +1497,10 @@ local function setup_panel_keymaps()
     ["R"] = { M.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { M.close, "Close the review" },
   })
+
+  if config.get().open_diff then
+    bind(V.panel_buf, { ["gd"] = { M.panel_open_diff, "Read this file in the host's diff tool" } })
+  end
 end
 
 ---@param buf integer
