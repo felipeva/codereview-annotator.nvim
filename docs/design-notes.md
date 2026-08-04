@@ -160,6 +160,24 @@ key and then by id, so `x` removes the wrong one. The restore therefore seeds fr
 archive as well, *after* both stores have been read, because entries are split between them
 and an id is unique across the pair.
 
+**`since-batch` resolves through the same function every other scope does, and must.** The
+temptation is a marker — a scope that says "the archive" and is special-cased downstream —
+and it fails in three places at once: the diff parser is handed `git diff <before>`, the
+blob hashing resolves `<before>:<path>` through `cat-file`, and the syntax highlighter
+fetches whole-file content with `git show <before>:<path>`. Every one of them needs
+`before` to be something git can resolve, which is why the archive stores a commit object
+rather than a set of blobs, and why resolution reads that sha and returns an ordinary
+scope. If a new scope ever appears to need a case in the render or the view, it is not
+resolving like the others.
+
+**The scope is offered by name and in the cycle under two different rules.** Completion
+lists it unconditionally, because a reviewer who asks for it by name with an empty archive
+should be told why — that is what the `nil, err` pair is for, and `branch` already answers
+that way with no merge base. `gs` is the opposite: a cycle is walked blind, so a repository
+that has never dispatched must not have a scope in its cycle that can only report an error.
+One rule reads as two until you notice that one of them is a question and the other is a
+key held down.
+
 **`git stash create` mints a commit and does nothing else.** No ref moves, the index is not
 touched and the working tree is not reverted, which is the only reason it is safe to run
 behind a submit. Two consequences worth knowing before reading a snapshot back: a clean

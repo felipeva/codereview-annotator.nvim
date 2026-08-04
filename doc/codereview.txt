@@ -34,12 +34,16 @@ files without one fall back to flat diff colours.
                                                                 *:CodeReview*
 :CodeReview [{scope}]
         Open the review view. {scope} is one of `branch` (default), `staged`,
-        `unstaged`, `worktree`, or any git revspec: >
+        `unstaged`, `worktree`, `since-batch`, or any git revspec: >
             :CodeReview
             :CodeReview staged
+            :CodeReview since-batch
             :CodeReview HEAD~3
             :CodeReview main...feature
-<
+<       Completion offers every named scope, `since-batch` included, whether
+        or not this repository has anything in its archive; asking for it with
+        nothing dispatched reports a sentence. See |codereview-scopes|.
+
                                                             *:CodeReviewCopy*
 :CodeReviewCopy
         Copy the queued batch to the `+` register without submitting it: the
@@ -70,7 +74,8 @@ Buffer-local, inside the review view:
     x                Drop the annotation under the cursor
     R                Toggle reviewed on this file (collapses it)
     za               Toggle expansion without marking reviewed
-    gs               Cycle scope, re-rendering in place
+    gs               Cycle scope, re-rendering in place -- `since-batch`
+                     joins once a batch has been dispatched
     gr               Re-read the diff from git
     gp               Show or hide the file tree
     gl               Switch between the unified and split layouts
@@ -159,23 +164,42 @@ scope: normal mode captures the file, a live selection captures those lines.
 ==============================================================================
 4. SCOPES                                                *codereview-scopes*
 
-    branch      merge-base with the default branch .. working tree (default)
-    staged      git diff --cached
-    unstaged    git diff
-    worktree    git diff HEAD
-    {revspec}   anything git accepts
+    branch        merge-base with the default branch .. working tree (default)
+    staged        git diff --cached
+    unstaged      git diff
+    worktree      git diff HEAD
+    since-batch   the newest snapshot in the archive .. working tree
+    {revspec}     anything git accepts
 
-`gs` cycles the first four in place. Reviewed marks are tracked per scope:
-marking a file done in `staged` says nothing about the whole branch's changes
-to it.
+`gs` cycles them in place, in that order. Reviewed marks are tracked per
+scope: marking a file done in `staged` says nothing about the whole branch's
+changes to it.
 
 The default branch is read, not assumed -- `origin/HEAD` first, then
 `origin/main`, `origin/master`, `main`, `master`. Repositories on `master` are
 common enough that hardcoding `main` would silently diff against nothing.
 
-Untracked files appear as all-added entries in `branch` and `worktree` scopes;
-set `untracked = false` to hide them. `git diff` never reports them, so a
-brand-new file would otherwise be invisible to the review.
+Untracked files appear as all-added entries in the `branch`, `worktree` and
+`since-batch` scopes; set `untracked = false` to hide them. `git diff` never
+reports them, so a brand-new file would otherwise be invisible to the review.
+
+Since the last batch                                *codereview-since-batch*
+
+`since-batch` diffs the working tree against the snapshot recorded when the
+last batch was dispatched (|codereview-persistence-archive|), so what it shows
+is the agent's response to a review rather than everything uncommitted: work
+you already had in flight when you submitted is in that snapshot, and is
+therefore not in this diff. Nothing else about it differs. It is an ordinary
+scope resolved by the ordinary path, with the snapshot as its before-image, so
+highlighting, navigation, collapse, reviewed marks, both layouts and
+annotating inside it all behave as they do anywhere else.
+
+`gs` reaches it only once something has been dispatched from the repository --
+a cycle is walked blind and must never land on an error. Asking for it by name
+with an empty archive reports why, the way `branch` does with no merge base.
+
+A file that was untracked when the batch went is in no snapshot at all, and
+comes through the same synthesis above rather than one of its own.
 
 ==============================================================================
 5. LAYOUTS                                              *codereview-layouts*
@@ -777,6 +801,11 @@ create` -- which moves no ref, leaves the index alone and never touches the
 working tree, so nothing about a submit disturbs what you are reviewing. On a
 clean tree there is nothing to record that `HEAD` does not already say, and
 `HEAD` is what is stored. Untracked files are not in such a commit.
+
+A real commit object rather than a set of blobs because it exists to be
+diffed against: |codereview-since-batch| resolves to it as an ordinary scope's
+before-image, and the diff, the blob hashes and the whole-file reads the
+highlighter makes each need a ref git can resolve.
 
 A dispatch writes it and nothing else does. An adapter that declined, one that
 raised, the `+` register the default send copies to and the one

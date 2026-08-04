@@ -69,11 +69,20 @@ inside the view to cycle between them in place.
 | `:CodeReview staged` | The index |
 | `:CodeReview unstaged` | Working tree vs index |
 | `:CodeReview worktree` | Everything uncommitted |
+| `:CodeReview since-batch` | What changed since the last batch went out |
 | `:CodeReview HEAD~3` | Any git revspec |
 | `:CodeReview main...feature` | Any range |
 
 Files are marked reviewed **against their git blob**, so a mark stops meaning anything
 once the file changes underneath it.
+
+**`since-batch` is the one to reach for while an agent is working.** Submitting records a
+snapshot of the working tree, and this scope diffs against it — so what you get is the
+agent's response to your review, without the work you already had in flight when you sent
+it. It behaves like every other scope in every other respect: highlighted, navigable,
+collapsible, annotatable, and drawn in both layouts. `gs` reaches it once something has
+been dispatched from the repository, and never before that; asking for it by name with
+nothing dispatched says so in a sentence.
 
 ### Unified or side by side
 
@@ -395,7 +404,7 @@ worth a look before we ship this
 | `x` | Drop the annotation under the cursor |
 | `R` | Toggle reviewed on this file (collapses it) |
 | `za` | Toggle expansion without marking reviewed |
-| `gs` | Cycle scope, re-rendering in place |
+| `gs` | Cycle scope, re-rendering in place — `since-batch` joins once a batch has gone |
 | `gr` | Re-read the diff from git |
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
