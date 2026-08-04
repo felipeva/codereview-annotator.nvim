@@ -52,6 +52,22 @@ files without one fall back to flat diff colours.
         archived -- a register is not a consumer. Needs no review view open.
         Also bound to `gy` in the diff and in the queue float.
 
+                                                       *:CodeReviewLastBatch*
+:CodeReviewLastBatch
+        Read the last dispatched batch back: its annotations, grouped by type
+        exactly as the queue float and the payload group them, with the target
+        it went to and when it went in the frame. Needs no review view open --
+        a batch is not a window. A bare note is listed like anything else,
+        though it was kept in a different store. With nothing dispatched yet
+        it says so rather than opening onto nothing.
+
+        Read-only, and that is a claim about the record: an archived entry
+        says something happened, and a surface that let you drop, edit or
+        resubmit one would be claiming the plugin can revise what an agent
+        already received. To raise a point again, annotate again -- an
+        ordinary capture, which joins the next batch. See
+        |codereview-persistence-archive|.
+
                                                         *:CodeReviewAnnotate*
 :[range]CodeReviewAnnotate [{type}]
         Annotate the current buffer without a review open. {type} is one of
@@ -144,6 +160,14 @@ have nowhere to go: a bare note has no file at all, there may be no review
 view open, and a file may lie outside the current scope. Each says which, and
 leaves the float open -- the remedies are nothing, open a review, and change
 scope.
+
+In the last-batch float (|:CodeReviewLastBatch|): q and <Esc> close, and that
+is the whole of it. `x` and <C-s> are bound only to say why they do nothing,
+so the queue float's muscle memory gets a sentence rather than |E21| against a
+|nomodifiable| buffer. An annotation is drawn there exactly as the queue float
+draws one -- the reserved gutter, the bar in its type's colour, the code it
+inlined and its note -- so the two read as one family; what is missing is
+every key that would change something.
 
 Annotation keys are prefixed with `a` rather than bound bare. Bare `b`, `f`,
 `n` and `s` would shadow back-word, find-char and next-search inside the
@@ -820,6 +844,11 @@ note or a file outside any checkout to the no-repository store. The most
 recent **twenty** batches per store are kept, and the oldest is dropped on
 write.
 
+|:CodeReviewLastBatch| reads the newest one back. A batch that held both kinds
+of annotation is therefore two records, and they are rejoined by the moment
+they were dispatched -- both halves are stamped from one clock reading. That
+is what stops a bare note being the one thing missing from what you read back.
+
 ==============================================================================
 12. LUA API                                                 *codereview-api*
 
@@ -843,6 +872,9 @@ require("codereview").copy()                             *codereview.copy()*
         Copy the batch to the `+` register without submitting it -- the same
         payload |codereview-opt-send| would have been handed. The queue is
         untouched and nothing is archived. See |:CodeReviewCopy|.
+require("codereview").last_batch()                 *codereview.last_batch()*
+        Read the last dispatched batch back, read-only and with no review view
+        involved. See |:CodeReviewLastBatch|.
 require("codereview").count()                           *codereview.count()*
         Number of queued annotations -- useful in a statusline.
 require("codereview").is_open()                       *codereview.is_open()*

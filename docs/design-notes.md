@@ -204,6 +204,26 @@ that has never dispatched must not have a scope in its cycle that can only repor
 One rule reads as two until you notice that one of them is a question and the other is a
 key held down.
 
+**One dispatch is two records, and reading it back means rejoining them.** A batch is split
+across the two stores on the rule that already routes the queue — an entry with a
+repository-relative path to that repository's document, a bare note or a file outside a
+checkout to the store that needs no root — and the two halves are stamped from a single
+`os.time()` call. That stamp is the *only* thing tying them together. Anything reading a
+batch back through one accessor alone therefore drops exactly the entries with nowhere else
+to live, silently and in the direction that looks fine: the file annotations are all there,
+and a bare note becomes the one thing that vanishes — which is the failure the split was
+meant to avoid. Matching on the stamp is load-bearing, and it resolves to one second: two
+dispatches inside the same second read back as one batch. That is beyond any human dispatch
+cadence and well within a loop's, which is why `archive_float_spec` clears both stores
+between blocks rather than trusting the clock.
+
+**An archived entry's `stale` flag must not be drawn.** It is persisted with the entry, so
+it is there to read, and it means "this file had moved since the annotation was captured" —
+a fact about a queue that no longer exists. Printed on a surface listing what already went,
+it reads as a claim about the code *now*, which nothing has checked. Whether an archived
+entry's file has moved since its batch was dispatched is a different question, judged
+against a different blob, and it has a word of its own.
+
 **`git stash create` mints a commit and does nothing else.** No ref moves, the index is not
 touched and the working tree is not reverted, which is the only reason it is safe to run
 behind a submit. Two consequences worth knowing before reading a snapshot back: a clean
