@@ -24,21 +24,23 @@ change there is felt through.
 | `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes | stateful (git) |
 | `hl.lua` | The highlight groups, all `default = true` links into whatever colorscheme is active | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
+| `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
 | `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies | pure |
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — module-level, not per-view, so reopening a view scatters nothing | stateful (memory) |
+| `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk | pure |
 | `state.lua` | Persisted review progress, and the blob-hash check that makes persisting safe | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
-| `view.lua` | The review view: buffers, windows, keymaps, navigation, both layouts, the queue float | stateful (windows) |
+| `view.lua` | The review view: buffers, windows, navigation, both layouts | stateful (windows) |
 
 ## How they stack
 
 - **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
-  `archive`, `delivery`, `syntax`; then `composer`, `hl`.
-- **The hubs**: `view` requires twelve of the modules above, `annotate` nine. A change that
+  `archive`, `delivery`, `keymaps`, `syntax`; then `composer`, `hl`, `queue_float`.
+- **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
 
@@ -56,12 +58,22 @@ the `since-batch` scope. Function-local on both sides, as above. The alternative
 the snapshot in from outside, which would put the one scope that needs it into every caller
 of `resolve_scope` — and scope resolution is exactly what must stay one function.
 
+`keymaps` and `queue_float` would each be a third. Both run the view's exported actions,
+and both take them as an argument — `view` hands itself in — rather than requiring `view`
+for them. That is deliberate, and it is what leaves `keymaps` a function of its arguments
+and the configured annotation types. `queue_float` reads no view state either: the one
+field it needs, the window a float is open in, stays on `view` behind two accessors,
+because closing a float on submit is a rule about the view's windows.
+
 ## Where reading pays
 
 - **Settled**, one to three commits each: `panel`, `drafts`, `diff`, `git`, `syntax`,
-  `render`, `hl`, `archive`. Read one when you need it, not to orient yourself.
+  `render`, `hl`, `archive`, `keymaps`. Read one when you need it, not to orient yourself.
+  `keymaps` is the one to open when the question is what a key does or where to add one —
+  it is a table, not a search through the surface that happens to bind it.
 - **Carries the churn**: `view` and `annotate` by a wide margin, then `config`, `composer`
-  and `state`.
+  and `state`. `queue_float` is newly split out of `view` and inherits its history rather
+  than starting clean — the float's rows and its keys have both been rewritten recently.
 
 Re-derive with `git log --oneline --follow -- lua/codereview/<name>.lua` before leaning on
 that grouping; it moves.
