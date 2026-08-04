@@ -7,8 +7,10 @@
 --
 -- Run with:  make perf
 --
--- Two things keep opening a 60-file review at ~300 ms: syntax harvesting bounded by the
--- viewport, and batched blob hashing. If this regresses, suspect one of those two.
+-- Two things keep opening a 60-file review fast: syntax harvesting bounded by the
+-- viewport, and batched blob hashing. If this regresses, suspect one of those two. The
+-- third cost is the character-level spans, reported separately at the bottom because they
+-- are paid once per git read and must never appear in the repaint line.
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 vim.opt.runtimepath:prepend(root)
 
@@ -37,6 +39,8 @@ end
 require("codereview").setup({})
 local view = require("codereview.view")
 local syntax = require("codereview.syntax")
+local git = require("codereview.git")
+local diff = require("codereview.diff")
 local NS = vim.api.nvim_create_namespace("codereview")
 local PRIORITY = require("codereview.render").PRIORITY.syntax
 
@@ -77,6 +81,31 @@ end)))
 print(("repaint:         %6.0f ms"):format(ms(function()
   view.paint()
 end)))
+
+-- Spans are computed once per git read and never during a repaint, which is the whole
+-- reason they live in the parser. Both parses are timed so the cost has a home of its own:
+-- if it ever stops showing up here and starts showing up in the repaint line above, the
+-- work has moved back into the render and every resize is paying for it.
+local cwd = vim.fn.getcwd()
+local scope = assert(git.resolve_scope("branch", cwd))
+local diff_text = assert(git.diff(scope, cwd, 3))
+local plain_ms = ms(function()
+  diff.parse(diff_text)
+end)
+local spans_ms = ms(function()
+  diff.parse(diff_text, { spans = true })
+end)
+local spanned = 0
+for _, file in ipairs(diff.parse(diff_text, { spans = true })) do
+  for _, hunk in ipairs(file.hunks) do
+    for _, ln in ipairs(hunk.lines) do
+      spanned = spanned + (ln.spans and 1 or 0)
+    end
+  end
+end
+print(("parse:           %6.0f ms   (once per git read, not per repaint)"):format(plain_ms))
+print(("  spans          %6.0f ms   (+%.0f ms)"):format(spans_ms, spans_ms - plain_ms))
+print(("  lines spanned  %6d"):format(spanned))
 
 if open_ms > BUDGET_MS then
   print(("\nFAIL: open took %.0f ms, over the %d ms budget"):format(open_ms, BUDGET_MS))
