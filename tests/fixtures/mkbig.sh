@@ -1,16 +1,21 @@
 #!/bin/bash
 # Rebuild the large fixture repo used by tests/perf.lua.
 #
-# 60 files of 200 lines, with half of every file rewritten on the feature branch: roughly
-# 12k rendered rows once headers and context are counted. Sized to be the shape that
-# actually hurt -- a review big enough that parsing every file up front is a second of
-# latency on open.
+# 60 files of 200 lines by default, with half of every file rewritten on the feature
+# branch: roughly 12k rendered rows once headers and context are counted. Sized to be the
+# shape that actually hurt -- a review big enough that parsing every file up front is a
+# second of latency on open.
+#
+# Both counts are arguments because one size cannot show everything: every cost in the
+# review view is linear in the size of the diff, so `perf.lua` asks for this same shape at
+# 60 files and again at 300, where a keystroke and a repaint are large enough to read a
+# change from.
 set -e
 # Hermetic: no user or system git config. Without this the fixture inherits things that
 # change what it is (commit.gpgsign, diff.renames, core.autocrlf, hooks) -- gpg signing in
 # particular fails outright on a machine with no key, which is every CI runner.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-R="${1:?usage: mkbig.sh <path>}"
+R="${1:?usage: mkbig.sh <path> [files] [lines]}"
 FILES="${2:-60}"
 LINES="${3:-200}"
 rm -rf "$R"; mkdir -p "$R"; cd "$R"
