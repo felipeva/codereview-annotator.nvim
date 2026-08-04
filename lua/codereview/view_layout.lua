@@ -22,10 +22,19 @@
 ---
 ---The two window helpers below are shared rather than private: every surface the review
 ---builds a window for wants the same scratch buffer and the same window options, the file
----tree's included, and one copy of each is what keeps them the same.
+---tree's included, and one copy of each is what keeps them the same. The window helper is
+---also where a review window is *enrolled* in the focus rule, which is what keeps a pane
+---rebuilt by a layout toggle and a re-summoned tree obeying it.
+---
+---**Which review window is bright is the one focus last landed in**, and that rule reaches
+---the file tree as well as the panes -- the tree is not a pane, but it competes with them
+---for focus, and where the cursor is is a question about the review's windows rather than
+---about its layout. See `mute` below.
 local config = require("codereview.config")
+local hl = require("codereview.hl")
 local keymaps = require("codereview.keymaps")
 local render = require("codereview.render")
+local syntax = require("codereview.syntax")
 
 local M = {}
 
@@ -209,6 +218,50 @@ function M.attach_pane(V, view, buf)
   })
 end
 
+---Every window this module has enrolled in the focus rule, as a set.
+---
+---Enrolment goes through `window_opts` below, the one helper every review window already
+---passes through -- the file tree's included, though it is not a pane -- so a pane the
+---layout toggle rebuilt and a tree dismissed and summoned again join the set on the same
+---line that gives them their options, rather than by a caller remembering to say so.
+---
+---Module-level, because `window_opts` is handed a window and nothing else. Windows that
+---have gone are dropped as they are found, and every read is filtered to the review's own
+---tab page as well, so a window id Neovim reuses after a review closed cannot inherit a
+---namespace the review left behind.
+---@type table<integer, boolean>
+local enrolled = {}
+
+---@param win integer
+local function enrol(win)
+  for w in pairs(enrolled) do
+    if not vim.api.nvim_win_is_valid(w) then
+      enrolled[w] = nil
+    end
+  end
+  enrolled[win] = true
+end
+
+---@param V CRView
+---@param win integer
+---@return boolean
+local function is_review_window(V, win)
+  return enrolled[win] ~= nil and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_tabpage(win) == V.tab
+end
+
+---Every enrolled window that still belongs to this review.
+---@param V CRView
+---@return integer[]
+local function review_windows(V)
+  local out = {}
+  for win in pairs(enrolled) do
+    if is_review_window(V, win) then
+      out[#out + 1] = win
+    end
+  end
+  return out
+end
+
 ---@param win integer
 function M.window_opts(win)
   vim.wo[win].wrap = false
@@ -216,9 +269,195 @@ function M.window_opts(win)
   vim.wo[win].relativenumber = false
   vim.wo[win].signcolumn = "no"
   vim.wo[win].foldcolumn = "0"
+  -- What a window opens with rather than what it keeps: with muting on, `cursorline`
+  -- becomes a function of focus and `mute` owns it from here. This is what a review window
+  -- looks like with muting off, which is what it looked like before muting existed.
   vim.wo[win].cursorline = true
   vim.wo[win].list = false
   vim.wo[win].spell = false
+  enrol(win)
+end
+
+--- Muting ---------------------------------------------------------------------
+
+---The namespace holding a muted variant of every group a review window draws in.
+---
+---One namespace shared by every muted window rather than one each: what is in it is a
+---function of the colorscheme and the configured strength, not of which window is being
+---muted. Attaching it is what mutes a window; handing the window the global namespace back
+---is what brightens it.
+local NS_MUTED = vim.api.nvim_create_namespace("codereview_muted")
+
+---Which groups the namespace already holds a variant for.
+---@type table<string, boolean>
+local variants = {}
+
+---`Normal`'s background, memoised until the colorscheme changes.
+---@type integer|nil
+local toward = nil
+
+---What the muted colours are pulled toward.
+---
+---A theme that gives `Normal` no background at all has the terminal's behind it, and the
+---only thing knowable about that is which way the theme says it leans.
+---@return integer
+local function backdrop()
+  if not toward then
+    local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+    toward = normal.bg or (vim.o.background == "light" and 0xffffff or 0x000000)
+  end
+  return toward
+end
+
+---Pull one colour toward another, channel by channel.
+---@param colour integer 0xRRGGBB
+---@param target integer 0xRRGGBB
+---@param strength number 0 leaves the colour alone, 1 replaces it with `target`
+---@return integer
+local function blend(colour, target, strength)
+  local out = 0
+  for _, place in ipairs({ 65536, 256, 1 }) do
+    local from = math.floor(colour / place) % 256
+    local to = math.floor(target / place) % 256
+    out = out + math.floor(from + (to - from) * strength + 0.5) * place
+  end
+  return out
+end
+
+---Give `group` a muted variant in the namespace, once.
+---
+---**A group left without one stays bright, and that is the feature.** A group the namespace
+---does not define falls back to its global definition -- measured, not assumed -- so a
+---colorscheme this plugin has never heard of, or one whose group carries no colour of its
+---own to blend, comes out merely less muted instead of wrongly coloured. Nothing here
+---reaches for a palette when a lookup comes back empty, and nothing should.
+---
+---Only the true-colour attributes are blended. `ctermfg`/`ctermbg` are indices into a
+---palette with no channels to pull, so they are carried across untouched.
+---
+---A lookup that came back with nothing is not remembered as done, so a rebuild that somehow
+---ran before the theme's own groups were re-linked costs one pass of muting rather than a
+---review that stays bright until the next colorscheme change.
+---@param group string
+---@param strength number
+local function ensure_variant(group, strength)
+  if variants[group] then
+    return
+  end
+  local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
+  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil) then
+    return
+  end
+  variants[group] = true
+  local muted = vim.tbl_extend("force", {}, def)
+  muted.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
+  muted.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
+  pcall(vim.api.nvim_set_hl, NS_MUTED, group, muted)
+end
+
+---How many capture resolutions the namespace was last extended against.
+---@type integer
+local extended_at = -1
+
+---Extend the namespace with every group now in play that it does not hold yet.
+---
+---Extended rather than built once, because the set grows while a review is open: a file is
+---parsed only as its rows come near the window, so which capture groups the replay has
+---resolved is a function of how far a reviewer has scrolled. Adding to a namespace a window
+---is already showing takes effect on the next redraw -- measured, not assumed -- which is
+---what keeps a file parsed while its pane was muted muted too.
+---
+---Called by the view wherever it has just run the replay -- a paint, and every keystroke a
+---reviewer holds -- so the guard is what keeps it free: with nothing newly resolved this is
+---one integer comparison and no allocation at all. Asked for from there rather than said
+---from inside the replay, which would have `syntax.lua` reaching up into this one.
+function M.mute_extend()
+  local cfg = config.get().muted
+  if not cfg.enabled or syntax.resolutions() == extended_at then
+    return
+  end
+  extended_at = syntax.resolutions()
+  for _, group in ipairs(hl.groups()) do
+    ensure_variant(group, cfg.strength)
+  end
+  for _, group in pairs(syntax.resolved_groups()) do
+    ensure_variant(group, cfg.strength)
+  end
+end
+
+---Recompute every variant against the colorscheme that is active now.
+---
+---A variant is a blend of colours the theme decides, so it means nothing once the theme has
+---changed. Driven by the view's `ColorScheme` autocommand, which is declared after the one
+---`hl.lua` re-links its own groups from -- so what this reads has already been re-linked.
+---
+---Every group the namespace already holds is recomputed rather than dropped: the diff on
+---screen still carries extmarks naming the capture groups the old theme resolved, and those
+---have to be right before anything reparses.
+function M.recolour()
+  local known = variants
+  toward, variants, extended_at = nil, {}, -1
+  local cfg = config.get().muted
+  if not cfg.enabled then
+    return
+  end
+  for group in pairs(known) do
+    ensure_variant(group, cfg.strength)
+  end
+  M.mute_extend()
+end
+
+---Mute every review window except the one focus last landed in.
+---
+---**The bright one is the review's last-focused window, not the current one.** That is what
+---makes a float change nothing: the composer, the queue float and the archive float all
+---move focus out of every review window, and a rule written against the current window
+---would mute the entire review the moment a reviewer started typing a note. The latch moves
+---only when focus lands on a review window, and a latch naming a window that has gone
+---answers the after pane -- the same default `focused_pane` takes for a caller in neither.
+---
+---With muting off this returns having done nothing at all: no namespace is attached to
+---anything, no colour is computed, and `cursorline` is left as `window_opts` set it.
+---@param V CRView|nil
+function M.mute(V)
+  if not (V and vim.api.nvim_win_is_valid(V.win) and config.get().muted.enabled) then
+    return
+  end
+  M.mute_extend()
+  local bright = (V.focus_win and vim.api.nvim_win_is_valid(V.focus_win)) and V.focus_win or V.win
+  for _, win in ipairs(review_windows(V)) do
+    local focused = win == bright
+    -- One lit row means one thing: in the split layout `cursorbind` holds both panes on the
+    -- same row, so two cursorlines say nothing about either.
+    vim.wo[win].cursorline = focused
+    vim.api.nvim_win_set_hl_ns(win, focused and 0 or NS_MUTED)
+  end
+end
+
+---Follow focus for the rest of this review.
+---
+---One `WinEnter`/`WinLeave` pair on the view's augroup rather than one autocommand per
+---buffer: which window is muted is a property of the *set* and not of any one of them, so
+---every focus change recomputes all of them. Wired to the events rather than to the view's
+---own navigation, so that an ordinary window-switch key is worth exactly as much as `gp`.
+---
+---And reasserted here rather than only where a window is created, because window options
+---set at creation are overwritten by the code that puts the panes back in step afterwards.
+---@param V CRView
+function M.watch_focus(V)
+  vim.api.nvim_create_autocmd({ "WinEnter", "WinLeave" }, {
+    group = V.augroup,
+    callback = function()
+      local win = vim.api.nvim_get_current_win()
+      -- Only when focus is *on* a review window: on `WinLeave` it still is, and the window
+      -- being left is the one the latch already names, so the pair costs no special case.
+      if is_review_window(V, win) then
+        V.focus_win = win
+      end
+      M.mute(V)
+    end,
+  })
+  M.mute(V)
 end
 
 --- The before pane -------------------------------------------------------------

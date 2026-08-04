@@ -48,6 +48,15 @@ entry appears to end mid-note. Notes go through the renderer's own `wrap`, by di
 width — the same helper, not a copy, because splitting by byte passes every ASCII assertion
 and breaks the first CJK or emoji note.
 
+**A window-local highlight namespace reaches extmark highlights.** Attaching one with
+`nvim_win_set_hl_ns` changes what a group resolves to *in that window*, and that reaches a
+line background set by `line_hl_group`, the treesitter replay's extmarks at their higher
+priority band, and the winbar alike — which is what lets a **muted** window recede without
+the render knowing anything about it. Extending a namespace a window is already showing
+works too, and takes effect on the next redraw: measured in a prototype, not assumed. A
+group the namespace does not define falls back to its global definition, so what is not in
+it stays bright.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
@@ -345,6 +354,35 @@ again once it was back would repaint nothing.
 
 **`nvim_win_call` propagates only the first return value.** Returning `line("w0"), line("w$")`
 from it silently loses the end of the range.
+
+**`winhighlight` with `NormalNC` cannot mute a pane.** It is the obvious way to make an
+unfocused window recede and it is the wrong one here: it changes only a window's *default*
+foreground and background, and in the panes almost nothing uses those. A changed row carries
+its own line background, and code foregrounds come from the treesitter replay's extmarks at a
+higher priority band — so `NormalNC` leaves every changed line and every highlighted token at
+full brightness and dims little but the empty space, which reads as broken rather than as
+muted. Measured with a background group standing in for a changed line and a higher-priority
+foreground group standing in for the replay:
+
+```
+bright                      { background = 0x003300, foreground = 0xff0000 }
+muted (both defined)        { background = 0x001100, foreground = 0x550000 }
+muted (background only)     { background = 0x001100, foreground = 0xff0000 }
+```
+
+The first two lines are a window-local highlight namespace doing what `NormalNC` cannot; the
+third is the graceful failure that namespace keeps — a group with no variant in it stays
+bright rather than going wrong. `NormalNC` is adequate only on the file tree, which has
+almost no highlights of its own, and one mechanism for the three windows is worth more than
+that.
+
+**Which review window is bright is the review's last-focused one, not the current one.** The
+composer, the queue float and the archive float all take focus out of every review window, so
+a rule written against the current window mutes the whole review the moment a reviewer starts
+typing a note. The latch on the view moves only when focus lands on a review window, and
+`view_layout` reasserts the whole arrangement wherever focus is decided — window options set
+where a window is *created* are overwritten afterwards by the code that puts the panes back
+in step, so creation is not where this can live.
 
 **Closing a window does not end insert mode.** A composer opened with `startinsert` and
 submitted from an insert-mode mapping closes its float while still inserting, and focus

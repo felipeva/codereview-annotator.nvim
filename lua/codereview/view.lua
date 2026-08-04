@@ -52,6 +52,7 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@field panel_buf integer|nil
 ---@field panel_win integer|nil
 ---@field queue_win integer|nil           The window a queue float is open in
+---@field focus_win integer|nil           The review window focus last landed in: the bright one
 ---@field tab integer
 ---@field augroup integer                 Autocommands belonging to this review
 ---@field render CRRender|nil             The after pane's render
@@ -323,6 +324,11 @@ function M.paint(keep_file)
   if config.get().syntax then
     syntax.apply(V, NS)
   end
+  -- A pass that parsed a file resolved capture groups nothing knew about before it, and a
+  -- **muted** window needs a variant of each or the tokens it just gained come out bright.
+  -- Here rather than inside the pass, so that the module that knows about windows is called
+  -- by the one that owns them rather than reaching back up for them.
+  view_layout.mute_extend()
 
   view_layout.resync(V)
 end
@@ -449,6 +455,17 @@ function M.cursor_moved()
   if config.get().syntax then
     require("codereview.syntax").apply(V, NS)
   end
+  -- Whatever that pass resolved, muted in the pane that does not have focus -- which is
+  -- usually not the pane the scroll happened in. Cheap when it resolved nothing new: one
+  -- integer comparison and no allocation.
+  --
+  -- Deliberately here as well as in the paint, and *not* covered by a spec: what reaches
+  -- this and not the paint is scrolling into a file whose language nothing has parsed yet,
+  -- which needs a diff taller than the viewport margin holding more than one language. The
+  -- tall fixture is single-language and the many-language one is short enough to parse on
+  -- open, so no fixture in the suite has that shape -- see tests/README.md. Removing this
+  -- line reds nothing; it is still the line that keeps a real scroll from thinning out.
+  view_layout.mute_extend()
   -- Cheap: an anchor lookup, and then nothing at all unless the cursor left the file it
   -- was in.
   follow_file()
@@ -1224,6 +1241,10 @@ function M.open(spec)
   require("codereview.state").restore(V, key)
   M.reconcile()
 
+  -- Before the windows below it: every one of them takes focus while it is being built, and
+  -- this is what is watching when they hand it back.
+  view_layout.watch_focus(V)
+
   -- Before the panel, so the panel's `topleft`/`botright` split lands outside both panes
   -- rather than between them.
   if layout == "split" then
@@ -1245,6 +1266,19 @@ function M.open(spec)
       if M.current() then
         M.paint()
       end
+    end,
+  })
+
+  -- A **muted** window's colours are blends of the theme's, so they cannot outlive it.
+  -- Declared after `hl.setup()`, which is the first thing this function does and which
+  -- re-links the plugin's own groups from its own `ColorScheme` autocommand: the two fire in
+  -- the order they were declared, so the groups this reads have been re-linked by the time
+  -- it reads them. Watched from here rather than from `hl.lua`, which would have to reach
+  -- back up into the module that owns the windows to say it.
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = V.augroup,
+    callback = function()
+      view_layout.recolour()
     end,
   })
 

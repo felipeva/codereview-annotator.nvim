@@ -212,6 +212,23 @@ can see which packages are done without opening them. It follows the diff cursor
 Collapsed directories belong to the review rather than to the tree, so they are exactly as
 you left them when it comes back.
 
+### The window you are in is the bright one
+
+A review can hold three windows at once — the before pane, the after pane and the tree —
+and the one without focus is **muted**: its colours pulled toward the background, so where
+you are is on screen instead of something you have to press a key to find out. The
+`cursorline` goes with it, which is what stops the split layout lighting a row in both panes
+while saying nothing about either.
+
+The colours come from your own colorscheme, blended: nothing here has a palette of its own,
+and a group the plugin cannot know about is left bright rather than guessed at, so an
+unfamiliar theme degrades to *less muted* and never to *wrong*. A float — the composer, the
+queue float, the last-batch float — changes nothing: the bright window is the review window
+you were last in, not the window with the cursor in it.
+
+`muted = { enabled = false }` turns it off whole; `strength` is one number from 0 to 1
+saying how far toward the background a colour goes.
+
 ### Typed annotations
 
 A type is not decoration — it changes what the receiving agent is told to do with that
@@ -574,6 +591,8 @@ opts = {
   spans = true,                    -- emphasise what changed inside a changed line
   archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
                                    -- and tally the untouched ones on the winbar
+  muted = { enabled = true,        -- mute every review window that does not have focus
+            strength = 0.5 },      -- how far its colours are pulled toward the background
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },

@@ -28,6 +28,17 @@ One of the two windows in a split layout, holding the before- or the after-image
 _side_: a diff line's side is already add/del/ctx, and one word must not do two jobs.
 _Avoid_: side, column, window
 
+**Muted**:
+Said of a review window that does not have focus: its colours pulled toward the background
+through a highlight namespace of its own, so the focused window is the bright one and a
+reviewer never has to press a key to find out where they are. Said of a **pane** or of the
+file tree — never of anything drawn *on* the diff. Not _dimmed_: an archived **entry** is
+already drawn dimmed on the diff, and one word must not do two jobs — the same collision
+that kept _side_ reserved for a diff line's add/del/ctx when the split layout needed a word
+for its windows. The two are also different mechanisms: dimming is a highlight group the
+render chooses per entry, muting is every group at once in one window.
+_Avoid_: dimmed, greyed, faded, inactive
+
 **Filler**:
 A blank row emitted in one pane where the other has no counterpart — a pure addition, a
 pure deletion, a file that exists on only one side — so the two stay row-aligned. Distinct
