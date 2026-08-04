@@ -339,6 +339,7 @@ worth a look before we ship this
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
 | `<CR>` | Open the real file here, in a new tab |
+| `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `Q` | Review the queue |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
@@ -369,6 +370,7 @@ is to stop looking at them, so the useful motion is "the next thing I have not d
 | Key | Action |
 | --- | --- |
 | `<CR>` / `o` | Open the file, or fold the directory |
+| `gd` | Read the file under the cursor in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `h` / `zc` | Collapse the directory — on a file, collapses its parent |
 | `l` / `zo` | Expand the directory |
 | `za` | Toggle the directory |
@@ -416,8 +418,9 @@ without the plugin fighting back.
 
 ## Adapters
 
-The plugin has no opinion about where a review goes, or about which pickers you use. Four
-optional functions inject that — **none are required.**
+The plugin has no opinion about where a review goes, about which pickers you use, or about
+which diff tool you read a rewrite in. Five optional functions inject that — **none are
+required.**
 
 | Adapter | What it supplies | Without it |
 | --- | --- | --- |
@@ -425,6 +428,7 @@ optional functions inject that — **none are required.**
 | `pick_target` | Chooses a delivery target | No target; `send` decides what that means |
 | `pick_file` | Picks a file for `@` in the composer | `@` stays a literal `@`, and says so |
 | `compose` | Collects note text | The composer the plugin ships |
+| `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
 
 ```lua
 opts = {
@@ -432,8 +436,14 @@ opts = {
   pick_target = function(cb) cb({ short = "agent", cwd = "/path" }) end,
   pick_file = function(cb) cb({ path = "src/main.lua", first = 12, last = 20 }) end,
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
+  open_diff = function(spec) end,  -- spec: { path, before, after, line }
 }
 ```
+
+**You cannot annotate in whatever `open_diff` opens.** Nothing there has an anchor map, so
+it is a one-way trip: read the file closely, then come back to the review to say anything
+about it. It is for the rewrite that Neovim's own diff mode reads better than a unified
+diff does — a reformat, a re-indent, a file moved wholesale — not a second review surface.
 
 <details>
 <summary>The full contract for each</summary>
@@ -471,6 +481,21 @@ opts = {
   -- the target *this note* will reach. Name it, and change it with `pick`. It is absent
   -- for a note joining the queue, which the batch routes.
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
+
+  -- Read one file in the diff tool you already have — DiffviewOpen, :Gdiffsplit, your own
+  -- diffthis pair. The plugin ships none of that: it hands over the file and the two refs
+  -- its scope is between and stops caring. `path` is absolute and is the post-image path,
+  -- so for a rename the pre-image lives elsewhere in `before`. `after` is nil whenever the
+  -- post-image is the working tree — that is most scopes, and it is not an error: nil
+  -- means the file on disk. `line` is nil when the file was named from the file tree,
+  -- which knows a file and no position in it.
+  --
+  -- Bound to `gd` only while this is wired, in the diff and in the tree. A key that
+  -- silently did nothing would be worse than no key.
+  open_diff = function(spec)
+    local rev = spec.after and (spec.before .. ".." .. spec.after) or spec.before
+    vim.cmd(("DiffviewOpen %s -- %s"):format(rev, vim.fn.fnameescape(spec.path)))
+  end,
 }
 ```
 
