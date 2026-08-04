@@ -33,7 +33,8 @@ lint:
 format:
 	@stylua lua/ tests/
 
-## perf  -- open-time report on a 60-file diff. Not part of `make test`.
+## perf  -- open, scroll, keystroke and repaint timings at 60 files and at 300. Only the
+## 60-file open is budgeted; the larger tier reports. Not part of `make test`.
 perf:
 	@$(NVIM) --headless -u NONE -l tests/perf.lua
 

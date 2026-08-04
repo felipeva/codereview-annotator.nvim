@@ -41,7 +41,7 @@ make test                                            # the whole suite
 make test-file FILE=tests/codereview/diff_spec.lua   # one spec, in-process
 make lint                                            # stylua --check
 make format                                          # stylua, in place
-make perf                                            # open-time report, not part of CI
+make perf                                            # timing report at two sizes, not part of CI
 ```
 
 New behaviour needs a spec. [`tests/README.md`](tests/README.md) covers the layout, the

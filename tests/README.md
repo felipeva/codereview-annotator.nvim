@@ -5,7 +5,7 @@ make deps                                             # clone plenary into .test
 make test                                             # the whole suite
 make test-file FILE=tests/codereview/diff_spec.lua    # one spec, in-process
 make lint                                             # stylua --check
-make perf                                             # open-time report, not a gate
+make perf                                             # timing report at two sizes, not a gate
 ```
 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
@@ -30,7 +30,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
-| `perf.lua` | Open-time report on a 60-file diff, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
+| `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
 | Spec | Covers |
 | --- | --- |
@@ -77,7 +77,11 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
-- **`mkbig.sh`** — 60 files, 12k changed lines, for `perf.lua` only.
+- **`mkbig.sh`** — files of a given size, half of every file rewritten, for `perf.lua` only.
+  It takes counts as well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and
+  200), which is what lets the report measure two sizes without a second script: it builds a
+  60-file, 12k-line repository and a 300-file, 60k-line one, per run, in a temporary
+  directory. Neither is committed.
 
 The sources are Lua and Markdown rather than TypeScript because Neovim core ships both
 parsers **and** their `highlights` queries. `syntax_spec` therefore exercises the real
@@ -153,6 +157,13 @@ so the out-of-core language path is still checked locally without ever failing C
   whatever changed the width has returned — and in a headless spec, which never pumps the
   loop, it does not land at all. Anything that changes a window's width has to repaint for
   itself; the resize autocmd is for the reviewer dragging a border, nothing else.
+- **Moving the cursor from a script does not fire `CursorMoved`.** Neither
+  `nvim_win_set_cursor` nor a `normal! j` inside `nvim_win_call` raises it under `nvim -l` —
+  measured rather than assumed, the same way `scrollbind` was. So anything claiming to cost
+  what a keystroke costs has to dispatch the event itself: `perf.lua` moves the cursor and
+  then calls `nvim_exec_autocmds("CursorMoved", { buffer = … })`, which runs the review
+  buffer's own autocommand. Timing the move alone reports microseconds and misses every
+  millisecond the reviewer actually pays.
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.
@@ -256,6 +267,7 @@ so the out-of-core language path is still checked locally without ever failing C
   `scrollopt` is global, and the plugin deliberately does not set it. What *is* covered is
   that it stays untouched.
 - **Timing and wall clock.** `perf.lua` reports numbers and fails only past a deliberately
-  loose ceiling. It is a report you read, not a gate; it is not in CI, where a shared
-  runner would make it noise.
+  loose ceiling, and only at 60 files: the 300-file tier reports and cannot fail the
+  command, because a second ceiling would be a second figure to tune per machine. It is a
+  report you read, not a gate; it is not in CI, where a shared runner would make it noise.
 - **Windows.** The fixture scripts are bash and the suite assumes POSIX paths.
