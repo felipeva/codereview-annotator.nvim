@@ -103,6 +103,32 @@ tree, and the whole batch silently degrades to absolute paths with pasted snippe
 resolves once per submit rather than per entry, and falls back to the string it was given:
 a routed agent can name a directory that does not exist on this machine at all.
 
+## The archive
+
+**The state document's `VERSION` must not be bumped to add a key.** A mismatched version
+is discarded on load, deliberately — restoring marks that mean something different than
+they did when written costs more than losing them. So a bump made to make room for
+`archive` would throw away every reviewed mark in every existing file, to add a key those
+files simply lack. New keys are defaulted on load instead, exactly as `scopes` and `queue`
+already are.
+
+**The queue's id counter does not survive a process, and archived entries do.** It is
+module-level and starts at 1, which was harmless while everything carrying an id was in the
+queue: the restore seeds it past whatever came back. An archived entry has left the queue
+but not the screen, so a session that dispatched ids 1..n and then restarted hands its next
+annotation an id already drawn on the diff — and dropping an annotation resolves by anchor
+key and then by id, so `x` removes the wrong one. The restore therefore seeds from the
+archive as well, *after* both stores have been read, because entries are split between them
+and an id is unique across the pair.
+
+**`git stash create` mints a commit and does nothing else.** No ref moves, the index is not
+touched and the working tree is not reverted, which is the only reason it is safe to run
+behind a submit. Two consequences worth knowing before reading a snapshot back: a clean
+tree mints *nothing* and prints nothing, so the snapshot falls back to `HEAD` — that is a
+case, not an edge — and untracked files are not in the commit at all, so a file untracked
+at dispatch is covered by the same synthesis the branch and worktree scopes already apply
+to untracked files, not by the snapshot.
+
 ## The file tree
 
 **The tree's parent directory is found by depth, not by proximity.** `h` on a file folds

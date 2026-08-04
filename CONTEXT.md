@@ -148,6 +148,18 @@ _Avoid_: delivered, sent, accepted
 Delivering a single annotation on its own, without it joining the queue.
 _Avoid_: quick note, one-off, direct send
 
+**Archive**:
+The batches already dispatched from a repository, kept after the queue that held them was
+cleared. Only a **dispatch** writes it, so a payload copied to a register is not in it.
+_Avoid_: history, sent queue, outbox
+
+**Snapshot**:
+The commit object recording the working tree at the moment a batch was **dispatched**.
+Minted without touching refs, the index or the working tree, and on a clean tree it is
+`HEAD`.
+_Avoid_: stash (a stash is a thing git keeps; this one is never on the stash list),
+checkpoint
+
 ### Embedding
 
 **Host**:

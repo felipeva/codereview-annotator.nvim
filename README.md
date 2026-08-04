@@ -585,9 +585,9 @@ spells out which queue is which.
 
 ## Persistence
 
-Reviewed marks and the queue are stored per repository under
-`stdpath("state")/codereview/`, keyed by scope and diff base, and survive a restart. Each
-entry records the git blob it was captured against. On reload:
+Reviewed marks, the queue and the batches already dispatched are stored per repository
+under `stdpath("state")/codereview/`, keyed by scope and diff base, and survive a restart.
+Each entry records the git blob it was captured against. On reload:
 
 - a **reviewed mark** whose blob moved is silently un-marked — the file changed, so you
   have not reviewed what is there now;
@@ -608,6 +608,23 @@ goes to a single global store beside the others. Nothing ever reconciles that st
 a diff, so nothing would ever clear it: entries older than **seven days** are dropped when
 it is read. That bounds its growth but not its staleness, which is the accepted cost of not
 making those annotations second-class.
+
+</details>
+
+<details>
+<summary>What a dispatched batch leaves behind</summary>
+
+A batch that is **dispatched** is kept rather than forgotten: the annotations as they went,
+where they went, when, and a **snapshot** of the working tree at that moment — a commit
+object minted with `git stash create`, which moves no ref, leaves the index alone and never
+touches your files. On a clean tree there is nothing to record that `HEAD` does not already
+say, and `HEAD` is what is stored.
+
+A dispatch writes it and nothing else does. An adapter that declined, one that raised, and
+the `+` register the default send copies to all leave it exactly as they leave the queue —
+a payload sitting in a register is not something an agent received. An immediate send is a
+batch of one and is kept as one. The most recent **twenty** batches are kept per store,
+oldest dropped on write.
 
 </details>
 

@@ -697,7 +697,7 @@ that is what keeps code readable inside an emphasised span. Both are still
 ==============================================================================
 11. PERSISTENCE                                     *codereview-persistence*
 
-Reviewed marks and the queue are written to
+Reviewed marks, the queue and the batches already dispatched are written to
 `stdpath("state")/codereview/{repo}.json`, keyed by scope and diff base.
 Half-written notes are kept separately, in `drafts.json` -- see
 |codereview-drafts|.
@@ -752,6 +752,28 @@ first written, so queueing something else does not restart the clock.
 That bounds the store's growth but not its staleness. An old note can still
 claim a line span that has since moved, and nothing will flag it -- the
 accepted cost of not making those annotations second-class.
+
+The archive                                 *codereview-persistence-archive*
+
+A batch that is dispatched is kept rather than forgotten. Each record holds
+the annotations as they went, where they went, when, and a snapshot: a commit
+object recording the working tree at that moment, minted with `git stash
+create` -- which moves no ref, leaves the index alone and never touches the
+working tree, so nothing about a submit disturbs what you are reviewing. On a
+clean tree there is nothing to record that `HEAD` does not already say, and
+`HEAD` is what is stored. Untracked files are not in such a commit.
+
+A dispatch writes it and nothing else does. An adapter that declined, one that
+raised, and the `+` register the default send copies to all leave the archive
+exactly as they leave the queue -- a payload sitting in a register is not
+something an agent received. See |codereview-opt-send|. An immediate send
+(|codereview-immediate-send|) is a batch of one and is kept as one.
+
+Records go to the same two stores the queue does, split by the same rule: an
+annotation with a repository-relative path to that repository's file, a bare
+note or a file outside any checkout to the no-repository store. The most
+recent **twenty** batches per store are kept, and the oldest is dropped on
+write.
 
 ==============================================================================
 12. LUA API                                                 *codereview-api*
