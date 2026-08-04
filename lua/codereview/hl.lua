@@ -29,6 +29,12 @@ local LINKS = {
   CodeReviewPanelSel = "CursorLine",
   CodeReviewPanelDir = "Directory",
 
+  -- The queue float's own chrome. The bar running down an entry is that annotation type's
+  -- group rather than one of these, so what is left is the number the entry is listed
+  -- under and the state that rides on the right of its first row.
+  CodeReviewQueueIndex = "LineNr",
+  CodeReviewQueueState = "Comment",
+
   -- Annotation types, mapped onto diagnostic severities so the visual weight already
   -- matches the intent: a bug reads as loud as an error, a nitpick as quiet as a hint.
   CodeReviewBug = "DiagnosticError",

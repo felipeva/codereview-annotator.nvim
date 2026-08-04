@@ -116,6 +116,11 @@ local function truncate(text, width)
   return vim.fn.strcharpart(text, 0, math.max(1, width - 1)) .. "…"
 end
 
+---Exported for the queue float, which draws rows of its own into a window narrower than
+---most paths. Fitting text into a column count is this module's job wherever the text goes;
+---a second copy would be a second set of rules about what "too wide" means.
+M.truncate = truncate
+
 ---Longest prefix of `text` that fits in `width` display columns, and what is left.
 ---
 ---By display width rather than by characters: a note containing CJK or an emoji occupies
@@ -177,6 +182,12 @@ local function wrap(text, width)
   end
   return out
 end
+
+---Exported for the queue float, which wraps the same notes into rows of its own. By display
+---width is the whole point of sharing it: splitting a note by byte passes every ASCII
+---assertion and breaks the first CJK or emoji one it meets, which is the trap intra-line
+---spans already walked into once.
+M.wrap = wrap
 
 ---Split a hunk header into the halves each pane draws.
 ---@param header string "@@ -19,6 +19,8 @@ heading"
