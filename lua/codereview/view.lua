@@ -7,8 +7,11 @@
 ---handed this module the same way; what stays here is the jump from a queued **entry** into
 ---the diff, and the window a float is open in. Where the review's windows *are* is
 ---`view_layout.lua`, handed this module the same way again: the **panes**, the before pane,
----and the toggle between the two layouts. The single `V` below is what it mutates, and the
----two names it took out from under `keymaps.lua` and `annotate.lua` are re-exported here.
+---and the toggle between the two layouts. The **file tree**'s window and the actions its
+---keys run are `view_panel.lua`, handed this module the same way once more; its pure half
+---is `panel.lua`, which this module no longer reaches at all. The single `V` below is what
+---all three mutate, and the names they took out from under `keymaps.lua` and `annotate.lua`
+---are re-exported here.
 ---
 ---In the split layout the view keeps its existing buffer and window as the **after** pane
 ---and gains a before pane beside it. The after-image is the primary one everywhere else --
@@ -18,17 +21,15 @@
 local config = require("codereview.config")
 local git = require("codereview.git")
 local render = require("codereview.render")
-local panel = require("codereview.panel")
 local hl = require("codereview.hl")
 local delivery = require("codereview.delivery")
-local keymaps = require("codereview.keymaps")
 local queue_float = require("codereview.queue_float")
 local view_layout = require("codereview.view_layout")
+local view_panel = require("codereview.view_panel")
 
 local M = {}
 
 local NS = vim.api.nvim_create_namespace("codereview")
-local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 
 ---@class CRView
 ---@field root string
@@ -105,63 +106,9 @@ end
 
 --- Painting --------------------------------------------------------------------
 
----Index of the file the diff cursor is currently inside, for the panel's highlight.
----@return integer|nil
-local function current_file_index()
-  local win, rendered = view_layout.focused_pane(V)
-  if not (rendered and vim.api.nvim_win_is_valid(win)) then
-    return nil
-  end
-  local row = vim.api.nvim_win_get_cursor(win)[1]
-  for r = row, 1, -1 do
-    if rendered.anchors[r] then
-      return rendered.anchors[r].file
-    end
-  end
-  return nil
-end
-
-local function paint_panel()
-  if not (V.panel_win and vim.api.nvim_win_is_valid(V.panel_win)) then
-    return
-  end
-  local cfg = config.get()
-  V.panel_render = panel.build(V.files, {
-    width = vim.api.nvim_win_get_width(V.panel_win),
-    icons = cfg.icons,
-    reviewed = V.reviewed,
-    notes = V.notes,
-    collapsed = V.collapsed,
-    current = current_file_index(),
-  })
-  vim.bo[V.panel_buf].modifiable = true
-  vim.api.nvim_buf_set_lines(V.panel_buf, 0, -1, false, V.panel_render.lines)
-  vim.bo[V.panel_buf].modifiable = false
-  vim.api.nvim_buf_clear_namespace(V.panel_buf, NS_PANEL, 0, -1)
-  for _, m in ipairs(V.panel_render.marks) do
-    pcall(vim.api.nvim_buf_set_extmark, V.panel_buf, NS_PANEL, m.row, m.col, m.opts)
-  end
-end
-
----Move the panel's highlight (and cursor, when it is not focused) to follow the diff.
----
----Repaints only when the file actually changed: this runs on every CursorMoved, and
----rebuilding the tree on each keystroke is wasted work on a large review.
-local function sync_panel()
-  if not (V and V.panel_win and vim.api.nvim_win_is_valid(V.panel_win)) then
-    return
-  end
-  local index = current_file_index()
-  if index == V.panel_current then
-    return
-  end
-  V.panel_current = index
-  paint_panel()
-  local row = index and V.panel_render.file_row[index]
-  if row and vim.api.nvim_get_current_win() ~= V.panel_win then
-    pcall(vim.api.nvim_win_set_cursor, V.panel_win, { row, 0 })
-  end
-end
+-- The file tree is painted by `view_panel.lua`, which is handed the view it mutates. What
+-- is left here is the diff's own paint, and the two moments the tree comes due with it: a
+-- repaint of everything, and a cursor that crossed into a different file.
 
 local function update_winbar()
   if not vim.api.nvim_win_is_valid(V.win) then
@@ -351,7 +298,7 @@ function M.paint(keep_file)
   -- paint: what a band means is decided by the render it was emitted from.
   V.painted_bands = {}
 
-  paint_panel()
+  view_panel.paint_panel(V)
   update_winbar()
   update_before_winbar()
 
@@ -400,7 +347,7 @@ function M.cursor_moved()
   end
   -- Keeps the tree pointed at whatever the diff cursor is reading. Cheap: it returns
   -- immediately unless the cursor crossed into a different file.
-  sync_panel()
+  view_panel.sync_panel(V)
 end
 
 ---Write progress to disk. Called from every mutation rather than from `paint`, which
@@ -483,6 +430,11 @@ local function nearest(rows, from, forward)
   return best
 end
 
+---Exported because the tree walks its own file rows with `]f` and `[f` exactly as the diff
+---walks its, and "the nearest row in that direction" is one rule rather than two copies of
+---one. It is the only thing `view_panel.lua` needs from this section.
+M.nearest = nearest
+
 ---Put a file header at the top of the window rather than leaving it wherever it lands:
 ---jumping to a file is a request to read it, and its first hunk should be on screen.
 ---
@@ -490,13 +442,13 @@ end
 ---
 ---Exported because the layout toggle lands a cursor the same way every jump here does, and
 ---it is the one arrival the two halves of this share: placing the panes is
----`view_layout.lua`'s and following the diff with the tree is this module's, so the pair is
----glued where the view that owns both is.
+---`view_layout.lua`'s and following the diff with the tree is `view_panel.lua`'s, so the
+---pair is glued where the view that owns both is.
 ---@param row integer
 ---@param cmd string|nil `zt`, `zz`, or nil to leave the window where it is
 local function goto_row(row, cmd)
   view_layout.place(V, row, cmd)
-  sync_panel()
+  view_panel.sync_panel(V)
 end
 
 M.goto_row = goto_row
@@ -641,25 +593,12 @@ end
 
 --- Focus -----------------------------------------------------------------------
 
----Move between the tree and the diff.
+-- Moving between the tree and the diff is a question about the tree's existence rather than
+-- about the diff, so its body is `view_panel.lua`'s. What is left here is the name
+-- `keymaps.lua` binds to `<Tab>` in both.
+
 function M.toggle_focus()
-  if not M.current() then
-    return
-  end
-  if not (V.panel_win and vim.api.nvim_win_is_valid(V.panel_win)) then
-    return
-  end
-  if vim.api.nvim_get_current_win() == V.panel_win then
-    vim.api.nvim_set_current_win(V.win)
-  else
-    -- Entering the tree, land on the file being read rather than wherever the cursor was.
-    local index = current_file_index()
-    local row = index and V.panel_render and V.panel_render.file_row[index]
-    vim.api.nvim_set_current_win(V.panel_win)
-    if row then
-      pcall(vim.api.nvim_win_set_cursor, V.panel_win, { row, 0 })
-    end
-  end
+  view_panel.toggle_focus(V, M)
 end
 
 function M.toggle_reviewed()
@@ -859,6 +798,10 @@ end
 ---it keeps none about delivery (ADR-0001): everything the host needs to fetch either image
 ---is in the spec, and what it does with them is its own. Nothing it opens has an anchor
 ---map, so this is a read-only detour -- there is nowhere in there to annotate from.
+---
+---Exported because the tree's `gd` hands a file over too, knowing no line in it. What a host
+---is handed is one rule about the scope a review is of, not one rule per surface that can
+---ask for it.
 ---@param file CRFile
 ---@param line integer|nil nil when the caller knows a file but no position in it
 local function hand_to_diff(file, line)
@@ -882,6 +825,8 @@ local function hand_to_diff(file, line)
   })
 end
 
+M.hand_to_diff = hand_to_diff
+
 ---`gd`: read the file under the cursor in the host's diff tool.
 ---
 ---At the line `<CR>` opens, deleted-line fallback and all -- one rule about where a diff
@@ -901,178 +846,35 @@ end
 
 --- Panel actions ---------------------------------------------------------------
 
----@return integer|nil file_index, string|nil dir_path, integer row
-local function panel_at_cursor()
-  if not (V.panel_render and V.panel_win and vim.api.nvim_win_is_valid(V.panel_win)) then
-    return nil, nil, 0
-  end
-  local row = vim.api.nvim_win_get_cursor(V.panel_win)[1]
-  return V.panel_render.row_file[row], V.panel_render.row_dir[row], row
-end
+-- The tree's actions are `view_panel.lua`'s, which is handed this module and the view it
+-- mutates. What is left here are the six names `keymaps.lua` binds onto the tree's buffer,
+-- so that the key table does not learn where the bodies moved to.
 
----Keep the cursor on the same tree row across a repaint, so collapsing a directory does
----not fling the cursor to the top of the panel.
----@param row integer
-local function keep_panel_cursor(row)
-  if V.panel_win and vim.api.nvim_win_is_valid(V.panel_win) then
-    local last = vim.api.nvim_buf_line_count(V.panel_buf)
-    pcall(vim.api.nvim_win_set_cursor, V.panel_win, { math.min(row, last), 0 })
-  end
-end
-
----`<CR>`: open a file, or fold a directory.
 function M.panel_select()
-  local fi, dir, row = panel_at_cursor()
-  if dir then
-    V.collapsed[dir] = not V.collapsed[dir] or nil
-    paint_panel()
-    keep_panel_cursor(row)
-    return
-  end
-  if not fi or not V.render.file_rows[fi] then
-    return
-  end
-  -- Jumping to a reviewed file expands it: you asked to look at it.
-  if V.expanded[V.files[fi].path] == false then
-    V.expanded[V.files[fi].path] = true
-    M.paint()
-  end
-  vim.api.nvim_set_current_win(V.win)
-  goto_row(V.render.file_rows[fi], "zt")
+  view_panel.panel_select(V, M)
 end
 
----`gd` in the tree: read the file under the cursor in the host's diff tool.
----
----With no line. The tree knows which file you are looking at and nothing about where in
----it, and a row that is a directory names no file at all.
 function M.panel_open_diff()
-  if not M.current() then
-    return
-  end
-  local fi = panel_at_cursor()
-  if not fi then
-    return
-  end
-  hand_to_diff(V.files[fi], nil)
+  view_panel.panel_open_diff(V, M)
 end
 
 ---@param shut boolean|nil nil toggles
 function M.panel_fold(shut)
-  local _, dir, row = panel_at_cursor()
-  if not V.panel_render then
-    return
-  end
-
-  if not dir then
-    -- On a file, `h` folds the directory containing it -- the same reflex as in any tree.
-    -- The parent is the nearest directory row above with a SMALLER depth; the nearest one
-    -- by position may be a sibling directory the cursor has already scrolled past.
-    if shut ~= true then
-      return
-    end
-    local depth = V.panel_render.row_depth[row]
-    for r = row - 1, 1, -1 do
-      if V.panel_render.row_dir[r] and (V.panel_render.row_depth[r] or 0) < (depth or 0) then
-        V.collapsed[V.panel_render.row_dir[r]] = true
-        paint_panel()
-        keep_panel_cursor(r)
-        return
-      end
-    end
-    return
-  end
-
-  if shut == nil then
-    V.collapsed[dir] = not V.collapsed[dir] or nil
-  else
-    V.collapsed[dir] = shut or nil
-  end
-  paint_panel()
-  keep_panel_cursor(row)
+  view_panel.panel_fold(V, shut)
 end
 
 ---@param shut boolean
 function M.panel_fold_all(shut)
-  if not M.current() then
-    return
-  end
-  V.collapsed = {}
-  if shut then
-    for _, dir in ipairs(panel.dir_paths(panel.tree(V.files, { reviewed = V.reviewed, notes = V.notes }))) do
-      V.collapsed[dir] = true
-    end
-  end
-  paint_panel()
-  keep_panel_cursor(1)
+  view_panel.panel_fold_all(V, M, shut)
 end
 
----Toggle reviewed from the tree. On a directory, this applies to the whole subtree --
----"I have read this package" is a thing you want to say in one keystroke.
 function M.panel_toggle_reviewed()
-  local fi, dir, row = panel_at_cursor()
-
-  if dir then
-    local indices = panel.files_under(V.files, dir)
-    if #indices == 0 then
-      return
-    end
-    local all_reviewed = true
-    for _, index in ipairs(indices) do
-      if not V.reviewed[V.files[index].path] then
-        all_reviewed = false
-        break
-      end
-    end
-    for _, index in ipairs(indices) do
-      local file = V.files[index]
-      if all_reviewed then
-        V.reviewed[file.path] = nil
-        V.expanded[file.path] = true
-      else
-        V.reviewed[file.path] = file.blob or ""
-        V.expanded[file.path] = false
-      end
-    end
-    M.paint()
-    M.persist()
-    keep_panel_cursor(row)
-    info(
-      ("%s %d file%s under %s"):format(
-        all_reviewed and "Unmarked" or "Marked",
-        #indices,
-        #indices == 1 and "" or "s",
-        dir
-      )
-    )
-    return
-  end
-
-  if not fi then
-    return
-  end
-  local file = V.files[fi]
-  if V.reviewed[file.path] then
-    V.reviewed[file.path] = nil
-    V.expanded[file.path] = true
-  else
-    V.reviewed[file.path] = file.blob or ""
-    V.expanded[file.path] = false
-  end
-  M.paint()
-  M.persist()
-  keep_panel_cursor(row)
+  view_panel.panel_toggle_reviewed(V, M)
 end
 
 ---@param forward boolean
 function M.panel_jump_file(forward)
-  local _, _, row = panel_at_cursor()
-  if not V.panel_render then
-    return
-  end
-  local target = nearest(V.panel_render.file_rows, row, forward)
-  if target then
-    keep_panel_cursor(target)
-  end
+  view_panel.panel_jump_file(V, M, forward)
 end
 
 --- Delivery -------------------------------------------------------------------
@@ -1286,64 +1088,12 @@ end
 
 --- The panel window ------------------------------------------------------------
 
----Build the panel: its window, its buffer and its keymaps.
----
----An operation of its own rather than a step inside `open`, because the toggle has to be
----able to run it again. The panel buffer is `bufhidden = "wipe"`, so a dismissed panel
----leaves nothing to re-attach: the buffer is gone and every keymap bound to it with it.
-local function show_panel()
-  local cfg = config.get()
-  vim.api.nvim_set_current_win(V.win)
-  vim.cmd(cfg.panel.position == "right" and "botright vsplit" or "topleft vsplit")
-  local pwin = vim.api.nvim_get_current_win()
-  local pbuf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_win_set_buf(pwin, pbuf)
-  view_layout.scratch(pbuf, "codereviewpanel")
-  view_layout.window_opts(pwin)
-  vim.api.nvim_win_set_width(pwin, cfg.panel.width)
-  vim.wo[pwin].winfixwidth = true
-  V.panel_buf, V.panel_win = pbuf, pwin
-  keymaps.panel(pbuf, M)
-  vim.api.nvim_set_current_win(V.win)
-end
+-- The tree's window is `view_panel.lua`'s, built and dismissed there as the before pane is
+-- built and dismissed in `view_layout.lua`. What is left here is the name `keymaps.lua`
+-- binds to `gp` in both the diff and the tree.
 
----Dismiss the panel. Collapsed directories are untouched: they live on the review.
-local function hide_panel()
-  local win = V.panel_win
-  V.panel_buf, V.panel_win, V.panel_render = nil, nil, nil
-  -- The tree follows the diff by repainting only when the cursor crosses into a different
-  -- file. With no tree to repaint, that latch would sit on whatever was being read when it
-  -- was dismissed, and reading that file again once it is back would repaint nothing.
-  V.panel_current = nil
-  -- A reviewer who dismisses the tree is not asking to be left in the window they
-  -- dismissed, so leave it deliberately rather than letting Neovim pick a successor.
-  if vim.api.nvim_get_current_win() == win then
-    vim.api.nvim_set_current_win(V.win)
-  end
-  pcall(vim.api.nvim_win_close, win, true)
-end
-
----Show or dismiss the file tree, from the diff or from the tree itself.
----
----Configuration decides the state a review opens in; this decides it from there on.
 function M.toggle_panel()
-  if not M.current() then
-    return
-  end
-  if V.panel_win and vim.api.nvim_win_is_valid(V.panel_win) then
-    hide_panel()
-  else
-    show_panel()
-  end
-  -- With three windows competing for the terminal's columns, the panel's arrival or
-  -- departure is taken out of, or given back to, whichever pane Neovim picked. Split the
-  -- difference so the two panes stay comparable, which is the whole point of the layout.
-  view_layout.balance_panes(V)
-  -- The diff just changed width and its file headers are padded to that width, so this has
-  -- to repaint. The resize autocmd does not cover it: WinResized is fired from the main
-  -- loop, so it lands after the toggle has returned -- and never at all if nothing else
-  -- pumps the loop, which is exactly the headless case.
-  M.paint()
+  view_panel.toggle_panel(V, M)
 end
 
 --- The layout ------------------------------------------------------------------
@@ -1430,7 +1180,7 @@ function M.open(spec)
     view_layout.show_before_pane(V, M)
   end
   if cfg.panel.enabled then
-    show_panel()
+    view_panel.show_panel(V, M)
   end
   view_layout.balance_panes(V)
 

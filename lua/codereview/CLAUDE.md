@@ -33,16 +33,17 @@ change there is felt through.
 | `state.lua` | Persisted review progress, and the blob comparisons over it — staleness, and touchedness kept in a function of its own | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
-| `view.lua` | The review view: the `CRView` it owns, the paint, navigation, the file tree, delivery, opening and closing | stateful (windows) |
+| `view.lua` | The review view: the `CRView` it owns, the paint, navigation, delivery, opening and closing | stateful (windows) |
 | `view_layout.lua` | Where the review's windows are: the panes, the before pane, and the toggle between the unified and split layouts | stateful (windows) |
+| `view_panel.lua` | The file tree's stateful half: its window and buffer, the repaint that follows the diff cursor, and the actions its keys run | stateful (windows) |
 
 ## How they stack
 
 - **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
   `archive`, `delivery`, `keymaps`, `syntax`; then `composer`, `hl`, `queue_float`,
-  `view_layout`.
-- **The hubs**: `view` requires fourteen of the modules above, `annotate` nine. A change that
+  `view_layout`; then `view_panel`.
+- **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
 
@@ -60,15 +61,17 @@ the `since-batch` scope. Function-local on both sides, as above. The alternative
 the snapshot in from outside, which would put the one scope that needs it into every caller
 of `resolve_scope` — and scope resolution is exactly what must stay one function.
 
-`keymaps`, `queue_float` and `view_layout` would each be a third. All three run the view's
-exported actions, and all three take them as an argument — `view` hands itself in — rather
-than requiring `view` for them. That is deliberate, and it is what leaves `keymaps` a
+`keymaps`, `queue_float`, `view_layout` and `view_panel` would each be a third. All four run
+the view's exported actions, and all four take them as an argument — `view` hands itself in —
+rather than requiring `view` for them. That is deliberate, and it is what leaves `keymaps` a
 function of its arguments and the configured annotation types. `queue_float` reads no view
 state either: the one field it needs, the window a float is open in, stays on `view` behind
 two accessors, because closing a float on submit is a rule about the view's windows.
-`view_layout` does read view state, but never its own copy of it: the `CRView` table is
-handed in beside the view and mutated in place, exactly as `syntax` and `state` are handed
-it, so there is still one table and `view` still owns it.
+`view_layout` and `view_panel` do read view state, but never their own copy of it: the
+`CRView` table is handed in beside the view and mutated in place, exactly as `syntax` and
+`state` are handed it, so there is still one table and `view` still owns it. The one edge
+between the two is `view_panel` requiring `view_layout` for the window construction both
+surfaces share, and it points one way only.
 
 ## Where reading pays
 
@@ -77,9 +80,10 @@ it, so there is still one table and `view` still owns it.
   `keymaps` is the one to open when the question is what a key does or where to add one —
   it is a table, not a search through the surface that happens to bind it.
 - **Carries the churn**: `view` and `annotate` by a wide margin, then `config`, `composer`
-  and `state`. `queue_float` and `view_layout` are both newly split out of `view` and
-  inherit its history rather than starting clean — the float's rows and its keys have both
-  been rewritten recently, and the panes carry every trap the split layout ever cost.
+  and `state`. `queue_float`, `view_layout` and `view_panel` are all newly split out of
+  `view` and inherit its history rather than starting clean — the float's rows and its keys
+  have both been rewritten recently, the panes carry every trap the split layout ever cost,
+  and the tree's window has been dismissible for less time than it has existed.
 
 Re-derive with `git log --oneline --follow -- lua/codereview/<name>.lua` before leaning on
 that grouping; it moves.
