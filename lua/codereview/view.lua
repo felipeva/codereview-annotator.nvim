@@ -1031,6 +1031,27 @@ function M.pick_target(on_done)
   end)
 end
 
+---What the review a batch is going out of can say about itself, or nothing when there is
+---no review at all.
+---
+---Handed over rather than read back: delivery knows nothing about views, and a batch that
+---leaves with none open is answered from the working directory instead. Shared by submit
+---and copy because the payload names this in its first line -- a copy assembled from a
+---different context would differ from the send it stands in for by exactly that line.
+---@return { root?: string, scope_label?: string, files?: integer, reviewed?: integer }
+local function review_ctx()
+  local V_ = M.current()
+  if not V_ then
+    return {}
+  end
+
+  local reviewed = 0
+  for _ in pairs(V_.reviewed) do
+    reviewed = reviewed + 1
+  end
+  return { root = V_.root, scope_label = V_.scope.label, files = #V_.files, reviewed = reviewed }
+end
+
 ---Submit the batch, and put the windows back the way a sent batch leaves them.
 ---
 ---The rule -- restore, deliver, empty only on a dispatch -- is delivery's, because none of
@@ -1044,27 +1065,22 @@ function M.submit()
     V.queue_win = nil
   end
 
-  local V_ = M.current()
-  local reviewed = 0
-  if V_ then
-    for _ in pairs(V_.reviewed) do
-      reviewed = reviewed + 1
-    end
-  end
-
-  local dispatched = delivery.submit({
-    -- Handed over rather than read back: delivery knows nothing about views, and a batch
-    -- submitted with none open is answered from the working directory instead.
-    root = V_ and V_.root or nil,
-    scope_label = V_ and V_.scope.label or nil,
-    files = V_ and #V_.files or nil,
-    reviewed = reviewed,
-  })
+  local dispatched = delivery.submit(review_ctx())
   -- A batch that did not go is still queued and still drawn on the diff, so there is
   -- nothing to repaint -- and the reviewer has already been told why.
   if dispatched then
     M.paint()
   end
+end
+
+---Copy the batch to the clipboard, exactly as submitting would have rendered it.
+---
+---Nothing here does what submit does with the windows, because nothing was consumed: the
+---queue still holds every entry, the diff still draws them, and a float listing them is
+---still telling the truth. That is the whole difference between the two keys, and it is
+---why this one leaves the surface alone.
+function M.copy()
+  delivery.copy(review_ctx())
 end
 
 --- The queue review float ------------------------------------------------------
@@ -1398,7 +1414,7 @@ function M.review_queue()
       n == 1 and "" or "s",
       stale > 0 and (" · %d stale"):format(stale) or ""
     )
-    cfg_win.footer = (" ^T %s · ⏎ jump · x drop · ^S submit · q close "):format(
+    cfg_win.footer = (" ^T %s · ⏎ jump · x drop · gy copy · ^S submit · q close "):format(
       #name > 24 and (name:sub(1, 23) .. "…") or name
     )
     if vim.api.nvim_win_is_valid(win) then
@@ -1474,6 +1490,10 @@ function M.review_queue()
   vim.keymap.set("n", "<C-t>", function()
     M.pick_target(paint_queue)
   end, { buffer = buf, desc = "Choose target" })
+
+  -- Leaves the float open, where submitting closes it: what is on screen still describes
+  -- the queue exactly, because copying took nothing out of it.
+  vim.keymap.set("n", "gy", M.copy, { buffer = buf, desc = "Copy the batch to the clipboard" })
 
   vim.keymap.set("n", "<C-s>", function()
     close()
@@ -1595,6 +1615,10 @@ local function setup_main_keymaps(buf)
     ["gl"] = { M.toggle_layout, "Switch between the unified and split layouts" },
     ["<CR>"] = { M.open_file, "Open the real file here" },
     ["Q"] = { M.review_queue, "Review the queue" },
+    -- `gy`, not `Y`: yank is not dead in this buffer the way append is, and pulling a code
+    -- line out of the diff is something reviewers do. From the same `g` family as the
+    -- commands above, where it shadows nothing.
+    ["gy"] = { M.copy, "Copy the batch to the clipboard" },
     ["<C-t>"] = { M.pick_target, "Choose the delivery target" },
     ["<C-s>"] = { M.submit, "Submit the batch" },
     ["q"] = { M.close, "Close the review" },

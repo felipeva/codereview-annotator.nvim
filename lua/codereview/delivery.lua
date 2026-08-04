@@ -148,6 +148,57 @@ local function to_clipboard(payload, _to)
   return false, "No send adapter configured — copied the batch to the + register instead"
 end
 
+---Where a batch's `@ref`s resolve against, and which repository it is going out of.
+---
+---One answer for both, because they are one question asked from two sides: the repository
+---is what the archive is keyed on, and it is also what stands in when nothing has been
+---routed. A note captured outside a checkout has none.
+---@param to table|nil
+---@param opts { root?: string }
+---@return string base, string|nil repo
+local function destination(to, opts)
+  local repo = opts.root or git.root(vim.fn.getcwd())
+  local root = repo or vim.fn.getcwd()
+  -- Resolve refs against the directory the payload is actually going to: a routed agent
+  -- reads `@path` relative to its own cwd, not this Neovim's.
+  return (to and to.cwd and to.cwd ~= "") and to.cwd or root, repo
+end
+
+---The batch as text, against a base already decided.
+---
+---The one place a batch becomes a payload. Delivering and copying arrive here from
+---different sides -- one has already had to ask where the repository is, because that is
+---what it archives against, and the other never asks -- and neither may render for itself:
+---a payload copied to a register that differs from the one submitted is a copy that
+---misrepresents the send it stands in for.
+---@param items CRAnnotation[]
+---@param base string
+---@param opts { scope_label?: string, files?: integer, reviewed?: integer }
+---@return string
+local function render_at(items, base, opts)
+  return require("codereview.payload").render(items, base, {
+    types = config.get().types,
+    scope_label = opts.scope_label,
+    files = opts.files,
+    reviewed = opts.reviewed,
+  })
+end
+
+---What handing this batch over would produce, without handing it over.
+---
+---Public because a payload is worth reading without spending it. Everything that decides
+---what it says -- the target its refs resolve against, the review it describes -- is
+---decided here exactly as `deliver` decides it, so the text a reviewer copies is the text
+---an agent would have been given.
+---@param items CRAnnotation[]
+---@param to table|nil Where it would be going, or nil for the adapter's default
+---@param opts { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---@return string
+function M.render(items, to, opts)
+  opts = opts or {}
+  return render_at(items, destination(to, opts), opts)
+end
+
 ---Render annotations as one payload and hand it to the send adapter.
 ---
 ---Shared with the immediate send, which is a batch of one (ADR-0004): one renderer and
@@ -170,20 +221,8 @@ end
 function M.deliver(items, to, opts)
   local cfg = config.get()
   opts = opts or {}
-  -- The repository the batch is going out of, when there is one: a note captured outside a
-  -- checkout has none, and the archive is keyed on a root exactly as the queue's store is.
-  local repo = opts.root or git.root(vim.fn.getcwd())
-  local root = repo or vim.fn.getcwd()
-  -- Resolve refs against the directory the payload is actually going to: a routed agent
-  -- reads `@path` relative to its own cwd, not this Neovim's.
-  local base = (to and to.cwd and to.cwd ~= "") and to.cwd or root
-
-  local text = require("codereview.payload").render(items, base, {
-    types = cfg.types,
-    scope_label = opts.scope_label,
-    files = opts.files,
-    reviewed = opts.reviewed,
-  })
+  local base, repo = destination(to, opts)
+  local text = render_at(items, base, opts)
 
   -- A raise is a non-dispatch, not a crash. A missing binary raises rather than returning
   -- anything -- that is how the process API answers -- and letting it unwind would take
@@ -273,6 +312,42 @@ function M.submit(ctx)
       target and (target.short or "agent") or "local"
     )
   )
+  return true
+end
+
+---Put the payload in the `+` register, deliberately, without submitting the batch.
+---
+---What the shipped `send` default does as a consequence of nothing being wired, done on
+---purpose and whatever is: reading what an agent will be told should not cost a submit,
+---and a host with a real adapter otherwise has no way to see it at all.
+---
+---The queue is untouched, and so is the archive. Not by a rule of its own -- by the one
+---this module already holds: a dispatch is a payload handed to the send adapter, a
+---register is not a consumer, and nothing here goes near the adapter (ADR-0005). Which is
+---also why this is not `deliver` with the send swapped out: that function's whole tail is
+---the consequence of a handoff that did not happen.
+---@param ctx { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---       What the review the batch came from can say about itself, exactly as `submit`
+---       takes it -- the payload names it in its first line, and a copy that named a
+---       different review would not be the text it stands in for.
+---@return boolean copied
+function M.copy(ctx)
+  local queue = require("codereview.queue")
+
+  ensure_queue()
+  local count = queue.count()
+  if count == 0 then
+    -- Submitting's guard, worded the same: an empty queue is an empty queue whichever key
+    -- was pressed, and there is no register-shaped consolation to offer for one.
+    info("Queue is empty — annotate something first")
+    return false
+  end
+
+  vim.fn.setreg("+", M.render(queue.all(), target, ctx))
+  -- Counted rather than merely acknowledged, because the queue looks the same afterwards:
+  -- the number is the only evidence the reviewer gets that it was this batch that went to
+  -- the register, and it reads beside "Submitted %d" rather than against it.
+  info(("Copied %d annotation%s to the + register"):format(count, count == 1 and "" or "s"))
   return true
 end
 
