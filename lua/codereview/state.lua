@@ -35,6 +35,27 @@ local VERSION = 1
 ---directory.
 M.ARCHIVE_LIMIT = 20
 
+---How many times an archive has changed this session.
+---
+---What a projection of the archive onto a diff's anchors can be rebuilt from without a file
+---read. That projection is handed to every repaint, and a repaint runs on every resize,
+---expansion, reviewed toggle and scope change -- so decoding the document there would put
+---the cost of the whole archive back onto the operation bounding extmark emission exists to
+---keep cheap, and it would scale with what is stored rather than with what is drawn.
+---
+---Moved by everything that can change one: a dispatch, which is the only thing that writes
+---an archive, and forgetting a store. Declared here rather than beside them because a Lua
+---local is only in scope below itself, and one of those sits above the archive's own
+---section. Not persisted and meaningless across processes -- what it answers is "has it
+---changed since you last looked", which has no answer before you have looked, and a session
+---reads the archive once anyway.
+local archive_writes = 0
+
+---@return integer
+function M.archive_writes()
+  return archive_writes
+end
+
 ---@param root string
 ---@return string
 function M.path(root)
@@ -201,6 +222,7 @@ function M.clear_global()
   if vim.fn.filereadable(file) == 1 then
     vim.fn.delete(file)
   end
+  archive_writes = archive_writes + 1
 end
 
 --- The archive ------------------------------------------------------------------
@@ -242,6 +264,10 @@ function M.archive_batch(items, target, root)
   local owned, loose = partition(items)
   -- One stamp for the batch, taken once: the two stores are recording the same dispatch.
   local at = os.time()
+  -- Once for the dispatch rather than once per store, and before the writes rather than
+  -- after them: what this says is "an archive is not what you last read", and a partial
+  -- write is already not what you last read.
+  archive_writes = archive_writes + 1
 
   if #loose > 0 then
     local doc = read_global()
@@ -542,6 +568,9 @@ function M.clear(root)
   if vim.fn.filereadable(file) == 1 then
     vim.fn.delete(file)
   end
+  -- The archive went with it, so anything holding a projection of it is holding entries
+  -- that no longer exist -- and would go on drawing them until the next dispatch.
+  archive_writes = archive_writes + 1
 end
 
 return M

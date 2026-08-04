@@ -11,7 +11,7 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 975 cases in ~6 seconds.
+The whole suite is about 1,080 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -21,7 +21,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | Path | What |
 | --- | --- |
 | `minimal_init.lua` | The only runtimepath is this plugin plus plenary. Also redirects `XDG_STATE_HOME` and neutralises git config. |
-| `helpers.lua` | Fixture builders, notification capture, extmark filters, anchor lookups. |
+| `helpers.lua` | Fixture builders, notification capture, extmark filters, highlight-group sets, anchor lookups. |
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
@@ -37,8 +37,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
-| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
-| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, and archived entries on the diff: where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them |
+| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
@@ -46,7 +46,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
-| `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, and a document written before the archive existed |
+| `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
 | `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, and the four things it refuses |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
@@ -146,6 +146,24 @@ so the out-of-core language path is still checked locally without ever failing C
   `archive_spec` therefore dispatches in `archive_child.lua`, restarts, and queues one
   through the ordinary capture path. It also asserts that the archive really does hold id
   1, or the case is satisfied by an archive with nothing low enough to collide with.
+- **A dispatch no longer leaves the diff empty.** "No virtual lines are left" was the natural
+  proxy for "the queue emptied and the view repainted", and it stopped being true the moment
+  archived entries were drawn: the same remarks are still on screen, dimmed, which is the
+  whole feature. `payload_spec` and `delivery_spec` now assert the view's projection of the
+  *queue* is empty and that the rows below the code carry the archive's groups rather than an
+  annotation type's — `helpers.virt_groups` is what reads them.
+- **"With the flag off the diff renders exactly as today" needs the render from before
+  anything was archived.** Asserting that no archived group appears passes with the flag
+  ignored entirely and the projection merely empty, which is not the claim. `render_spec`
+  keeps a deep copy of `V.render.marks` taken before the first `archive_batch` and compares
+  the flag-off render against it, mark for mark. The same copy is what "a file carrying no
+  archived entries costs nothing extra" is asserted against, filtered to the other files —
+  and that comparison is guarded as non-empty, because an anchor lookup that stopped
+  resolving would empty both sides at once.
+- **The projection is memoised on a write count, so reaching past the accessors goes stale.**
+  `archive.by_key` rebuilds only when `state.archive_writes` has moved, which `archive_batch`,
+  `clear` and `clear_global` are what move. Deleting a state file directly — or writing one by
+  hand — leaves a view drawing entries that no longer exist until the next dispatch.
 - **`git stash create` on a clean tree returns nothing**, which is a case rather than an
   edge to assume away: the snapshot falls back to `HEAD`. `archive_spec` builds a second
   fixture and resets it hard, because the shared one is dirty by design and can never

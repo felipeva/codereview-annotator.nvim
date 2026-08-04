@@ -141,6 +141,17 @@ Marks are *found* rather than filtered — `render.build` appends each as it dra
 belongs to, so a pane's marks are in row order and a band is a slice of them; filtering
 would be a walk of the whole review on every scroll, which is the cost this removes.
 
+**A nested closure inside `note_virt` costs a third of `render.build`.** That function runs
+once per annotatable row — ninety thousand times on a 300-file review, and almost always to
+answer "nothing is attached here" — so anything that makes the *empty* answer more expensive
+is paid ninety thousand times. Folding the per-entry work into an inner `local function` so
+that queued and archived entries could share it read better and measured 17 ms → 23 ms on 60
+files, before either kind of entry existed in the fixture: the early return happens first, so
+the closure is never even created, and it is still the difference. Hoisted to a sibling of
+`note_virt`, taking the accumulator as an argument, it is back under the original. Measure
+this one with repeated `render.build` calls rather than `make perf`, whose repaint line is a
+single sample and hid the regression inside its own spread.
+
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
 that lengthens opening by roughly a third; paid per repaint it would be a ~50% regression on
@@ -229,6 +240,30 @@ meant to avoid. Matching on the stamp is load-bearing, and it resolves to one se
 dispatches inside the same second read back as one batch. That is beyond any human dispatch
 cadence and well within a loop's, which is why `archive_float_spec` clears both stores
 between blocks rather than trusting the clock.
+
+**The projection onto the diff is memoised on a write count, not rebuilt per repaint.** An
+archived entry is drawn from a table keyed by anchor, exactly as a queued one is — but the
+queue is in memory and an archive is a file, and a repaint runs on every resize, expansion,
+reviewed toggle and scope change. Decoding the state document there would put the cost of
+the whole archive back onto the operation extmark bounding exists to keep cheap, and it
+would scale with what is *stored* rather than with what is *drawn*, which is the property
+this feature had to hold. So `state.archive_writes` counts what can change an archive and
+`archive.by_key` compares against it: the ordinary repaint pays two comparisons, and a
+dispatch is what makes it read. Recomputing at the two moments the view knows about instead
+— opening, and its own submit — looks equivalent and is not: an **immediate send** archives
+a batch of one without emptying anything and without a repaint of its own, so the view would
+go on drawing an archive it had already been overtaken by.
+
+**Only the repository's own archive is projected.** An entry with no repository-relative path
+is in the store that needs no root, and its key is built from an absolute path or from
+nothing at all — so it can never name an anchor in this repository's diff. Reading that store
+per view would be a second file read that could only ever return nothing.
+
+**A queued and an archived entry on one anchor ride in the same virtual-line block.** Not two
+extmarks on one row: the split layout holds the opposite pane's place by *counting* virtual
+lines, so two blocks would need that mirroring to learn about the second — and getting it
+wrong knocks the panes out of alignment for every row below, which reads as the two images
+showing different code. One block, live entries first, keeps the count exactly what it was.
 
 **An archived entry's `stale` flag must not be drawn.** It is persisted with the entry, so
 it is there to read, and it means "this file had moved since the annotation was captured" —

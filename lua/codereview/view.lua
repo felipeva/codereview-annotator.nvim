@@ -27,7 +27,8 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field per_scope table<string, { reviewed: table<string,string>, expanded: table<string,boolean> }>
 ---@field reviewed table<string, string>   Path -> blob at the time it was marked
 ---@field expanded table<string, boolean>
----@field notes table<string, table[]>     Line key -> annotations
+---@field notes table<string, table[]>     Line key -> queued annotations
+---@field archived table<string, table[]>  Line key -> archived entries; empty when off
 ---@field buf integer                     The after pane
 ---@field win integer                     The after pane
 ---@field before_buf integer|nil          nil in the unified layout
@@ -401,6 +402,12 @@ function M.paint(keep_file)
   -- The queue is the source of truth for annotations; the view only ever displays a
   -- projection of it, so there is no second copy to keep in sync.
   V.notes = require("codereview.queue").by_key()
+  -- And the archive is the source of truth for what has already gone, projected the same
+  -- way onto the same anchors. Asked for on every paint rather than cached here, because
+  -- the answer changes on a dispatch this view need not have made -- an **immediate send**
+  -- archives a batch of one without emptying anything -- and the read behind it is a
+  -- comparison until something has written.
+  V.archived = cfg.archived and require("codereview.archive").by_key(V.root) or {}
   -- Both panes from one walk: their row counts and their anchors agree by construction
   -- rather than because two calls happened to be handed the same arguments.
   V.render, V.before_render = render.build(V.files, {
@@ -411,6 +418,7 @@ function M.paint(keep_file)
     expanded = V.expanded,
     reviewed = V.reviewed,
     notes = V.notes,
+    archived = V.archived,
     types = cfg.types,
   })
 
@@ -2142,6 +2150,7 @@ function M.open(spec)
     reviewed = {},
     expanded = {},
     notes = {},
+    archived = {},
     syntax_cache = {},
     collapsed = {},
     buf = buf,

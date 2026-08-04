@@ -226,9 +226,16 @@ describe("a batch submitted from a review view", function()
     assert.is_truthy(header:find("reviewed)", 1, true), header)
   end)
 
+  -- What went is still on the diff, dimmed, which is the archive's whole point -- so the
+  -- repaint is observable as the queue's own projection being empty while the rows below
+  -- the code are drawn in the archive's groups rather than a type's.
   it("empties the queue and repaints what is left", function()
     assert.same(0, queue.count())
-    assert.same(0, #h.virt_marks(assert(require("codereview.view").current())))
+    local V = assert(require("codereview.view").current())
+    assert.same({}, V.notes)
+    local groups = h.virt_groups(V)
+    assert.is_true(groups.CodeReviewArchived or false, vim.inspect(vim.tbl_keys(groups)))
+    assert.is_nil(groups.CodeReviewBug, vim.inspect(vim.tbl_keys(groups)))
   end)
 end)
 

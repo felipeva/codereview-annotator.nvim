@@ -27,6 +27,16 @@ M.defaults = {
   ---comparable review tool does. It lengthens opening a large review by roughly a third and
   ---a repaint by nothing at all, because the work is done once per git read.
   spans = true, ---@type boolean
+  ---Draw **archived** entries on the diff, dimmed, beneath the code they were about. A
+  ---reviewer who keeps working while an agent does is otherwise looking at a review view
+  ---with no memory of what it already sent, and reports the same finding twice. Every
+  ---scope, not only `since-batch`: what has already been said is worth knowing wherever
+  ---you are.
+  ---
+  ---On by default, and coarse on purpose -- off is the whole history off, and renders the
+  ---diff exactly as it did before the archive existed. There is no keymap beside it yet;
+  ---one can be added if the switch proves too blunt.
+  archived = true, ---@type boolean
   panel = {
     enabled = true,
     width = 34,
@@ -137,15 +147,17 @@ local function validate_layout(layout)
   end
 end
 
----Reject a `spans` value that is not a boolean.
+---Reject a switch that is not a boolean.
 ---
----In the same voice as a bad layout, and for the same reason: `spans = "off"` is truthy,
----so a mistyped switch would silently leave the feature on with nothing on screen saying
----why.
----@param spans any
-local function validate_spans(spans)
-  if type(spans) ~= "boolean" then
-    error(("codereview.setup: `spans` must be a boolean — got %s"):format(vim.inspect(spans)), 0)
+---In the same voice as a bad layout, and for the same reason: `spans = "off"` is truthy, so
+---a mistyped switch would silently leave the feature on with nothing on screen saying why.
+---Named rather than one function per switch, because the reason is the same one every time
+---and two copies of it would be two chances to word it differently.
+---@param name string
+---@param value any
+local function validate_boolean(name, value)
+  if type(value) ~= "boolean" then
+    error(("codereview.setup: `%s` must be a boolean — got %s"):format(name, vim.inspect(value)), 0)
   end
 end
 
@@ -153,7 +165,8 @@ end
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
   validate_layout(M.options.layout)
-  validate_spans(M.options.spans)
+  validate_boolean("spans", M.options.spans)
+  validate_boolean("archived", M.options.archived)
   M.options.types = resolve_types(M.options)
   return M.options
 end

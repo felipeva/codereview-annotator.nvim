@@ -176,6 +176,93 @@ describe("an annotation queued after the restart", function()
   end)
 end)
 
+-- Where the id collision becomes visible, and the only place it can be asserted: both
+-- entries are on one anchor, drawn one above the other, and the counter that has to keep
+-- them apart did not survive the process that dispatched the first.
+--
+-- The block above pinned the seeding against the record. This pins it against what a
+-- reviewer sees and acts on -- which is what the seeding is for, and what nothing before
+-- archived entries were drawn could have exercised.
+describe("an anchor carrying both a queued and an archived entry", function()
+  local view = require("codereview.view")
+  local annotate = require("codereview.annotate")
+
+  local archived_entry = state.archive(root)[1].entries[1]
+  local queued_entry = assert(queue.all()[1], "the block above queued nothing")
+
+  it("is one anchor, reached by two sessions", function()
+    assert.same(archived_entry.key, queued_entry.key)
+  end)
+
+  -- Without the seed both are id 1, and every claim below about which of them `x` acted on
+  -- is a claim about two things the plugin cannot tell apart.
+  it("gives the two of them different ids", function()
+    assert.is_true(
+      archived_entry.id ~= queued_entry.id,
+      ("both entries carry id %s"):format(vim.inspect(queued_entry.id))
+    )
+  end)
+
+  codereview.open("branch")
+  local V = assert(view.current())
+  local header = V.render.file_rows[assert(h.file_index(V, "src/main.lua"))]
+
+  ---The virtual lines the diff draws on the file header.
+  ---@return table[]
+  local function drawn()
+    for _, m in ipairs(h.virt_marks(V)) do
+      if m[2] == header - 1 then
+        return m[4].virt_lines
+      end
+    end
+    return {}
+  end
+
+  ---@param line table[]
+  ---@return string
+  local function text_of(line)
+    local out = {}
+    for _, chunk in ipairs(line) do
+      out[#out + 1] = chunk[1]
+    end
+    return table.concat(out)
+  end
+
+  it("draws both, what is still to send above what has already gone", function()
+    local virt = drawn()
+    assert.same(2, #virt, vim.inspect(virt))
+    assert.is_truthy(text_of(virt[1]):find("from this session", 1, true), text_of(virt[1]))
+    assert.is_truthy(text_of(virt[2]):find("dispatched by an earlier session", 1, true), text_of(virt[2]))
+  end)
+
+  vim.api.nvim_win_set_cursor(V.win, { header, 0 })
+  local msgs, restore = h.capture_notify()
+  annotate.drop()
+  restore()
+
+  it("drops the queued entry", function()
+    assert.same(0, queue.count())
+    assert.is_true(h.notified(msgs, "Dropped bug note"), vim.inspect(msgs))
+  end)
+
+  -- The archive is not the queue's other half, and nothing that acts on the queue may reach
+  -- into it: an archived entry says something already happened, and no key revises that.
+  it("leaves the archived entry in the archive", function()
+    assert.same(1, #state.archive(root)[1].entries)
+    assert.same(archived_entry.id, state.archive(root)[1].entries[1].id)
+  end)
+
+  it("leaves the archived entry on the diff", function()
+    local virt = drawn()
+    assert.same(1, #virt, vim.inspect(virt))
+    assert.is_truthy(text_of(virt[1]):find("dispatched by an earlier session", 1, true), text_of(virt[1]))
+  end)
+
+  -- Every block below submits, and a view open over them would repaint against an archive
+  -- they are deliberately overflowing.
+  codereview.close()
+end)
+
 describe("the snapshot a dispatch minted", function()
   local snapshot = assert(state.archive(root)[1].snapshot, "the batch was archived without one")
 
