@@ -204,6 +204,19 @@ that has never dispatched must not have a scope in its cycle that can only repor
 One rule reads as two until you notice that one of them is a question and the other is a
 key held down.
 
+**Two things ask which batch went last, and they must never get different answers.** The
+`since-batch` scope diffs the working tree against the newest batch's snapshot; the surface
+that reads a batch back lists the newest batch's entries. A reviewer reads one beside the
+other — that is the whole point of keeping a batch — so a disagreement would put the
+response to one dispatch on screen with the annotations of another next to it, and nothing
+anywhere would say so. Both go through `state.last_batch`, which exists for that reason and
+not for brevity: the two arrived independently, each reaching for the head of the archive,
+and two copies of `[1]` are what that drift looks like before it happens. It lives on
+`state` rather than on either caller because `git` already requires `state` and does not
+require `archive` — routing it through the surface would turn the two-module cycle into a
+three-module one. Re-inlining either call is the regression, and the case that catches it is
+in `archive_float_spec`, because neither slice's own spec archives more than one batch.
+
 **One dispatch is two records, and reading it back means rejoining them.** A batch is split
 across the two stores on the rule that already routes the queue — an entry with a
 repository-relative path to that repository's document, a bare note or a file outside a

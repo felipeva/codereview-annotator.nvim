@@ -38,13 +38,17 @@ end
 ---
 ---So: the newest record across the two, and the other store's newest with it when the two
 ---carry the same stamp and the same target, which is what one dispatch looks like on disk.
----Both stores are read through the accessors that already exist; nothing here reaches past
----them for a newest batch of its own.
+---
+---The repository's half comes through `state.last_batch`, which is also what the
+---`since-batch` scope resolves against -- one query, so the diff that scope draws and the
+---entries listed here can never describe two different dispatches. The other half is read
+---inline because it has exactly one reader: no scope resolves against a record with no
+---repository behind it, since a **snapshot** can only belong to the half that has one.
 ---@param root string|nil nil outside a repository, where only the store that needs none applies
 ---@return CRBatch|nil
 function M.last(root)
   -- Each store keeps its batches newest first, so the head of each is the only candidate.
-  local owned = state.archive(root)[1]
+  local owned = state.last_batch(root)
   local loose = state.global_archive()[1]
 
   if owned and loose and owned.at == loose.at and owned.target == loose.target then

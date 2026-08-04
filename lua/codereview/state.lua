@@ -277,6 +277,29 @@ function M.archive(root)
   return root and M.load(root).archive or {}
 end
 
+---The batch a repository dispatched last, or nil when it has never dispatched one.
+---
+---One query rather than a `[1]` at each caller, and here rather than on either caller
+---because both of them are already above this module. Two things ask it, and they ask it
+---about the same dispatch: the `since-batch` scope, which diffs the working tree against
+---that batch's **snapshot**, and the surface that lists that batch's **entries**. A
+---reviewer reads one beside the other, so a disagreement about which batch is newest would
+---put the response to one dispatch on screen with the annotations of another beside it,
+---and nothing would say so. Two copies of `[1]` are what that drift looks like before it
+---happens -- the same reason the payload renderer and the queue float group through one
+---helper rather than two that agreed at the time.
+---
+---The repository's record only, which is what makes it the right answer for a caller that
+---needs a snapshot: a snapshot can only ever belong to the half with a repository behind
+---it. A batch that also held a **bare note** is recorded in the store that needs no root as
+---well, and `archive.last` is what rejoins the two for a surface that has to list every
+---entry.
+---@param root string|nil
+---@return CRBatch|nil
+function M.last_batch(root)
+  return M.archive(root)[1]
+end
+
 ---The highest id any archived entry carries, across every archive given.
 ---
 ---Which is what the queue's counter has to resume past. See `queue.seed`.
