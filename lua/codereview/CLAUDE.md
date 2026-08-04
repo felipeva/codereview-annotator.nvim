@@ -41,13 +41,19 @@ change there is felt through.
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
 
-## The one cycle
+## The two cycles
 
 `view` and `annotate` require each other. This is known and accepted — not a defect to fix
 in passing. `annotate` needs the focused pane, the current view, the repaint and the anchor
 under the cursor, which are genuine dependencies, and both sides use a function-local
 `require`, so Lua resolves it lazily and nothing loads at file scope before it is ready.
 Forcing the two apart costs more than it returns.
+
+`git` and `state` are the second, and much the smaller: `state` mints a snapshot and hashes
+blobs through `git`, and `git` reads the newest snapshot back out of the archive to resolve
+the `since-batch` scope. Function-local on both sides, as above. The alternative is handing
+the snapshot in from outside, which would put the one scope that needs it into every caller
+of `resolve_scope` — and scope resolution is exactly what must stay one function.
 
 ## Where reading pays
 

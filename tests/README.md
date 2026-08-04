@@ -46,6 +46,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, and a document written before the archive existed |
+| `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
 | `delivery_spec` | What a send adapter may report — nothing, true, false, a raise — the clipboard default, the one condition that empties the queue, the draft an undispatched immediate send leaves behind, and the deliberate copy that is not a dispatch |
@@ -144,6 +145,20 @@ so the out-of-core language path is still checked locally without ever failing C
   edge to assume away: the snapshot falls back to `HEAD`. `archive_spec` builds a second
   fixture and resets it hard, because the shared one is dirty by design and can never
   reach that branch.
+- **"`since-batch` leaves out the work in flight" needs work to have been in flight.** The
+  scope excludes what the snapshot already holds, so a fixture dispatched from a *clean*
+  tree makes that assertion pass with the snapshot replaced by `HEAD` — there is nothing
+  either one could differ about. `diff_spec` and `since_batch_spec` both assert that
+  `src/routes.lua` is dirty against `HEAD` before asserting it is absent from the scope,
+  and both edit a file only *after* the dispatch, so what is on screen is the response to
+  the batch. Same trap as "a filter test needs a fixture only that filter can reject".
+- **A scope that behaves like the others cannot be tested by reading the diff.** Nothing
+  special-cases `since-batch`, so every claim about it is a claim about code no line of
+  which mentions it — which is exactly why `since_batch_spec` drives syntax, navigation,
+  collapse, reviewed marks and both layouts through it rather than trusting that. Its
+  capture case compares the entry captured in `since-batch` against the one the *same line*
+  produces in `worktree`, field for field bar the id: an entry that recorded which scope
+  caught it would differ, and nothing weaker than a comparison would notice.
 - **A send adapter that raises takes the whole `describe` with it.** Plenary runs a
   describe body immediately, so an adapter that propagates its error aborts the block
   instead of failing one case — the `it`s below it never run. `delivery_spec` asserts on

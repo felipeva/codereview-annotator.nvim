@@ -6,6 +6,7 @@ local h = require("tests.helpers")
 
 local git = require("codereview.git")
 local diff = require("codereview.diff")
+local state = require("codereview.state")
 
 -- One fixture for the file. Nothing here mutates the repository, so rebuilding it per
 -- describe only bought four `git init`s.
@@ -217,5 +218,101 @@ describe("reading file content and blobs", function()
 
   it("hashes a deleted file too, from its pre-image", function()
     assert.is_truthy((by["src/gone.lua"].blob or ""):match("^%x+$"))
+  end)
+end)
+
+-- The scope that diffs the working tree against the newest snapshot in the archive.
+--
+-- A fixture of its own, because this one is dispatched from and *then* edited: the file
+-- above is built once and read, and every count in it would move underneath the assertions
+-- already made. Read top to bottom -- the empty-archive cases have to run before the
+-- dispatch below them, which is the only state in which they mean anything.
+describe("the since-batch scope", function()
+  local repo = h.fixture("mkfixture")
+  local repo_root = assert(vim.uv.fs_realpath(repo))
+
+  it("is offered by name whether or not anything has been dispatched", function()
+    assert.is_true(vim.tbl_contains(git.SCOPES, "since-batch"))
+  end)
+
+  it("reports a sentence rather than failing with an empty archive", function()
+    local resolved, err = git.resolve_scope("since-batch", repo_root)
+    assert.is_nil(resolved)
+    assert.is_string(err)
+  end)
+
+  it("stays out of the cycle in a repository that has never dispatched", function()
+    assert.is_false(vim.tbl_contains(git.cycle(repo_root), "since-batch"))
+  end)
+
+  -- The dispatch, through the write every dispatch goes through, and then the agent's
+  -- answer to it: one tracked file changed *after* the batch went out.
+  state.archive_batch({
+    { id = 1, type = "bug", kind = "file", path = "src/main.lua", key = "src/main.lua:f:0", note = "have a look" },
+  }, "agent", repo_root)
+  local snapshot = assert(state.archive(repo_root)[1].snapshot, "the batch was archived without a snapshot")
+
+  vim.fn.writefile({
+    'local app = require("app")',
+    "local cfg = load_config()",
+    "cfg.validate()",
+    "app.listen(cfg.port)",
+  }, vim.fs.joinpath(repo, "src/main.lua"))
+
+  local since = assert(git.resolve_scope("since-batch", repo_root))
+  local since_files = assert(git.collect(since, repo_root))
+  local paths = vim.tbl_map(function(f)
+    return f.path
+  end, since_files)
+  local since_by = {}
+  for _, f in ipairs(since_files) do
+    since_by[f.path] = f
+  end
+
+  it("carries the newest snapshot as its before-image", function()
+    assert.same({ "since-batch", snapshot }, { since.name, since.before })
+  end)
+
+  -- nil `after` means "the working tree", which is what the highlighter needs to know to
+  -- read the post-image off disk rather than out of git.
+  it("compares it against the working tree", function()
+    assert.is_nil(since.after)
+  end)
+
+  it("joins the cycle once something has been dispatched", function()
+    assert.is_true(vim.tbl_contains(git.cycle(repo_root), "since-batch"))
+  end)
+
+  -- Derived from git rather than hardcoded, as everything else in this file is: which
+  -- files a snapshot differs from is a fact about the fixture, and hardcoded lists have
+  -- gone stale in this repository before.
+  it("collects exactly what git reports against the snapshot, untracked files included", function()
+    local want = h.git_lines(repo, { "diff", "--name-only", snapshot })
+    vim.list_extend(want, h.git_lines(repo, { "ls-files", "--others", "--exclude-standard" }))
+    table.sort(want)
+    assert.same(want, paths)
+  end)
+
+  it("shows the file that changed since the batch went", function()
+    assert.same({ "M", 1, 0 }, {
+      since_by["src/main.lua"].status,
+      since_by["src/main.lua"].added,
+      since_by["src/main.lua"].removed,
+    })
+  end)
+
+  -- The point of the scope. `src/routes.lua` was dirty before the batch was dispatched and
+  -- has not been touched since, so it is in the snapshot and not in this diff -- which the
+  -- guard makes an assertion rather than a coincidence of an already-clean fixture.
+  it("leaves out the work that was already in flight when the batch went", function()
+    local uncommitted = h.git_lines(repo, { "diff", "--name-only", "HEAD" })
+    assert.is_true(vim.tbl_contains(uncommitted, "src/routes.lua"), "nothing was in flight, so this proves nothing")
+    assert.is_false(vim.tbl_contains(paths, "src/routes.lua"), vim.inspect(paths))
+  end)
+
+  -- Untracked at dispatch, so it is in no snapshot at all: it arrives through the same
+  -- synthesis the branch and worktree scopes apply, not through a rule of its own.
+  it("synthesises a file that was untracked when the batch went", function()
+    assert.same({ "U", 2 }, { since_by["src/untracked.lua"].status, since_by["src/untracked.lua"].added })
   end)
 end)

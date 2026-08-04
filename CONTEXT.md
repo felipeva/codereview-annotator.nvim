@@ -9,8 +9,8 @@ receives it.
 ### Reviewing
 
 **Scope**:
-What a review covers — a branch, the staged or unstaged changes, the whole worktree, or any
-git revspec.
+What a review covers — a branch, the staged or unstaged changes, the whole worktree,
+whatever changed since the last **batch** went out, or any git revspec.
 _Avoid_: mode, filter, range (a range is a span of lines, see **Range**)
 
 **Review view**:
