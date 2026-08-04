@@ -872,7 +872,6 @@ function M.set_scope(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
-  queue_restored = true
   M.reconcile()
 
   if #files == 0 then
@@ -1720,7 +1719,6 @@ function M.open(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
-  queue_restored = true
   M.reconcile()
 
   -- Before the panel, so the panel's `topleft`/`botright` split lands outside both panes
