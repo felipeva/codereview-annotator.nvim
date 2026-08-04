@@ -33,6 +33,7 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field per_scope table<string, { reviewed: table<string,string>, expanded: table<string,boolean> }>
 ---@field reviewed table<string, string>   Path -> blob at the time it was marked
 ---@field expanded table<string, boolean>
+---@field collapsed table<string, boolean> Directory path -> folded shut in the file tree
 ---@field notes table<string, table[]>     Line key -> queued annotations
 ---@field archived table<string, table[]>  Line key -> archived entries; empty when off
 ---@field touched table<integer, boolean>  Archived entry id -> whether its file has moved
@@ -45,12 +46,17 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field layout "unified"|"split"
 ---@field panel_buf integer|nil
 ---@field panel_win integer|nil
+---@field queue_win integer|nil           The window a queue float is open in
 ---@field tab integer
 ---@field augroup integer                 Autocommands belonging to this review
 ---@field render CRRender|nil             The after pane's render
 ---@field before_render CRRender|nil      nil in the unified layout
 ---@field panel_render CRPanelRender|nil
+---@field panel_current integer|nil       File index the tree is following; its repaint latch
 ---@field painted_bands table<integer, boolean>|nil  Row bands whose marks have been emitted
+---@field syntax_cache table<string, CRCapture[]|false>  `path|side` -> captures; false to skip it
+---@field syntax_painted table<string, boolean>|nil      Path -> already replayed onto this render
+---@field syntax_rows table<integer, CRFileRows>|nil     File index -> where its lines are drawn
 
 ---@type CRView|nil
 local V = nil
