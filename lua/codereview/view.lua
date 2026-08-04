@@ -1,7 +1,9 @@
----The review surface: buffers, windows, keymaps, navigation.
+---The review surface: buffers, windows, navigation.
 ---
 ---One view exists at a time, in its own tab page. Everything it draws comes from
----`render.lua`; everything it knows about position comes from that render's anchor map.
+---`render.lua`; everything it knows about position comes from that render's anchor map;
+---and the keys that drive the actions exported here are declared in `keymaps.lua`, which
+---is handed this module rather than requiring it.
 ---
 ---In the split layout the view keeps its existing buffer and window as the **after** pane
 ---and gains a before pane beside it. The after-image is the primary one everywhere else --
@@ -14,6 +16,7 @@ local render = require("codereview.render")
 local panel = require("codereview.panel")
 local hl = require("codereview.hl")
 local delivery = require("codereview.delivery")
+local keymaps = require("codereview.keymaps")
 
 local M = {}
 
@@ -1606,194 +1609,6 @@ end
 --- Setup -----------------------------------------------------------------------
 
 ---@param buf integer
----@param maps table<string, function|table>
-local function bind(buf, maps)
-  for lhs, rhs in pairs(maps) do
-    local fn, desc, mode = rhs, "", "n"
-    if type(rhs) == "table" then
-      fn, desc, mode = rhs[1], rhs[2] or "", rhs[3] or "n"
-    end
-    vim.keymap.set(mode, lhs, fn, { buffer = buf, nowait = true, silent = true, desc = desc })
-  end
-end
-
----Bind the diff's keys. Every pane gets the same set: which pane a reviewer happens to be
----in decides what a key acts on, never whether it works.
----@param buf integer
-local function setup_main_keymaps(buf)
-  -- Annotation keys are prefixed with `a` rather than bound bare. Bare `b`/`f`/`s`/`n`
-  -- would shadow back-word, find-char and next-search inside the buffer; `a` (append) is
-  -- dead in a nomodifiable buffer, so it costs a keystroke and no motion.
-  local annotate = require("codereview.annotate")
-  for _, t in ipairs(config.get().types) do
-    vim.keymap.set({ "n", "x" }, "a" .. t.key, function()
-      annotate.annotate(t.name)
-    end, { buffer = buf, nowait = true, silent = true, desc = "Annotate: " .. t.name })
-  end
-  vim.keymap.set({ "n", "x" }, "aa", annotate.annotate_pick, {
-    buffer = buf,
-    nowait = true,
-    silent = true,
-    desc = "Annotate: pick type",
-  })
-
-  bind(buf, {
-    ["x"] = { annotate.drop, "Drop the annotation here" },
-    ["]f"] = {
-      function()
-        M.jump("file", true)
-      end,
-      "Next file",
-    },
-    ["[f"] = {
-      function()
-        M.jump("file", false)
-      end,
-      "Previous file",
-    },
-    ["]h"] = {
-      function()
-        M.jump("hunk", true)
-      end,
-      "Next hunk",
-    },
-    ["[h"] = {
-      function()
-        M.jump("hunk", false)
-      end,
-      "Previous hunk",
-    },
-    ["]F"] = {
-      function()
-        M.jump_unreviewed(true)
-      end,
-      "Next unreviewed file",
-    },
-    ["[F"] = {
-      function()
-        M.jump_unreviewed(false)
-      end,
-      "Previous unreviewed file",
-    },
-    ["]a"] = {
-      function()
-        M.jump_annotation(true)
-      end,
-      "Next annotation",
-    },
-    ["[a"] = {
-      function()
-        M.jump_annotation(false)
-      end,
-      "Previous annotation",
-    },
-    ["<C-p>"] = { M.pick_file, "Jump to a file" },
-    ["<Tab>"] = { M.toggle_focus, "Focus the file tree" },
-    ["R"] = { M.toggle_reviewed, "Toggle reviewed" },
-    ["za"] = { M.toggle_expand, "Toggle expansion" },
-    ["gs"] = {
-      function()
-        M.set_scope(nil)
-      end,
-      "Cycle scope",
-    },
-    ["gr"] = { M.refresh, "Reload the diff" },
-    ["gp"] = { M.toggle_panel, "Show or hide the file tree" },
-    -- From the `g` family the other view-level commands come from, and clear of `gt`/`gT`,
-    -- which are how `<CR>`'s new tab is returned from.
-    ["gl"] = { M.toggle_layout, "Switch between the unified and split layouts" },
-    ["<CR>"] = { M.open_file, "Open the real file here" },
-    ["Q"] = { M.review_queue, "Review the queue" },
-    -- `gy`, not `Y`: yank is not dead in this buffer the way append is, and pulling a code
-    -- line out of the diff is something reviewers do. From the same `g` family as the
-    -- commands above, where it shadows nothing.
-    ["gy"] = { M.copy, "Copy the batch to the clipboard" },
-    ["<C-t>"] = { M.pick_target, "Choose the delivery target" },
-    ["<C-s>"] = { M.submit, "Submit the batch" },
-    ["q"] = { M.close, "Close the review" },
-  })
-
-  -- Only once the adapter is injected. Every adapter is nil by default, and a key that
-  -- silently does nothing is worse than no key at all -- it also keeps `gd` free for
-  -- whatever a host that wired no diff tool would rather have there. From the same `g`
-  -- family as the commands above, and clear of `gt`/`gT`.
-  if config.get().open_diff then
-    bind(buf, { ["gd"] = { M.open_diff, "Read this file in the host's diff tool" } })
-  end
-end
-
-local function setup_panel_keymaps()
-  bind(V.panel_buf, {
-    ["<CR>"] = { M.panel_select, "Open the file / fold the directory" },
-    ["o"] = { M.panel_select, "Open the file / fold the directory" },
-    ["za"] = {
-      function()
-        M.panel_fold(nil)
-      end,
-      "Toggle the directory",
-    },
-    ["l"] = {
-      function()
-        M.panel_fold(false)
-      end,
-      "Expand the directory",
-    },
-    ["zo"] = {
-      function()
-        M.panel_fold(false)
-      end,
-      "Expand the directory",
-    },
-    ["h"] = {
-      function()
-        M.panel_fold(true)
-      end,
-      "Collapse the directory / go to the parent",
-    },
-    ["zc"] = {
-      function()
-        M.panel_fold(true)
-      end,
-      "Collapse the directory",
-    },
-    ["zM"] = {
-      function()
-        M.panel_fold_all(true)
-      end,
-      "Collapse every directory",
-    },
-    ["zR"] = {
-      function()
-        M.panel_fold_all(false)
-      end,
-      "Expand every directory",
-    },
-    ["]f"] = {
-      function()
-        M.panel_jump_file(true)
-      end,
-      "Next file in the tree",
-    },
-    ["[f"] = {
-      function()
-        M.panel_jump_file(false)
-      end,
-      "Previous file in the tree",
-    },
-    ["<C-p>"] = { M.pick_file, "Jump to a file" },
-    ["<Tab>"] = { M.toggle_focus, "Focus the diff" },
-    ["gp"] = { M.toggle_panel, "Hide the file tree" },
-    ["gl"] = { M.toggle_layout, "Switch between the unified and split layouts" },
-    ["R"] = { M.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
-    ["q"] = { M.close, "Close the review" },
-  })
-
-  if config.get().open_diff then
-    bind(V.panel_buf, { ["gd"] = { M.panel_open_diff, "Read this file in the host's diff tool" } })
-  end
-end
-
----@param buf integer
 ---@param name string
 local function scratch(buf, name)
   vim.bo[buf].buftype = "nofile"
@@ -1814,7 +1629,7 @@ end
 ---pane that comes back with no keymaps at all.
 ---@param buf integer
 local function attach_pane(buf)
-  setup_main_keymaps(buf)
+  keymaps.diff(buf, M)
 
   -- The review buffer is nomodifiable, so insert mode is never meaningful in it. It can
   -- still be arrived at while already inserting: a composer opened with `startinsert` and
@@ -1955,7 +1770,7 @@ local function show_panel()
   vim.api.nvim_win_set_width(pwin, cfg.panel.width)
   vim.wo[pwin].winfixwidth = true
   V.panel_buf, V.panel_win = pbuf, pwin
-  setup_panel_keymaps()
+  keymaps.panel(pbuf, M)
   vim.api.nvim_set_current_win(V.win)
 end
 
