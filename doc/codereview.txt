@@ -40,6 +40,14 @@ files without one fall back to flat diff colours.
             :CodeReview HEAD~3
             :CodeReview main...feature
 <
+                                                            *:CodeReviewCopy*
+:CodeReviewCopy
+        Copy the queued batch to the `+` register without submitting it: the
+        same payload |codereview-opt-send| would have been handed, resolved
+        against the same target. The queue keeps every entry and nothing is
+        archived -- a register is not a consumer. Needs no review view open.
+        Also bound to `gy` in the diff and in the queue float.
+
                                                         *:CodeReviewAnnotate*
 :[range]CodeReviewAnnotate [{type}]
         Annotate the current buffer without a review open. {type} is one of
@@ -70,6 +78,7 @@ Buffer-local, inside the review view:
     gd               Read this file in the host's own diff tool --
                      bound only with |codereview-opt-open_diff| wired
     Q                Review the queue
+    gy               Copy the batch to the `+` register, without submitting
     <C-t>            Choose the delivery target
     <C-s>            Submit the batch
     q                Close the review
@@ -119,7 +128,9 @@ hands focus back to the diff. Collapsed directories belong to the review, not
 to the tree, so they are exactly as you left them when it comes back.
 
 In the queue float: <CR> jumps to the annotation under the cursor, x drops an
-entry, <C-t> routes, <C-s> submits, q closes and keeps the queue.
+entry, gy copies the batch, <C-t> routes, <C-s> submits, q closes and keeps
+the queue. `gy` leaves the float open -- it takes nothing out of the queue, so
+every row it is listing is still true.
 
 A jump closes the float and centres the line the annotation is about,
 expanding the file first if it was collapsed. The queue is shared with the
@@ -523,6 +534,10 @@ send({payload}, {target})                                *codereview-opt-send*
         because a register is not a consumer, which is why an unwired host
         keeps its queue.
 
+        With this wired, |:CodeReviewCopy| is how the payload is read: it puts
+        exactly what this adapter would be handed in that same register, and
+        submits nothing.
+
 pick_target({cb})                                 *codereview-opt-pick_target*
         Choose a delivery target and call {cb} with it. The target may carry
         `short` (shown in the winbar) and `cwd`. `cwd` matters: references are
@@ -764,9 +779,10 @@ clean tree there is nothing to record that `HEAD` does not already say, and
 `HEAD` is what is stored. Untracked files are not in such a commit.
 
 A dispatch writes it and nothing else does. An adapter that declined, one that
-raised, and the `+` register the default send copies to all leave the archive
-exactly as they leave the queue -- a payload sitting in a register is not
-something an agent received. See |codereview-opt-send|. An immediate send
+raised, the `+` register the default send copies to and the one
+|:CodeReviewCopy| copies to on purpose all leave the archive exactly as they
+leave the queue -- a payload sitting in a register is not something an agent
+received. See |codereview-opt-send|. An immediate send
 (|codereview-immediate-send|) is a batch of one and is kept as one.
 
 Records go to the same two stores the queue does, split by the same rule: an
@@ -794,6 +810,10 @@ require("codereview").queue()                           *codereview.queue()*
 require("codereview").submit()                         *codereview.submit()*
         Submit the queued annotations as one batch. The queue is emptied
         only if |codereview-opt-send| reports it went.
+require("codereview").copy()                             *codereview.copy()*
+        Copy the batch to the `+` register without submitting it -- the same
+        payload |codereview-opt-send| would have been handed. The queue is
+        untouched and nothing is archived. See |:CodeReviewCopy|.
 require("codereview").count()                           *codereview.count()*
         Number of queued annotations -- useful in a statusline.
 require("codereview").is_open()                       *codereview.is_open()*
