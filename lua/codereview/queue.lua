@@ -70,6 +70,18 @@ function M.replace(list)
   end
 end
 
+---Reserve ids up to and including `highest`, for entries that are no longer in the queue.
+---
+---An archived entry has left the queue but not the screen: it is drawn against the diff
+---beside the live ones, and dropping an annotation resolves by anchor key and then by id.
+---The counter is module-level and does not survive a process, so a session that dispatched
+---1..n and then restarted would hand its next annotation an id already on the diff --
+---which `remove` would then match first.
+---@param highest integer|nil
+function M.seed(highest)
+  next_id = math.max(next_id, (highest or 0) + 1)
+end
+
 ---Annotations grouped by anchor key, for the renderer.
 ---@return table<string, CRAnnotation[]>
 function M.by_key()

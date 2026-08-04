@@ -14,11 +14,23 @@ local codereview = require("codereview")
 local config = require("codereview.config")
 local drafts = require("codereview.drafts")
 local queue = require("codereview.queue")
+local state = require("codereview.state")
 
 -- Resolved, because capture realpaths every path it records and a draft is keyed by the
 -- absolute one. On macOS the fixture lives under a `/var` symlink, so the unresolved form
 -- would look up a key nothing ever wrote.
 local main = assert(vim.uv.fs_realpath(vim.fs.joinpath(fixture, "src/main.lua")))
+local root = assert(vim.uv.fs_realpath(fixture))
+
+---The batches this repository has kept, through the accessor a surface would use.
+---
+---A dispatch is the one condition that empties the queue, and it is the one condition that
+---writes here (ADR-0005): a payload sitting in a register is not something an agent
+---received. Every case below therefore asserts on this exactly as it asserts on the queue.
+---@return CRBatch[]
+local function archived()
+  return state.archive(root)
+end
 
 local sent = {}
 
@@ -49,6 +61,7 @@ end
 
 describe("an adapter that returns nothing", function()
   queue_one("returns nothing at all")
+  local before = #archived()
   local msgs, restore = h.capture_notify()
   codereview.submit()
   restore()
@@ -66,6 +79,13 @@ describe("an adapter that returns nothing", function()
 
   it("confirms what was submitted", function()
     assert.is_true(h.notified(msgs, "Submitted 1 annotation"), vim.inspect(msgs))
+  end)
+
+  -- The same condition, doing its second job: what left the queue is kept rather than
+  -- forgotten, so a reviewer can still read what they asked for after asking for it.
+  it("records the batch in the archive", function()
+    assert.same(before + 1, #archived())
+    assert.same("returns nothing at all", archived()[1].entries[1].note)
   end)
 end)
 
@@ -94,6 +114,7 @@ describe("an adapter that returns false with a reason", function()
     return false, "the agent pane is gone"
   end
   queue_one("declined by the adapter")
+  local before = #archived()
   local msgs, restore = h.capture_notify()
   codereview.submit()
   restore()
@@ -116,6 +137,12 @@ describe("an adapter that returns false with a reason", function()
     assert.is_false(h.notified(msgs, "Submitted"), vim.inspect(msgs))
   end)
 
+  -- Nothing received it, so recording that it went would make a failed send look like a
+  -- delivered one for as long as the archive is kept.
+  it("leaves the archive exactly as it was", function()
+    assert.same(before, #archived())
+  end)
+
   -- The point of keeping it: the note was typed once, and a host that comes back should
   -- not cost it. The count still describes what is really there.
   it("can be retried without retyping the note", function()
@@ -131,6 +158,7 @@ describe("an adapter that raises", function()
     error("herdr: no such pane")
   end
   queue_one("raised at the adapter")
+  local before = #archived()
   local msgs, restore = h.capture_notify()
   codereview.submit()
   restore()
@@ -140,6 +168,10 @@ describe("an adapter that raises", function()
   -- the queue, which is how a missing binary used to leave it intact.
   it("keeps the queue", function()
     assert.same(1, queue.count())
+  end)
+
+  it("leaves the archive alone too", function()
+    assert.same(before, #archived())
   end)
 
   it("reads as a sentence rather than a traceback", function()
@@ -152,6 +184,7 @@ describe("no adapter at all", function()
   cfg.send = nil
   vim.fn.setreg("+", "")
   queue_one("nothing consumed this")
+  local before = #archived()
   local msgs, restore = h.capture_notify()
   codereview.submit()
   restore()
@@ -170,6 +203,11 @@ describe("no adapter at all", function()
   it("says where it went instead", function()
     assert.is_true(h.notified(msgs, "No send adapter configured"), vim.inspect(msgs))
     assert.is_false(h.notified(msgs, "Submitted"), vim.inspect(msgs))
+  end)
+
+  -- A register is not a consumer, so there is nothing to record having been asked for.
+  it("archives nothing, because a copy is not a dispatch", function()
+    assert.same(before, #archived())
   end)
 end)
 
@@ -202,6 +240,7 @@ describe("an immediate send that was dispatched", function()
   queue.clear()
   codereview.close()
   vim.cmd("edit " .. vim.fn.fnameescape(main))
+  local before = #archived()
   local msgs, restore = h.capture_notify()
   codereview.annotate("bug", nil, { immediate = true })
   restore()
@@ -209,6 +248,14 @@ describe("an immediate send that was dispatched", function()
   it("says it was sent", function()
     assert.is_truthy(sent[#sent].text:find("an errand that landed", 1, true), sent[#sent].text)
     assert.is_true(h.notified(msgs, "Sent bug"), vim.inspect(msgs))
+  end)
+
+  -- An errand is a batch of one (ADR-0004) and is archived as one, by the same rule and
+  -- through the same function -- not by a second path that agrees with this one today.
+  it("archives as a batch of one", function()
+    assert.same(before + 1, #archived())
+    assert.same(1, #archived()[1].entries)
+    assert.is_truthy(archived()[1].entries[1].note:find("an errand that landed", 1, true))
   end)
 
   -- The composer committed its draft on submit, and a note that reached someone has
