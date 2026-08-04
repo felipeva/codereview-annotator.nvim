@@ -11,7 +11,7 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 1,110 cases in ~6 seconds.
+The whole suite is about 1,115 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -48,7 +48,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
 | `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, and the four things it refuses |
-| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally, the three things left unjudged, and that the queue's own staleness rule is untouched by any of it |
+| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
@@ -174,6 +174,18 @@ so the out-of-core language path is still checked locally without ever failing C
   the renamed file: `git diff -M` names a rename by its *pre-image* path once the
   post-image is gone, so deleting `src/newname.lua` takes it out of scope instead of
   marking it touched, and the deletion case would then be measuring the scope rule.
+- **Touchedness has three plausible reference points, and a clean fixture cannot tell them
+  apart.** The blob an entry was *captured* with, the blob its batch was *dispatched* with
+  and the blob at `HEAD` are one object for any file that is clean when the batch goes — so
+  a spec whose only write happens *after* the dispatch passes whichever of the three the
+  implementation reaches for, and nothing catches a refactor that swaps the dispatch blob
+  for the capture blob. That swap is the exact merge this feature exists to refuse, and it
+  reports a file the agent never opened as touched. `touched_spec`'s last block gives
+  `src/fresh.lua` three distinct contents — committed, edited before annotating, edited
+  again before submitting — leaves it alone afterwards, and guards that the three really are
+  three shas before asserting it is untouched. Both mutations (specs built from `HEAD`, and
+  `was` taken from the entry's own `blob`) must red four cases each, applied separately:
+  applied together they mask each other.
 - **`git stash create` on a clean tree returns nothing**, which is a case rather than an
   edge to assume away: the snapshot falls back to `HEAD`. `archive_spec` builds a second
   fixture and resets it hard, because the shared one is dirty by design and can never

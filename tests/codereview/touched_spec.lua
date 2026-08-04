@@ -354,3 +354,82 @@ describe("the configuration flag", function()
     assert.is_truthy(vim.wo[V.win].winbar:find("0 untouched", 1, true), vim.wo[V.win].winbar)
   end)
 end)
+
+-- Which blob touchedness is judged against, and the only fixture that can tell.
+--
+-- Everything above is clean at HEAD when its batch goes, so the blob the entry was
+-- *captured* with, the blob the batch was *dispatched* with and the blob at HEAD are one
+-- object -- and any of the three passes every assertion above. That is precisely the choice
+-- this slice exists to get right: staleness judges a queued entry against its capture blob,
+-- touchedness judges an archived entry against the dispatch blob, and a refactor swapping
+-- one for the other has to red something.
+--
+-- So: a file the reviewer annotates, keeps working on, and only then submits -- the work in
+-- flight #67 says `since-batch` must exclude -- which the agent afterwards never opens. Only
+-- the snapshot reports it untouched. The capture blob and HEAD both report touched, which is
+-- the plugin claiming an agent has been in a file it has never seen.
+--
+-- A second dispatch, and last in the file for that reason: it becomes the newest batch, and
+-- everything above has already been judged against the one it displaces.
+describe("a file the reviewer edited between annotating and submitting", function()
+  local git = require("codereview.git")
+  local V = assert(view.current())
+  local IN_FLIGHT = "src/fresh.lua"
+  local abs = vim.fs.joinpath(root, IN_FLIGHT)
+
+  -- Three distinct contents, so the three reference points are three distinct blobs rather
+  -- than two that happen to differ. HEAD carries what the branch committed; the reviewer had
+  -- already moved on from it before annotating, and moves on again before submitting.
+  local at_head = assert(git.blob(IN_FLIGHT, "HEAD", root))
+  vim.fn.writefile({ "local function fresh() end", "-- mine, before I annotated it" }, abs)
+
+  local entry = queue_file(IN_FLIGHT, "annotated while I was still working on this")
+  entry.worktree = true
+  entry.blob = assert(git.blob(IN_FLIGHT, nil, root))
+
+  vim.fn.writefile({ "local function fresh() end", "-- mine, and still in flight when I sent" }, abs)
+
+  local _, done = h.capture_notify()
+  codereview.submit()
+  done()
+  view.refresh()
+
+  local snapshot = assert(state.archive(root)[1].snapshot, "the second batch archived no snapshot")
+  local at_dispatch = assert(git.blob(IN_FLIGHT, snapshot, root))
+
+  -- Without this the case stops measuring the first time the fixture moves: two reference
+  -- points that name one blob agree about everything, and the assertion below would then
+  -- hold whichever of them the implementation reached for.
+  it("has three genuinely different blobs to be judged against", function()
+    assert.are_not.same(at_head, entry.blob, "HEAD and the capture blob are the same object")
+    assert.are_not.same(entry.blob, at_dispatch, "the capture blob and the snapshot are the same object")
+    assert.are_not.same(at_head, at_dispatch, "HEAD and the snapshot are the same object")
+  end)
+
+  it("was left exactly as it was dispatched, which is what makes it untouched", function()
+    assert.same(at_dispatch, git.blob(IN_FLIGHT, nil, root))
+  end)
+
+  it("is untouched, because the agent never opened it", function()
+    assert.is_truthy(only_line_on(IN_FLIGHT):find("file unchanged", 1, true), only_line_on(IN_FLIGHT))
+  end)
+
+  it("counts as untouched on the winbar", function()
+    assert.is_truthy(vim.wo[V.win].winbar:find("1 untouched", 1, true), vim.wo[V.win].winbar)
+  end)
+
+  -- The reviewer's own edits are not the agent's work, and the entry carries the blob that
+  -- would say they were.
+  it("does not read the reviewer's own work as the agent's", function()
+    local touched = state.reconcile_archive(root, V.files)
+    assert.is_false(touched[entry.id], "an in-flight edit was counted as the agent's")
+  end)
+
+  -- Only the newest batch is judged: an older one went out against an older snapshot, and
+  -- "has this moved since the last dispatch" is not a question about it.
+  it("leaves the batch it displaced unjudged", function()
+    local touched = state.reconcile_archive(root, V.files)
+    assert.is_nil(touched[dispatched_ids["the agent will edit this file"]])
+    assert.same({ [entry.id] = false }, touched)
+  end)
+end)
