@@ -42,10 +42,32 @@ local LINKS = {
 -- cannot know how loud a type nobody has heard of should be.
 local TYPE_FALLBACK = "DiagnosticInfo"
 
+-- What emphasises the characters that differ inside a changed line. `DiffText` is the
+-- group every colorscheme already tunes for exactly that, so it is where the colour comes
+-- from -- but the background is *copied* rather than linked to, which is the one place
+-- this module departs from the pattern. A link would carry DiffText's foreground too, and
+-- the syntax replay sits at a higher priority: that foreground would lose to it wherever
+-- treesitter painted and win wherever it did not, which is emphasis that changes colour
+-- depending on whether the language has a parser installed. A background alone composes
+-- with the replay instead of fighting it, which is what keeps code readable inside a span.
+--
+-- A theme that gives DiffText no background at all therefore gets no emphasis, which is
+-- the rendering as it was before this existed rather than a broken one.
+local SPAN_SOURCE = "DiffText"
+local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
+
+local function apply_spans()
+  local source = vim.api.nvim_get_hl(0, { name = SPAN_SOURCE, link = false })
+  for _, group in ipairs(SPAN_GROUPS) do
+    vim.api.nvim_set_hl(0, group, { bg = source.bg, ctermbg = source.ctermbg, default = true })
+  end
+end
+
 function M.apply()
   for group, target in pairs(LINKS) do
     vim.api.nvim_set_hl(0, group, { link = target, default = true })
   end
+  apply_spans()
 
   -- A configured type names a group this module cannot know about, so without this a
   -- custom type renders with no colour at all. After LINKS and with `default = true`, so
