@@ -55,6 +55,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
 | `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
 | `interactive_spec` | The insert-mode leak, and where a completed or cancelled `@` leaves you, in a real pty-backed Neovim |
+| `map_spec` | That `lua/codereview/CLAUDE.md` lists exactly the modules that exist — the only part of the map a machine can check |
 
 ## Fixtures
 
@@ -232,6 +233,11 @@ so the out-of-core language path is still checked locally without ever failing C
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless
   version of that test passes whether or not the fix exists, which is why it drives a pty.
+- **A set comparison passes when one set was never read.** `map_spec` matches the module
+  map's rows with a pattern over the table's first column, so reformatting that column —
+  dropping the backticks, say — silently yields no rows, and "no row names a module that is
+  gone" then holds over nothing. It asserts both sides are non-empty before comparing them,
+  which is the only reason that reformatting reds two cases instead of one.
 
 ## Deliberately not covered
 

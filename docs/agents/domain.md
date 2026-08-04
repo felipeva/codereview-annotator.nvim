@@ -9,9 +9,9 @@ This repo is **single-context**: one `CONTEXT.md` and one `docs/adr/` at the rep
 - **`CONTEXT.md`** at the repo root — the domain glossary.
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
 
-If any of these files don't exist, **proceed silently**. Don't flag their absence; don't suggest creating them upfront. The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) creates them lazily when terms or decisions actually get resolved.
+Both exist, and `docs/adr/` holds several ADRs. Read the ones touching your area rather than assuming the decision is still open.
 
-Neither file exists yet — that is the expected starting state.
+The `/domain-modeling` skill (reached via `/grill-with-docs` and `/improve-codebase-architecture`) adds to them lazily, as terms and decisions actually get resolved.
 
 ## File structure
 
