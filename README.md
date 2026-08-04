@@ -630,6 +630,14 @@ without the plugin fighting back. The two exceptions are `CodeReviewAddSpan` and
 `CodeReviewDelSpan`, which take `DiffText`'s background and set no foreground — still
 `default = true`, so overriding them works the same way.
 
+A **muted** window draws through a computed twin of each group, named `CodeReviewMuted.`
+plus the group it blends — `CodeReviewMuted.CodeReviewAdd`, `CodeReviewMuted.@keyword`.
+Each holds that group's own colours pulled `muted.strength` of the way toward the
+background, and each is written again on every colorscheme change, so setting one yourself
+is overwritten. Set `muted.strength`, or the group the twin is named for. A group your
+theme gives no colour of its own gets no twin, and a muted window draws it at full
+brightness.
+
 ## Adapters
 
 The plugin has no opinion about where a review goes, about which pickers you use, or about

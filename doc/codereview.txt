@@ -882,6 +882,16 @@ languages you have installed. A background alone composes with the replay, and
 that is what keeps code readable inside an emphasised span. Both are still
 `default = true`, so overriding either works the same way as the rest.
 
+One more family is computed, and it is not yours to set. A **muted** window
+(|codereview-muted|) draws every group through a twin named `CodeReviewMuted.`
+plus the group it blends -- `CodeReviewMuted.CodeReviewAdd`,
+`CodeReviewMuted.@keyword`, and so on. Each holds the group's own colours
+pulled `muted.strength` of the way toward the background, and each is written
+again on every colorscheme change, so a definition of your own is overwritten.
+Set `muted.strength`, or the group the twin is named for, instead. A group the
+active theme gives no colour of its own gets no twin, and a muted window draws
+it at full brightness.
+
 ==============================================================================
 11. PERSISTENCE                                     *codereview-persistence*
 

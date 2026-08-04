@@ -280,86 +280,48 @@ end
 
 --- Muting ---------------------------------------------------------------------
 
----The namespace holding a muted variant of every group a review window draws in.
+---The namespace that points every group a review window draws in at its muted twin.
 ---
 ---One namespace shared by every muted window rather than one each: what is in it is a
 ---function of the colorscheme and the configured strength, not of which window is being
 ---muted. Attaching it is what mutes a window; handing the window the global namespace back
 ---is what brightens it.
+---
+---**The namespace holds links, and no colour of its own.** `hl.lua` owns the blended
+---groups, so the colours a muted window draws are reachable from outside this namespace --
+---which is what keeps one set of them behind every rule that wants them. A link also
+---survives a colorscheme change, because it holds a name and not a colour.
 local NS_MUTED = vim.api.nvim_create_namespace("codereview_muted")
 
----Which groups the namespace already holds a variant for.
+---Which groups the namespace already links to a twin.
 ---@type table<string, boolean>
-local variants = {}
+local linked = {}
 
----`Normal`'s background, memoised until the colorscheme changes.
----@type integer|nil
-local toward = nil
-
----What the muted colours are pulled toward.
+---Link `group` to its muted twin, once.
 ---
----A theme that gives `Normal` no background at all has the terminal's behind it, and the
----only thing knowable about that is which way the theme says it leans.
----@return integer
-local function backdrop()
-  if not toward then
-    local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
-    toward = normal.bg or (vim.o.background == "light" and 0xffffff or 0x000000)
-  end
-  return toward
-end
-
----Pull one colour toward another, channel by channel.
----@param colour integer 0xRRGGBB
----@param target integer 0xRRGGBB
----@param strength number 0 leaves the colour alone, 1 replaces it with `target`
----@return integer
-local function blend(colour, target, strength)
-  local out = 0
-  for _, place in ipairs({ 65536, 256, 1 }) do
-    local from = math.floor(colour / place) % 256
-    local to = math.floor(target / place) % 256
-    out = out + math.floor(from + (to - from) * strength + 0.5) * place
-  end
-  return out
-end
-
----Give `group` a muted variant in the namespace, once.
----
----**A group left without one stays bright, and that is the feature.** A group the namespace
----does not define falls back to its global definition -- measured, not assumed -- so a
----colorscheme this plugin has never heard of, or one whose group carries no colour of its
----own to blend, comes out merely less muted instead of wrongly coloured. Nothing here
----reaches for a palette when a lookup comes back empty, and nothing should.
----
----Only the true-colour attributes are blended. `ctermfg`/`ctermbg` are indices into a
----palette with no channels to pull, so they are carried across untouched.
----
----A lookup that came back with nothing is not remembered as done, so a rebuild that somehow
----ran before the theme's own groups were re-linked costs one pass of muting rather than a
----review that stays bright until the next colorscheme change.
+---**A group left without a link stays bright, and that is the feature.** A group the
+---namespace does not name falls back to its global definition -- measured, not assumed --
+---so a colorscheme this plugin has never heard of, or one whose group carries no colour of
+---its own to blend, comes out merely less muted instead of wrongly coloured. `hl.lua`
+---decides which groups have a twin, and it hands back nothing for the rest.
 ---@param group string
----@param strength number
-local function ensure_variant(group, strength)
-  if variants[group] then
+local function ensure_link(group)
+  if linked[group] then
     return
   end
-  local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
-  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil) then
+  local twin = hl.muted_group(group)
+  if not twin then
     return
   end
-  variants[group] = true
-  local muted = vim.tbl_extend("force", {}, def)
-  muted.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
-  muted.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
-  pcall(vim.api.nvim_set_hl, NS_MUTED, group, muted)
+  linked[group] = true
+  pcall(vim.api.nvim_set_hl, NS_MUTED, group, { link = twin })
 end
 
 ---How many capture resolutions the namespace was last extended against.
 ---@type integer
 local extended_at = -1
 
----Extend the namespace with every group now in play that it does not hold yet.
+---Extend the namespace with every group now in play that it does not link yet.
 ---
 ---Extended rather than built once, because the set grows while a review is open: a file is
 ---parsed only as its rows come near the window, so which capture groups the replay has
@@ -378,32 +340,27 @@ function M.mute_extend()
   end
   extended_at = syntax.resolutions()
   for _, group in ipairs(hl.groups()) do
-    ensure_variant(group, cfg.strength)
+    ensure_link(group)
   end
   for _, group in pairs(syntax.resolved_groups()) do
-    ensure_variant(group, cfg.strength)
+    ensure_link(group)
   end
 end
 
----Recompute every variant against the colorscheme that is active now.
+---Point every muted window at the colours the theme that is active now decides.
 ---
----A variant is a blend of colours the theme decides, so it means nothing once the theme has
----changed. Driven by the view's `ColorScheme` autocommand, which is declared after the one
----`hl.lua` re-links its own groups from -- so what this reads has already been re-linked.
+---Little is left to do here, and that is the point of the links. `hl.lua` writes every twin
+---again from its own `ColorScheme` autocommand, and a link inside the namespace survives
+---`:colorscheme` and reaches the new colour by name -- measured, not assumed. So no colour
+---is touched from here.
 ---
----Every group the namespace already holds is recomputed rather than dropped: the diff on
----screen still carries extmarks naming the capture groups the old theme resolved, and those
----have to be right before anything reparses.
+---What is left is one more pass over the groups in play. A group the old theme gave no
+---colour to, and the new theme does, gets its link at last.
+---
+---Driven by the view's `ColorScheme` autocommand, which is declared after the one `hl.lua`
+---writes its twins from. The two fire in that order, so every twin this links to exists.
 function M.recolour()
-  local known = variants
-  toward, variants, extended_at = nil, {}, -1
-  local cfg = config.get().muted
-  if not cfg.enabled then
-    return
-  end
-  for group in pairs(known) do
-    ensure_variant(group, cfg.strength)
-  end
+  extended_at = -1
   M.mute_extend()
 end
 
