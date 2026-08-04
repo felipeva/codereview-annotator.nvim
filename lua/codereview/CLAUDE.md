@@ -14,6 +14,7 @@ change there is felt through.
 | Module | Owns | |
 | --- | --- | --- |
 | `annotate.lua` | The review path: cursor to entry, the deleted-line and hunk inlining rules, drop, grouping | stateful (queue, view) |
+| `archive.lua` | The archive read back: which batch went last, and the read-only float listing it | stateful (float) |
 | `capture.lua` | The capture path: the same entry from an ordinary buffer, no review view involved | stateful (queue, buffer) |
 | `composer.lua` | The shipped composer and its `@` reference picker — the default `compose` adapter, not a lesser one | stateful (float) |
 | `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff` | stateful (options) |
@@ -36,7 +37,7 @@ change there is felt through.
 
 - **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
-  `delivery`, `syntax`; then `composer`, `hl`.
+  `archive`, `delivery`, `syntax`; then `composer`, `hl`.
 - **The hubs**: `view` requires twelve of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
@@ -58,7 +59,7 @@ of `resolve_scope` — and scope resolution is exactly what must stay one functi
 ## Where reading pays
 
 - **Settled**, one to three commits each: `panel`, `drafts`, `diff`, `git`, `syntax`,
-  `render`, `hl`. Read one when you need it, not to orient yourself.
+  `render`, `hl`, `archive`. Read one when you need it, not to orient yourself.
 - **Carries the churn**: `view` and `annotate` by a wide margin, then `config`, `composer`
   and `state`.
 
