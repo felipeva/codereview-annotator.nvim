@@ -33,6 +33,13 @@ function M.setup(opts)
     desc = "Copy the queued batch to the + register, without submitting it",
   })
 
+  -- Takes no arguments and needs no review open, for the reason the copy above does not:
+  -- the batch it reads back has already gone, so nothing about the current window could
+  -- change which one went last.
+  vim.api.nvim_create_user_command("CodeReviewLastBatch", M.last_batch, {
+    desc = "Read the last dispatched batch back: its annotations, where it went and when",
+  })
+
   vim.api.nvim_create_user_command("CodeReviewAnnotate", function(cmd)
     -- `cmd.range` counts the addresses given, not the lines covered. Reading line1/line2
     -- unconditionally would turn a bare `:CodeReviewAnnotate` into a one-line capture of
@@ -96,6 +103,15 @@ end
 ---is, so what is copied describes the open review when there is one.
 function M.copy()
   require("codereview.view").copy()
+end
+
+---Read the last dispatched batch back: its annotations, where it went and when.
+---
+---Read-only. An archived entry records something that happened, so nothing in it can be
+---dropped, edited or resubmitted -- re-raising a point means annotating again. Opens with
+---no review view, as the queue float does: a batch is not a window.
+function M.last_batch()
+  require("codereview.archive").open()
 end
 
 ---@return integer

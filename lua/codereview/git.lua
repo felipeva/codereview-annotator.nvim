@@ -138,7 +138,7 @@ M.SCOPES = { "branch", "staged", "unstaged", "worktree", "since-batch" }
 function M.cycle(root)
   local names = {}
   for _, name in ipairs(M.SCOPES) do
-    if name ~= "since-batch" or #require("codereview.state").archive(root) > 0 then
+    if name ~= "since-batch" or require("codereview.state").last_batch(root) then
       names[#names + 1] = name
     end
   end
@@ -171,8 +171,10 @@ function M.resolve_scope(spec, root)
     -- Resolved here rather than anywhere of its own, and to a *real ref*: the diff parser,
     -- the blob hashing and the whole-file fetch the highlighter needs all read content out
     -- of `before`, and none of them can read a marker. Which is why the archive keeps a
-    -- commit object -- read back here through the accessor every other consumer uses.
-    local batch = require("codereview.state").archive(root)[1]
+    -- commit object -- read back here through the one query that answers which batch went
+    -- last, shared with the surface that lists that batch's entries so the diff on screen
+    -- and the annotations beside it can never describe two different dispatches.
+    local batch = require("codereview.state").last_batch(root)
     if not batch then
       return nil, "nothing has been dispatched from this repository yet"
     end

@@ -29,9 +29,12 @@ local LINKS = {
   CodeReviewPanelSel = "CursorLine",
   CodeReviewPanelDir = "Directory",
 
-  -- The queue float's own chrome. The bar running down an entry is that annotation type's
-  -- group rather than one of these, so what is left is the number the entry is listed
-  -- under and the state that rides on the right of its first row.
+  -- The chrome of the floats that list entries as rows -- the queue float, and the archive
+  -- float that reads the last dispatched batch back. Named for the queue because that is
+  -- where they started, and shared rather than duplicated because the two surfaces list the
+  -- same shape of thing and a reviewer overriding one means both. The bar running down an
+  -- entry is that annotation type's group rather than one of these, so what is left is the
+  -- number the entry is listed under and the state that rides on the right of its first row.
   CodeReviewQueueIndex = "LineNr",
   CodeReviewQueueState = "Comment",
 

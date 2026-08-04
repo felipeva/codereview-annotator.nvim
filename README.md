@@ -362,6 +362,23 @@ in the `+` register without submitting it. It is the same text `send` would have
 handed, target and all, and it costs the batch nothing: the queue is untouched, so reading
 what an agent will be told is not a decision to send it.
 
+### Read the last batch back after it goes
+
+A submit clears the queue, which is the moment "what did I actually ask for?" stops having
+an answer anywhere but the agent's transcript. `:CodeReviewLastBatch` gives it one: the
+annotations of the batch that went last, grouped by type exactly as the queue float and the
+payload group them, with the target it went to and when it went in the frame.
+
+It needs no review open — a batch is not a window, and what you asked for is worth checking
+from anywhere. A bare note is listed like anything else, even though it was kept in a
+different store than the annotations with a file behind them.
+
+It is **read-only**, and that is a statement about the record rather than a feature left
+out. An archived entry says something happened; a surface that let you drop, edit or
+resubmit one would be claiming the plugin can revise what an agent already received. To
+raise a point again, annotate again — that is an ordinary capture, and it joins the next
+batch.
+
 ### The payload
 
 Grouped by type, in the configured order, most actionable first, with anything untyped
@@ -476,6 +493,21 @@ under the cursor and not what a heading further up happened to say.
 
 `gy` leaves the float open, because it takes nothing out of the queue — everything it is
 listing is still there.
+
+### In the last-batch float
+
+`:CodeReviewLastBatch` lists an annotation the same way — the reserved gutter, the bar in
+its type's colour, the code it inlined and its note — so the two read as one family. What
+is missing is every key that would change something.
+
+| Key | Action |
+| --- | --- |
+| `q` / `<Esc>` | Close |
+| `x` `<C-s>` | Bound only to say why they do nothing here |
+
+Those two are bound rather than left off so that the queue float's muscle memory gets a
+sentence instead of `E21`. Nothing else is: the batch has gone, and there is nothing left
+to route, drop or send.
 
 ## Configuration
 
@@ -652,6 +684,10 @@ A dispatch writes it and nothing else does. An adapter that declined, one that r
 it exactly as they leave the queue — a payload sitting in a register is not something an
 agent received. An immediate send is a batch of one and is kept as one. The most recent
 **twenty** batches are kept per store, oldest dropped on write.
+
+`:CodeReviewLastBatch` reads the newest one back. A batch holding both kinds of annotation
+is written to both stores and rejoined by the moment it was dispatched, which is what stops
+a bare note being the one thing missing from what you read back.
 
 </details>
 

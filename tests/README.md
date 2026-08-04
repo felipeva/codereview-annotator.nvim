@@ -47,6 +47,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, and a document written before the archive existed |
+| `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, and the four things it refuses |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
@@ -163,6 +164,24 @@ so the out-of-core language path is still checked locally without ever failing C
   capture case compares the entry captured in `since-batch` against the one the *same line*
   produces in `worktree`, field for field bar the id: an entry that recorded which scope
   caught it would differ, and nothing weaker than a comparison would notice.
+- **The two halves of one dispatch are rejoined by a stamp with one-second resolution.** A
+  batch holding a bare note is written to both stores and matched back up by the `os.time()`
+  both were stamped from, so a spec that submits in a loop can leave one batch's loose
+  entries within reach of the next batch's stamp — and the surface then lists entries from
+  two dispatches as one. `archive_float_spec` clears *both* stores between blocks
+  (`state.clear` and `state.clear_global`) rather than trusting the clock to separate them.
+- **Neither the scope's spec nor the float's archives more than one batch.** `since-batch`
+  and the last-batch float both resolve "which batch went last", and with a single batch
+  archived the head and the tail of the archive are the same record — so an accessor that
+  returned the *oldest* leaves `since_batch_spec` and `diff_spec` entirely green. The case
+  that catches it is in `archive_float_spec`: two dispatches, a file edited between them so
+  the two snapshots are genuinely different shas, and the batch the scope resolved against
+  looked up *by its snapshot* rather than by taking the head a third time.
+- **A rejoin test needs the loose entry queued first.** Concatenating one store after the
+  other happens to produce the right order whenever the repository entries were queued
+  first, so a fixture in that order passes with the ordering deleted. `archive_float_spec`
+  queues the bare note before the file annotation, gives both the *same* annotation type so
+  the grouping cannot hide the order, and guards that their ids really are in that order.
 - **A send adapter that raises takes the whole `describe` with it.** Plenary runs a
   describe body immediately, so an adapter that propagates its error aborts the block
   instead of failing one case — the `it`s below it never run. `delivery_spec` asserts on
