@@ -40,6 +40,7 @@ local NS_PANEL = vim.api.nvim_create_namespace("codereview_panel")
 ---@field render CRRender|nil             The after pane's render
 ---@field before_render CRRender|nil      nil in the unified layout
 ---@field panel_render CRPanelRender|nil
+---@field painted_bands table<integer, boolean>|nil  Row bands whose marks have been emitted
 
 ---@type CRView|nil
 local V = nil
@@ -301,19 +302,92 @@ local function update_before_winbar()
   vim.wo[V.before_win].winbar = bar:gsub("%%", "%%%%")
 end
 
----Write one pane's render into its buffer.
+---Write one pane's render into its buffer: the lines, and nothing else.
+---
+---Which of the render's marks reach the buffer is `paint_bands`' decision, taken against
+---the window rather than against the diff. The namespace is cleared here, so this is also
+---where everything a previous paint emitted stops existing.
 ---@param buf integer
 ---@param rendered CRRender
 local function write_pane(buf, rendered)
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, rendered.lines)
   vim.bo[buf].modifiable = false
-
   vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
-  for _, m in ipairs(rendered.marks) do
+end
+
+---First index in `marks` whose row is at or after `row`.
+---
+---`render.build` appends each mark as it draws the row it belongs to, so a pane's marks are
+---in non-decreasing row order and a run of rows is a slice of that array. Found rather than
+---filtered, because a filter is a walk of the whole review -- the cost this bounding exists
+---to remove, and one that would then be paid again on every scroll into new rows.
+---`bounded_spec` pins the ordering this relies on, for both panes.
+---@param marks table[]
+---@param row integer 0-indexed, as an extmark's row is
+---@return integer
+local function lower_bound(marks, row)
+  local lo, hi = 1, #marks + 1
+  while lo < hi do
+    local mid = math.floor((lo + hi) / 2)
+    if marks[mid].row < row then
+      lo = mid + 1
+    else
+      hi = mid
+    end
+  end
+  return lo
+end
+
+---Emit every mark one pane's render put on rows `first`..`last`, 1-indexed and inclusive.
+---@param buf integer
+---@param rendered CRRender
+---@param first integer
+---@param last integer
+local function emit_rows(buf, rendered, first, last)
+  local marks = rendered.marks
+  for i = lower_bound(marks, first - 1), #marks do
+    local m = marks[i]
+    if m.row > last - 1 then
+      return
+    end
     -- An end_col past the end of a line is a hard error; a mis-measured header should
     -- lose its colour, not abort the whole repaint.
     pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, m.opts)
+  end
+end
+
+---Emit the marks for the rows near the window, in every pane there is.
+---
+---Bounded by the viewport, not by the diff, for the reason the harvest already is and
+---against the same bounds: a 300-file review renders 271,000 marks, and writing all of them
+---is a sixth of a second on every resize, expansion, reviewed toggle and scope change.
+---
+---Rows are tracked in bands so that scrolling back re-emits nothing, and quantising is what
+---keeps that tracking a handful of lookups instead of a set the size of the review. The
+---grain is the harvest's margin: one figure decides both how far ahead the view paints and
+---how coarsely it remembers, and a band is either wholly emitted or wholly not.
+---
+---Cheap when there is nothing new -- which is what lets it hang off `CursorMoved`.
+local function paint_bands()
+  if not V.render then
+    return
+  end
+  local syntax = require("codereview.syntax")
+  local band = syntax.VIEWPORT_MARGIN
+  local lo, hi = syntax.viewport(V)
+  V.painted_bands = V.painted_bands or {}
+  for b = math.floor((lo - 1) / band), math.floor((hi - 1) / band) do
+    if not V.painted_bands[b] then
+      V.painted_bands[b] = true
+      -- Both panes draw the same rows, so one set of bands answers for both: a band is
+      -- emitted into both or into neither, which is what keeps the two images comparable
+      -- row for row wherever a reviewer has scrolled.
+      emit_rows(V.buf, V.render, b * band + 1, (b + 1) * band)
+      if V.before_render then
+        emit_rows(V.before_buf, V.before_render, b * band + 1, (b + 1) * band)
+      end
+    end
   end
 end
 
@@ -344,6 +418,10 @@ function M.paint(keep_file)
   if V.before_render then
     write_pane(V.before_buf, V.before_render)
   end
+  -- The namespaces above were just cleared, so nothing this records still exists. Dropped
+  -- here rather than in `paint_bands` for the reason `syntax_painted` is dropped by the
+  -- paint: what a band means is decided by the render it was emitted from.
+  V.painted_bands = {}
 
   paint_panel()
   update_winbar()
@@ -352,6 +430,11 @@ function M.paint(keep_file)
   if keep_file and V.render.file_rows[keep_file] then
     place(V.render.file_rows[keep_file])
   end
+
+  -- After `place`, not before it: parking the cursor on a file is what decides which rows
+  -- are near the window, and a repaint has to leave the rows it lands on painted rather
+  -- than waiting for the reviewer to move.
+  paint_bands()
 
   -- The namespace was just cleared and the renders above are new, so nothing a previous
   -- paint derived from them still describes what is on screen -- but the parsed captures
@@ -1749,9 +1832,12 @@ local function attach_pane(buf)
     end,
   })
 
-  -- Highlighting is bounded by the viewport, so scrolling into an un-parsed file is what
-  -- triggers its parse. Cheap on every other scroll: already-painted files are skipped
-  -- and already-parsed ones repaint from cache.
+  -- Both the diff's own marks and its highlighting are bounded by the viewport, so
+  -- scrolling into rows nothing has been emitted onto is what emits them, and scrolling
+  -- into an un-parsed file is what triggers its parse. One trigger for the two of them:
+  -- they share a margin, so they come due at the same moment. Cheap on every other scroll --
+  -- a band already emitted is a lookup, an already-painted file is skipped, and an
+  -- already-parsed one repaints from cache.
   vim.api.nvim_create_autocmd({ "WinScrolled", "CursorMoved" }, {
     group = V.augroup,
     buffer = buf,
@@ -1759,6 +1845,7 @@ local function attach_pane(buf)
       if not M.current() then
         return
       end
+      paint_bands()
       if config.get().syntax then
         require("codereview.syntax").apply(V, NS)
       end

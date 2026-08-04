@@ -181,15 +181,24 @@ local function apply_side(view, ns, buf, file, side, map, ref, lang)
   end
 end
 
--- Rows of slack above and below the window. Generous enough that ordinary scrolling
--- never waits on a parse, small enough that opening a 60-file review parses two files
--- instead of sixty.
-local VIEWPORT_MARGIN = 120
+---Rows of slack above and below the window. Generous enough that ordinary scrolling never
+---waits on a parse, small enough that opening a 60-file review parses two files instead of
+---sixty.
+---
+---Exported because the diff's own extmarks are bounded by this same figure, and a second
+---one would drift: the two bounds decide together what a row on screen ends up carrying,
+---so a harvest reaching further than the emission is highlighting on a row with no diff
+---background under it.
+M.VIEWPORT_MARGIN = 120
 
----Rows currently worth highlighting.
+---Rows currently worth painting: the window's own, plus the margin above and below.
+---
+---Exported for the same reason the margin is, and preferred to it: the view bounds its own
+---emission against this, so the two answers agree by construction rather than by two call
+---sites doing the same arithmetic.
 ---@param view CRView
 ---@return integer lo, integer hi
-local function viewport(view)
+function M.viewport(view)
   if not vim.api.nvim_win_is_valid(view.win) then
     return 1, #view.render.lines
   end
@@ -201,7 +210,7 @@ local function viewport(view)
   if not ok or type(span) ~= "table" or not span[1] or not span[2] then
     return 1, #view.render.lines
   end
-  return math.max(1, span[1] - VIEWPORT_MARGIN), math.min(#view.render.lines, span[2] + VIEWPORT_MARGIN)
+  return math.max(1, span[1] - M.VIEWPORT_MARGIN), math.min(#view.render.lines, span[2] + M.VIEWPORT_MARGIN)
 end
 
 ---@alias CRFileRows { before: table<integer, { row: integer, col: integer }>, after: table<integer, { row: integer, col: integer }>, first: integer, last: integer }
@@ -278,7 +287,7 @@ function M.apply(view, ns)
   -- and the first pass after one pays for it.
   view.syntax_rows = view.syntax_rows or invert(view)
 
-  local lo, hi = viewport(view)
+  local lo, hi = M.viewport(view)
   local split = view.before_render ~= nil
 
   for fi, maps in pairs(view.syntax_rows) do
