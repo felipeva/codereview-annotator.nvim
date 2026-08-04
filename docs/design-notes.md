@@ -57,6 +57,30 @@ works too, and takes effect on the next redraw: measured in a prototype, not ass
 group the namespace does not define falls back to its global definition, so what is not in
 it stays bright.
 
+**The winbar draws in `WinBar`/`WinBarNC` and in nothing of the plugin's own.** The bar is
+plain text: it carries no `%#Group#` markup and cannot, because every `%` on it is escaped
+(see below). So the **sticky header** mutes with its window through those two built-in
+groups and needs nothing added to the muted set — which is also the whole of what keeps the
+two features from colliding, and is why `split_spec` asserts the painted cell of a muted
+pane's bar rather than trusting that the two happen to agree.
+
+**The winbar is padded by hand, in display columns, and every `%` in it is escaped.** The
+statusline's `%=` would right-align the review summary for free and cannot be used: the bar
+carries a path a reviewer's repository chose, and a `%f` in one would be read as a
+statusline item and expanded into something else — so the whole bar is escaped on the way
+out, `%=` included. What is left is arithmetic, and it counts columns rather than bytes.
+Almost everything on that bar is multibyte — the file icons, the chevron, the `·`
+separators, a rename's `→` — so a bar padded by `#` lands a dozen columns short of the pane
+and every ASCII assertion in the suite still passes. The renamed file is what catches it.
+
+**What the sticky header sheds on a narrow pane is decided by what it now says twice.** The
+summary drops the plugin's own name, the review's line totals and the queue's note count
+first — the file segment beside them carries a chevron, that file's own `+N -M` and that
+file's own note count — and only then does the path give up its head, down to the file's own
+name. Below that the summary keeps shedding, from its head, so the target it ends on is the
+last thing to go. Shedding the summary's *tail* was the first attempt and is wrong: the
+tail is where everything nothing else on screen says has accumulated.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
@@ -348,7 +372,10 @@ diff cursor runs on every `CursorMoved`; rebuilding the tree on each keystroke i
 on a large review. The crossing is judged on the view rather than inside the tree's sync,
 and judged whether or not there is a tree — a latch that stopped with the window would sit
 on the file being read at the moment the tree was dismissed, and reading that same file
-again once it was back would repaint nothing.
+again once it was back would repaint nothing. The **sticky header** hangs off the same
+crossing, which is the other half of why: a winbar hung off the tree's own repaint would
+name the right file with the tree open and freeze the moment it was dismissed — the one
+case the header exists for.
 
 ## Windows, modes and focus
 

@@ -1210,3 +1210,139 @@ describe("syntax highlighting in the split layout", function()
     assert.is_true(#on_row > 0, ("nothing highlighted on before-pane row %d"):format(row))
   end)
 end)
+
+-- The **sticky header**, per pane. The unified layout's bar is `render_spec`'s, arrow and
+-- all; what only this layout can say is that each pane names its own side -- the after pane
+-- the post-image path, the before pane the pre-image path beside the base revision it
+-- already carried. That is the in-buffer file header's rename rule, and this is the winbar
+-- following it rather than inventing a second one.
+--
+-- Last in this file: it widens the terminal, which nothing below it would survive.
+describe("the sticky header in the split layout", function()
+  local V = view.current()
+  -- Both bars have to hold a 40-character revision and a path at once, and a third of a
+  -- 120-column terminal is not enough for that -- the pane would truncate its way to a pass
+  -- or a fail for reasons that have nothing to do with which side it names. Widening the
+  -- terminal hands every new column to the last window, so the panes are levelled after it,
+  -- and the repaint is this test's to drive: `WinResized` never lands in a headless spec.
+  vim.o.columns = 200
+  vim.cmd("wincmd =")
+  view.paint()
+
+  ---@param path string
+  local function read_into(path)
+    local index = assert(h.file_index(V, path))
+    focus(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index] + 1, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+  end
+
+  read_into("src/newname.lua")
+  local after, before = vim.wo[V.win].winbar, vim.wo[V.before_win].winbar
+
+  -- Guards the block: on a pane with no room for both, the before pane's path is dropped
+  -- rather than drawn over its revision, and every case here would be reading that instead.
+  it("really gave each pane room for a revision and a path", function()
+    local width = vim.api.nvim_win_get_width(V.before_win)
+    local need = vim.fn.strdisplaywidth(V.scope.before) + #" Before ·   src/oldname.lua "
+    assert.is_true(width >= need, ("%d columns, %d needed"):format(width, need))
+  end)
+
+  it("names the post-image path on the after pane, and only that side", function()
+    assert.is_truthy(after:find("src/newname.lua", 1, true), after)
+    assert.is_nil(after:find("src/oldname.lua", 1, true), after)
+  end)
+
+  it("names the base revision and the pre-image path on the before pane", function()
+    assert.is_truthy(before:find(V.scope.before, 1, true), before)
+    assert.is_truthy(before:find("src/oldname.lua", 1, true), before)
+  end)
+
+  it("keeps the review summary on the after pane where it has always been", function()
+    assert.is_truthy(after:find(V.scope.label, 1, true), after)
+    assert.is_truthy(after:find("reviewed", 1, true), after)
+  end)
+
+  -- A file added on the branch exists on one side only, and the before pane's header row for
+  -- it is filler. Its winbar says the same thing by naming nothing.
+  it("names no pre-image for a file that has none", function()
+    read_into("src/fresh.lua")
+    assert.is_truthy(vim.wo[V.win].winbar:find("src/fresh.lua", 1, true), vim.wo[V.win].winbar)
+    assert.is_nil(vim.wo[V.before_win].winbar:find("fresh", 1, true), vim.wo[V.before_win].winbar)
+  end)
+
+  it("still names the revision on a pane naming no file", function()
+    assert.is_truthy(vim.wo[V.before_win].winbar:find(V.scope.before, 1, true), vim.wo[V.before_win].winbar)
+  end)
+end)
+
+-- The sticky header and **muting**, together. Neither slice could see this: the winbar was
+-- written against a base with no muting in it, and muting against one whose winbar named no
+-- file. What their combination implies is that the file segment is chrome of a review window
+-- and has to recede with it -- and the bar carries no highlight group of the plugin's own,
+-- so it draws in `WinBar` and `WinBarNC` and mutes only because the muted set covers those
+-- two. Nothing about that is visible in the bar's *text*, which is identical bright or
+-- muted, so this is asserted at the cell and can be asserted nowhere else.
+--
+-- One child process per reading, as `muted_spec` does and for the reason measured there:
+-- `nvim__inspect_cell` is honest only on the first call a process makes.
+describe("the sticky header on a muted pane", function()
+  ---@param env table<string, string>
+  ---@return string
+  local function child(env)
+    local run = vim
+      .system({
+        vim.v.progpath,
+        "--clean",
+        "-l",
+        vim.fs.joinpath(h.root, "tests", "codereview", "winbar_child.lua"),
+      }, {
+        cwd = root,
+        text = true,
+        env = vim.tbl_extend("force", {
+          FIXTURE = root,
+          XDG_STATE_HOME = vim.fn.tempname() .. "-state",
+          GIT_CONFIG_GLOBAL = "/dev/null",
+          GIT_CONFIG_SYSTEM = "/dev/null",
+        }, env),
+      })
+      :wait(60000)
+    -- `nvim -l` sends print to stderr, so read both streams rather than guessing.
+    local out = (run.stdout or "") .. (run.stderr or "")
+    assert(run.code == 0, out)
+    return vim.trim(out)
+  end
+
+  -- Always the *after* pane's bar, over the first character of the path it names. Which pane
+  -- has focus is what decides whether that pane is the muted one.
+  local muted = child({ FOCUS = "before", MUTED = "1" })
+  local bright = child({ FOCUS = "after", MUTED = "1" })
+  local unmuted_nc = child({ FOCUS = "before", MUTED = "0" })
+
+  -- Every reading is of a cell inside the path, so a bar that had stopped naming the file
+  -- would fail here before any colour was compared.
+  it("really read the file segment in all three arrangements", function()
+    for _, reading in ipairs({ muted, bright, unmuted_nc }) do
+      assert.same("cell s", reading:sub(1, #"cell s"), reading)
+    end
+  end)
+
+  it("draws the file segment at full brightness on the pane with focus", function()
+    assert.same("cell s fg=eeee00 bg=006600", bright)
+  end)
+
+  -- `WinBar`'s colours blended halfway to `Normal`'s background -- the muted namespace's
+  -- variant, not the group itself.
+  it("mutes the file segment with the pane it names the file for", function()
+    assert.same("cell s fg=770000 bg=002200", muted)
+  end)
+
+  -- The reading that gives the one above its teeth. A non-current window draws its winbar in
+  -- `WinBarNC` whether or not anything is muted, so "the muted pane's bar is not `WinBar`"
+  -- would hold with the namespace never reaching the winbar at all. With muting off the same
+  -- cell comes back at `WinBarNC`'s own brightness, which is what the muted reading is
+  -- darker *than*.
+  it("comes back at that group's own brightness with muting off", function()
+    assert.same("cell s fg=ee0000 bg=004400", unmuted_nc)
+  end)
+end)

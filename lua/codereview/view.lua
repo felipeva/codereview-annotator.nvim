@@ -113,10 +113,61 @@ end
 -- is stays here -- see `current_file` below -- because it is a fact about the diff, and the
 -- tree is only the first thing to ask for it.
 
-local function update_winbar()
-  if not vim.api.nvim_win_is_valid(V.win) then
-    return
+--- The winbar ------------------------------------------------------------------
+
+-- Each pane's winbar carries two halves: the **sticky header** naming the file the cursor
+-- is in, and the review summary beside it. The file is what survives scrolling past its own
+-- header row, so it takes the left -- and it is written where the summary already was
+-- rather than over it, because a bar that answered *which file* by dropping *which review*
+-- would have moved the problem rather than solved it.
+
+local SEP = " · "
+-- One blank column at each edge, and at least two between the halves, so the two never
+-- read as one sentence.
+local MARGIN, GAP = 1, 2
+
+---@param text string
+---@return integer
+local function cols(text)
+  return vim.fn.strdisplaywidth(text)
+end
+
+---Lay one winbar out: `left` against the left margin, `right` against the right edge.
+---
+---Padded with spaces rather than with the statusline's `%=`, because every `%` in this bar
+---is escaped on the way out -- a path is a name a reviewer's repository chose, and `%f` in
+---one would otherwise be read as a statusline item and expanded into something else. The
+---padding is counted in display columns and not in bytes: the summary's separators, the
+---file icons and a rename's arrow are all multibyte, so a bar padded by `#` drifts left by
+---two columns for every one of them, and does it on the very first path with an accent.
+---@param width integer Columns the winbar has
+---@param left string
+---@param right string Empty to leave the bar left-aligned, as it is with nothing to align
+---@return string
+local function lay_out(width, left, right)
+  if right == "" then
+    return (" "):rep(MARGIN) .. left
   end
+  local pad = width - 2 * MARGIN - cols(left) - cols(right)
+  return (" "):rep(MARGIN) .. left .. (" "):rep(math.max(GAP, pad)) .. right .. (" "):rep(MARGIN)
+end
+
+---@param win integer
+---@param bar string
+local function set_winbar(win, bar)
+  vim.wo[win].winbar = bar:gsub("%%", "%%%%")
+end
+
+---What the review summary says, one segment per `·`.
+---
+---A list rather than a string because a pane too narrow for both halves is one the summary
+---gives way on, and which segment goes is the only thing here that is not a format.
+---`spare` marks the ones the sticky header beside them now says twice: the plugin's own
+---name, against a bar that names a file with a review chevron on it; the review's line
+---totals, against the file's own `+N -M` two columns to the left; the queue's note count,
+---against the file's own. What is not spare is what nothing else on screen says.
+---@return { text: string, spare: boolean|nil }[]
+local function summary_segments()
   local reviewed = 0
   for _ in pairs(V.reviewed) do
     reviewed = reviewed + 1
@@ -126,41 +177,183 @@ local function update_winbar()
   for _, items in pairs(V.notes) do
     notes = notes + #items
   end
-  local bar = (" Code review · %s · %d/%d reviewed · +%d -%d"):format(
-    V.scope.label,
-    reviewed,
-    #V.files,
-    added,
-    removed
-  )
+  local out = {
+    { text = "Code review", spare = true },
+    { text = V.scope.label },
+    { text = ("%d/%d reviewed"):format(reviewed, #V.files) },
+    { text = ("+%d -%d"):format(added, removed), spare = true },
+  }
   if notes > 0 then
-    bar = bar .. (" · %d note%s"):format(notes, notes == 1 and "" or "s")
+    out[#out + 1] = { text = ("%d note%s"):format(notes, notes == 1 and "" or "s"), spare = true }
   end
   -- Read rather than computed: this runs on every paint, and a paint runs on every resize.
   -- The git behind the number is paid where the archive is judged, which is where the diff
   -- is read -- see `judge_archive`.
   if V.untouched then
-    bar = bar .. (" · %d untouched"):format(V.untouched)
+    out[#out + 1] = { text = ("%d untouched"):format(V.untouched) }
   end
   local to = delivery.target()
   if to and to.short then
-    bar = bar .. (" · → %s"):format(to.short)
+    out[#out + 1] = { text = ("→ %s"):format(to.short) }
   end
-  vim.wo[V.win].winbar = bar:gsub("%%", "%%%%")
+  return out
 end
 
----Name the revision the before pane is showing.
+---The summary as one string, minus whatever a narrow pane has made it drop.
+---@param segments { text: string, spare: boolean|nil }[]
+---@param dropped table<integer, boolean>|nil
+---@return string
+local function join(segments, dropped)
+  local kept = {}
+  for i, seg in ipairs(segments) do
+    if not (dropped and dropped[i]) then
+      kept[#kept + 1] = seg.text
+    end
+  end
+  return table.concat(kept, SEP)
+end
+
+---How the render would name the file the cursor is in, or nil when it is in none.
+---
+---Asked on every paint rather than read off `V.current_file`, for the reason the tree asks:
+---a paint can run between two crossings -- a resize, a fold, a scope change -- and the
+---latch is what decides when the *bar changes*, not what the bar says.
+---@param layout string
+---@return CRFileLabel|nil
+local function current_label(layout)
+  local index = M.current_file()
+  local file = index and V.files[index]
+  if not file then
+    return nil
+  end
+  return render.file_label(file, {
+    icons = config.get().icons,
+    reviewed = V.reviewed,
+    expanded = V.expanded,
+    notes = V.notes,
+    layout = layout,
+  })
+end
+
+---The file under the cursor, named as its own in-buffer header names it.
+---
+---Split into the part that may be cut and the parts that may not: the icon, the chevron and
+---the stat are a handful of columns each and say what no number of columns of path can, so
+---when a pane runs out of room the path is what gives them up.
+---@param label CRFileLabel
+---@return { head: string, path: string, tail: string }
+local function file_segment(label)
+  return { head = ("%s %s "):format(label.icon, label.chevron), path = label.name, tail = "  " .. label.right }
+end
+
+---Fit the file and the summary into `room` columns, and say what each is left holding.
+---
+---Four steps, in the order a reviewer can afford to lose things:
+---
+---1. the summary drops what the file beside it repeats, to keep the whole path;
+---2. the path gives up its head, down to the file's own name;
+---3. the summary drops the rest, from its head, so the target it ends on is the last to go;
+---4. the path takes whatever is left, which on an absurd pane is the ellipsis alone.
+---
+---The path is what a reviewer scrolled here to keep, and its *tail* is the part that says
+---which file this is -- the directories above it are shared with every sibling and are what
+---can go. The summary's own facts outrank those directories, which is step 3 sitting where
+---it does: a bar that had shed the scope to spell out two more directory names would have
+---kept the least of what it was holding.
+---@param room integer Columns, margins already taken off
+---@param file { head: string, path: string, tail: string }
+---@param segments { text: string, spare: boolean|nil }[]
+---@return string left, string right
+local function fit(room, file, segments)
+  -- The order they go in: the spares, then the rest from the head.
+  local order, spares = {}, {}
+  for i, seg in ipairs(segments) do
+    if seg.spare then
+      spares[#spares + 1] = i
+    end
+  end
+  vim.list_extend(order, spares)
+  for i, seg in ipairs(segments) do
+    if not seg.spare then
+      order[#order + 1] = i
+    end
+  end
+
+  local dropped = {}
+  local summary, path_room
+  local function measure()
+    summary = join(segments, dropped)
+    path_room = room - cols(file.head) - cols(file.tail) - (summary ~= "" and GAP + cols(summary) or 0)
+  end
+  measure()
+
+  -- Cut back to the file's own name, and no further, before the summary gives up anything
+  -- it alone says.
+  local floor = math.min(cols(file.path), cols("…" .. file.path:match("[^/]*$")))
+  local next_drop = 1
+  ---@param last integer Last position in `order` this step may reach
+  ---@param want integer Columns the path is being kept at
+  local function shed(last, want)
+    while next_drop <= last and path_room < want do
+      dropped[order[next_drop]] = true
+      next_drop = next_drop + 1
+      measure()
+    end
+  end
+  -- Step 1 keeps the whole path; steps 3 and 4 keep only the file's own name.
+  shed(#spares, cols(file.path))
+  shed(#order, floor)
+
+  return file.head .. render.keep_tail(file.path, path_room) .. file.tail, summary
+end
+
+---The after pane's winbar: the file under the cursor, and the review summary beside it.
+local function update_winbar()
+  if not vim.api.nvim_win_is_valid(V.win) then
+    return
+  end
+  local width = vim.api.nvim_win_get_width(V.win)
+  local segments = summary_segments()
+  -- The layout decides how a rename is spelled, and it is the render's decision rather than
+  -- a second one taken here: one header per file when unified, one side per pane when split.
+  local label = current_label(view_layout.has_before(V) and "split" or "unified")
+  if not label then
+    -- No file under the cursor -- an empty review. The summary has the bar to itself,
+    -- exactly as it did before there was anything to share it with, rather than a segment
+    -- advertising a file that is not there.
+    set_winbar(V.win, lay_out(width, join(segments), ""))
+    return
+  end
+  local left, right = fit(width - 2 * MARGIN, file_segment(label), segments)
+  set_winbar(V.win, lay_out(width, left, right))
+end
+
+---Name the revision the before pane is showing, and the path it is showing it at.
 ---
 ---The after pane's winbar already says what the review is; what it cannot say is which of
 ---the two images is the base, and a reviewer should never have to infer that from the code.
+---The pre-image path rides on the right of it, so a rename reads correctly on the side that
+---holds the old name -- each pane naming its own side, which is the rule the in-buffer
+---header follows in this layout rather than a second one invented for the winbar.
 local function update_before_winbar()
   if not view_layout.has_before(V) then
     return
   end
   local rev = V.scope.before
   -- `:0` is git's name for the index, and a name nobody reads as one.
-  local bar = (" Before · %s"):format(rev == ":0" and "index" or rev)
-  vim.wo[V.before_win].winbar = bar:gsub("%%", "%%%%")
+  local left = ("Before · %s"):format(rev == ":0" and "index" or rev)
+  local width = vim.api.nvim_win_get_width(V.before_win)
+  -- A file that exists only on the after side has no pre-image path to name, exactly as its
+  -- header row on this pane has none: the revision keeps the bar to itself and says so by
+  -- naming nothing beside it.
+  local label = current_label("split")
+  local path = label and label.before or ""
+  -- The revision is what this pane exists to name and is never cut for the path's sake: on
+  -- a pane too narrow to hold both, a base revision half spelled out is worse than none of
+  -- the path, which the after pane is naming anyway.
+  local room = width - 2 * MARGIN - GAP - cols(left)
+  path = (path ~= "" and room >= 2) and render.keep_tail(path, room) or ""
+  set_winbar(V.before_win, lay_out(width, left, path))
 end
 
 ---Write one pane's render into its buffer: the lines, and nothing else.
@@ -302,12 +495,17 @@ function M.paint(keep_file)
   V.painted_bands = {}
 
   view_panel.paint_panel(V, M)
-  update_winbar()
-  update_before_winbar()
 
   if keep_file and V.render.file_rows[keep_file] then
     view_layout.place(V, V.render.file_rows[keep_file])
   end
+
+  -- After `place`, not before it: the winbar names the file the cursor is in, and parking
+  -- the cursor on a file is what decides which file that is. Built here rather than left to
+  -- the crossing latch because a paint can change what the bar says without the cursor
+  -- having moved at all -- a note queued, a file marked reviewed, a pane resized.
+  update_winbar()
+  update_before_winbar()
 
   -- After `place`, not before it: parking the cursor on a file is what decides which rows
   -- are near the window, and a repaint has to leave the rows it lands on painted rather
@@ -425,13 +623,17 @@ M.current_file = current_file
 ---
 ---Everything that follows the diff hangs off the crossing rather than off the movement:
 ---this is reached from every `CursorMoved`, and rebuilding the tree on each keystroke is
----real work on a large review.
+---real work on a large review. The **sticky header** is the second thing hanging off it and
+---costs what the tree costs -- an anchor lookup per keystroke, and two winbars only when
+---the answer changed.
 local function follow_file()
   local index = current_file()
   if index == V.current_file then
     return
   end
   V.current_file = index
+  update_winbar()
+  update_before_winbar()
   view_panel.sync_panel(V, M)
 end
 
