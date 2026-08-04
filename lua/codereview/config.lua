@@ -41,6 +41,23 @@ M.defaults = {
   ---the archive existed. There is no keymap beside it yet; one can be added if the switch
   ---proves too blunt.
   archived = true, ---@type boolean
+  ---Draw every review window that does not have focus **muted**: its colours pulled toward
+  ---the background, so the focused window is the bright one and a reviewer never has to
+  ---press a key to find out where they are. The file tree is in the rule with the panes,
+  ---because it competes for focus with them, and the `cursorline` goes with it -- only the
+  ---focused window draws one, which is what stops the split layout lighting a row in both
+  ---panes while saying nothing about either.
+  ---
+  ---On by default, and coarse the way `archived` is: off is nothing muted, nothing
+  ---computed and no highlight namespace attached to any window, for a reviewer whose own
+  ---dimming plugin or own taste should win. There is no keymap beside it; one can be added
+  ---if the switch proves too blunt.
+  ---
+  ---`strength` is how far toward the background a colour is pulled, from 0 (not at all) to
+  ---1 (all the way). One number rather than a palette, because the colours it works on are
+  ---the active colorscheme's -- an unrecognised theme is muted in its own colours or, for a
+  ---group the plugin cannot know about, left bright rather than replaced.
+  muted = { enabled = true, strength = 0.5 }, ---@type { enabled: boolean, strength: number }
   panel = {
     enabled = true,
     width = 34,
@@ -165,12 +182,48 @@ local function validate_boolean(name, value)
   end
 end
 
+---Reject the switch beside this one written as a bare boolean.
+---
+---`spans` and `archived` are bare booleans and `muted` is a table, so `muted = false` is the
+---natural mistake to make. Without this it is an index error raised from inside a window
+---helper the next time a review opens, rather than a sentence at `setup()` naming the line
+---to change.
+---@param value any
+local function validate_muted(value)
+  if type(value) ~= "table" then
+    error(
+      ("codereview.setup: `muted` must be a table — got %s; write `muted = { enabled = false }`"):format(
+        vim.inspect(value)
+      ),
+      0
+    )
+  end
+end
+
+---Reject a strength that is not a fraction of the way to the background.
+---
+---In the same voice as the switches above. A number outside 0..1 is not a stronger effect
+---but an arithmetic accident: past 1 the blend overshoots the background and comes back out
+---the other side, which is a colour nobody asked for rather than a louder version of one.
+---@param value any
+local function validate_strength(value)
+  if type(value) ~= "number" or value < 0 or value > 1 then
+    error(
+      ("codereview.setup: `muted.strength` must be a number between 0 and 1 — got %s"):format(vim.inspect(value)),
+      0
+    )
+  end
+end
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
   validate_layout(M.options.layout)
   validate_boolean("spans", M.options.spans)
   validate_boolean("archived", M.options.archived)
+  validate_muted(M.options.muted)
+  validate_boolean("muted.enabled", M.options.muted.enabled)
+  validate_strength(M.options.muted.strength)
   M.options.types = resolve_types(M.options)
   return M.options
 end

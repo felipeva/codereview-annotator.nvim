@@ -338,6 +338,33 @@ what reaches the queue and what the payload says are untouched.
 
 See |codereview-highlights| for the two groups it draws with.
 
+The window without focus                                 *codereview-muted*
+
+A review holds up to three windows -- the two panes and the file tree -- and
+the one that does not have focus is *muted*: its colours pulled toward the
+background, so which window your next keystroke acts on is on screen rather
+than something you press a key to find out. Only the focused window draws a
+|cursorline|, which is what stops the split layout lighting a row in both
+panes while saying nothing about either. The tree is in the rule with the
+panes, because it competes with them for focus.
+
+Muting is a window-local highlight namespace holding a variant of every group
+in play, each computed by blending that group's colours toward `Normal`'s
+background. So the colours are your colorscheme's, blended -- never a palette
+of the plugin's own -- and a group it cannot know about is left at full
+brightness rather than guessed at: an unfamiliar theme degrades to less
+muting and never to wrong colours. The set is recomputed when you change
+colorscheme.
+
+The bright window is the review window focus was last in, not the window with
+the cursor in it, so a float changes nothing: the composer, the queue float
+and the last-batch float all take focus out of every review window, and the
+review behind them looks exactly as you left it.
+
+    muted = { enabled = false }      -- nothing muted at all
+    muted = { strength = 0.25 }      -- subtler; 1 is all the way to the
+                                     -- background, 0 is not at all
+
 ==============================================================================
 6. ANNOTATIONS                                      *codereview-annotations*
 
@@ -751,6 +778,7 @@ Defaults: >
       layout = "unified",
       spans = true,
       archived = true,
+      muted = { enabled = true, strength = 0.5 },
       panel = { enabled = true, width = 34, position = "left" },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
@@ -774,6 +802,11 @@ read rather than every time the view is drawn.
 untouched ones on the winbar (|codereview-archived|, |codereview-touched|).
 It is on by default and coarse on purpose: off is the whole history off --
 nothing drawn, nothing tallied and no `git` spent judging.
+
+`muted` mutes every review window that does not have focus
+(|codereview-muted|). `strength` is how far a colour is pulled toward the
+background, from 0 to 1. Coarse the same way: off is nothing muted, nothing
+computed and no highlight namespace attached to any window.
 
 ==============================================================================
 10. HIGHLIGHTS                                        *codereview-highlights*

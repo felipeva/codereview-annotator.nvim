@@ -30,6 +30,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch and exit — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
+| `codereview/muted_child.lua` | Spawned four times by `muted_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
@@ -56,6 +57,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
+| `muted_spec` | The review window without focus: which window is bright, the namespace and the `cursorline` that follow focus, a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, the switch — and the cells four child processes read |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
@@ -247,6 +249,37 @@ so the out-of-core language path is still checked locally without ever failing C
   the view's exported actions can notice: `panel_spec` therefore asserts that the tree
   comes back in a *different* buffer carrying the same mappings, and drives one of them
   through the keys. Without that, a panel that comes back with no keymaps at all passes.
+- **A window option is reasserted downstream, so deleting the line that sets it proves
+  nothing.** `cursorline` is set in `view_layout.window_opts` where a review window is built
+  and then set again, as a function of focus, everywhere focus is decided — so a teeth check
+  that removes it from the helper reds nothing that matters. Break the muting where focus is
+  decided instead: mute against the *current* window rather than the view's latch, and the
+  float cases go red; stop recomputing on `WinEnter`/`WinLeave`, and everything about which
+  window is bright does.
+- **No fixture is both tall and multilingual, so one line of the muting has no spec.**
+  `view.lua` widens the muted namespace at two moments, and only one of them can be
+  measured here. A paint that parses a file is reached by `muted_spec`'s scope change;
+  a *scroll* that parses one can only differ from it when the newly parsed file's language
+  has never been parsed before, and that needs a diff taller than the viewport margin
+  holding two languages. `mkbig` is Lua only, `mkfixture` is short enough that everything
+  parses on open, and `mktree` is neither. Deleting the call in `cursor_moved` therefore
+  reds nothing — which is a gap in the fixtures, not a line to remove. Anyone giving `mkbig`
+  a second language should take this bullet out and assert it.
+- **The set of capture groups only ever grows, and it is module-level.** `syntax.lua`'s
+  capture → group memo lives for the process, so once any block has opened a review over a
+  scope holding Markdown, no later block in that file can be the first to resolve a Markdown
+  group. `muted_spec`'s claim that a file parsed *after* its pane lost focus is muted too
+  therefore has to run first, and it starts in a scope holding one Lua file before widening
+  to one that holds both. Same shape as `layout_spec`'s restart cases having to run first.
+- **`nvim__inspect_cell` is honest only on the first call a process makes.** Read the same
+  cell twice in a row, with a forced `redraw!` before each, and the second answer differs
+  from the first and is wrong — attributes belonging to something else on screen entirely.
+  Measured, and it is why `muted_spec` spawns `muted_child.lua` once per cell instead of
+  reading four cells in one process. Two more traps ride with it: the screen grid a headless
+  Neovim keeps is **80x24 whatever `columns` and `lines` say**, so a window drawn past
+  column 80 is drawn into cells nothing can read; and the cell has to be located with
+  `screenpos`, because the change bar and the `│` separator are multibyte and a buffer
+  column is not a screen column.
 - **`WinResized` is no use to a test.** It is fired from the main loop, so it lands after
   whatever changed the width has returned — and in a headless spec, which never pumps the
   loop, it does not land at all. Anything that changes a window's width has to repaint for

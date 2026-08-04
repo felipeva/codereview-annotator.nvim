@@ -3,6 +3,16 @@
 ---Everything is a `default = true` link to a group colorschemes already define, so the
 ---view inherits the active theme instead of hardcoding a palette, and any of these can be
 ---overridden in a user's config without the plugin fighting back.
+---
+---**A group a review window draws in has to be named in one of the tables below.** They are
+---not just where the links live: `M.groups()` derives the set the **muted** window is built
+---from by reading them, so a group that exists anywhere else is one a muted window leaves at
+---full brightness. Adding a group means adding it here -- to `LINKS` if it links to
+---something a colorscheme defines, to `SPAN_GROUPS` if it is computed, to `EDITOR_GROUPS` if
+---it is the editor's own and this plugin merely draws through it -- and then it is muted
+---without a second list learning about it. There is deliberately no register to remember to
+---update, because the one thing that would go wrong is invisible until someone looks at an
+---unfocused pane.
 local M = {}
 
 local LINKS = {
@@ -83,11 +93,41 @@ local TYPE_FALLBACK = "DiagnosticInfo"
 local SPAN_SOURCE = "DiffText"
 local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 
+-- What a review window draws in that is not this plugin's to define: the text with no
+-- capture over it, the row under the cursor, the gutter and the winbar. Named here rather
+-- than where they are muted, so that every group this plugin has an opinion about is in one
+-- file. The capture groups the treesitter replay resolves are not in any list: they depend
+-- on what a reviewer has scrolled past, and `syntax.lua` already caches them per capture.
+local EDITOR_GROUPS = { "Normal", "CursorLine", "LineNr", "WinBar", "WinBarNC" }
+
 local function apply_spans()
   local source = vim.api.nvim_get_hl(0, { name = SPAN_SOURCE, link = false })
   for _, group in ipairs(SPAN_GROUPS) do
     vim.api.nvim_set_hl(0, group, { bg = source.bg, ctermbg = source.ctermbg, default = true })
   end
+end
+
+---Every highlight group a review window is known to draw in.
+---
+---Derived from the tables `apply` writes rather than kept beside them, so a group added
+---there is one the muting knows about without a second list learning of it. A configured
+---annotation type's group is in here too, for the same reason it is in `apply`: the plugin
+---cannot know its name in advance.
+---
+---What this cannot enumerate is the treesitter replay's capture groups, which resolve as a
+---reviewer scrolls -- `syntax.lua` holds those, and whoever wants the whole set asks both.
+---@return string[]
+function M.groups()
+  local out = {}
+  for group in pairs(LINKS) do
+    out[#out + 1] = group
+  end
+  vim.list_extend(out, SPAN_GROUPS)
+  vim.list_extend(out, EDITOR_GROUPS)
+  for _, t in ipairs(require("codereview.config").get().types) do
+    out[#out + 1] = t.hl
+  end
+  return out
 end
 
 function M.apply()

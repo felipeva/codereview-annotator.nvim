@@ -20,6 +20,12 @@ local M = {}
 -- otherwise, which is thousands of calls per file.
 local hl_cache = {}
 
+-- How many entries have ever been written into that cache. Counted rather than measured,
+-- so that anything mirroring the set can tell in one comparison whether it has moved --
+-- this is read on the scroll path, where walking the cache per keystroke would be work
+-- done for the answer "nothing new".
+local resolutions = 0
+
 ---Highlight group for a capture.
 ---
 ---Prefers the language-specific `@keyword.lua` when a colorscheme defines it, falling
@@ -39,6 +45,7 @@ local function resolve_hl(name, lang)
   local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = specific, link = true })
   local group = (ok and not vim.tbl_isempty(def)) and specific or ("@" .. name)
   hl_cache[key] = group
+  resolutions = resolutions + 1
   return group
 end
 
@@ -336,12 +343,36 @@ function M.repainted(view)
   view.syntax_rows = nil
 end
 
+---Every highlight group the replay has resolved so far, as the memo holds them.
+---
+---The memo itself rather than a copy, and read-only by contract: this is asked on the
+---scroll path, where an allocation per keystroke would be paid on a review nobody is
+---highlighting anything new in. Keyed by `capture.language`, which is the memo's own key;
+---what a caller wants is the values.
+---
+---A file is parsed only as its rows come near the window, so this set *grows* while a
+---review is open. Anything mirroring it -- the muting namespace is the one -- has to be
+---extended as it does rather than built from it once.
+---@return table<string, string>
+function M.resolved_groups()
+  return hl_cache
+end
+
+---How many resolutions have been made, ever. Only ever compared with itself.
+---@return integer
+function M.resolutions()
+  return resolutions
+end
+
 ---Forget capture-name -> highlight-group resolutions.
 ---
 ---Which group a capture resolves to depends on what the colorscheme defines, so the
 ---answers are only valid for the colorscheme that was active when they were cached.
 function M.clear_hl_cache()
   hl_cache = {}
+  -- Moved, not reset: the count is only ever compared with itself, and a mirror that saw
+  -- the old total must not read the empty cache as "nothing has changed".
+  resolutions = resolutions + 1
 end
 
 return M
