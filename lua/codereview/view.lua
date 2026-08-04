@@ -353,11 +353,14 @@ function M.paint(keep_file)
     place(V.render.file_rows[keep_file])
   end
 
+  -- The namespace was just cleared and the renders above are new, so nothing a previous
+  -- paint derived from them still describes what is on screen -- but the parsed captures
+  -- behind it are still good. Unconditional, unlike the pass below it: a row map left over
+  -- from a paint made with highlighting off would be replayed onto rows it never described
+  -- the moment highlighting came back.
+  local syntax = require("codereview.syntax")
+  syntax.repainted(V)
   if config.get().syntax then
-    local syntax = require("codereview.syntax")
-    -- The namespace was just cleared, so nothing is painted any more -- but the parsed
-    -- captures behind it are still good.
-    syntax.reset_painted(V)
     syntax.apply(V, NS)
   end
 

@@ -204,47 +204,33 @@ local function viewport(view)
   return math.max(1, span[1] - VIEWPORT_MARGIN), math.min(#view.render.lines, span[2] + VIEWPORT_MARGIN)
 end
 
----Paint treesitter highlights over the rendered diff.
+---@alias CRFileRows { before: table<integer, { row: integer, col: integer }>, after: table<integer, { row: integer, col: integer }>, first: integer, last: integer }
+
+---Invert the anchor map: for each file, which source line is drawn on which row and at what
+---byte column its code text begins, plus the first and last row the file occupies.
 ---
----Bounded by the viewport, not by the diff: a file is parsed the first time any of its
----rows come near the window, and never otherwise. Without this a 60-file review pays for
----120 parses before it can draw anything, which is a second of latency on open for
----highlighting nobody can see yet.
----
----Safe to call repeatedly. Each file's captures are memoised, and `syntax_painted` stops
----already-painted files from having their extmarks emitted twice per render.
+---A pure function of the render and, in the split layout, of the before render, which is
+---why the answer is held on the view rather than derived per call: only a repaint can
+---change it. Derived per call it is a walk of the whole review, and `apply` is wired to
+---both `WinScrolled` and `CursorMoved` -- on a 90,000-row review that walk alone is most of
+---what a reviewer pays per keystroke.
 ---@param view CRView
----@param ns integer
-function M.apply(view, ns)
-  if not config.get().syntax or not view.render then
-    return
-  end
-  view.syntax_cache = view.syntax_cache or {}
-  view.syntax_painted = view.syntax_painted or {}
-
-  local lo, hi = viewport(view)
-  local split = view.before_render ~= nil
-
-  -- Invert the anchor map: for each file, which source line is drawn on which row, and at
-  -- what byte column the code text begins.
-  local per_file = {}
+---@return table<integer, CRFileRows>
+local function invert(view)
+  local out = {}
 
   ---@param anchors table<integer, CRAnchor>|nil
   ---@param pane "unified"|"after"|"before"
   local function collect(anchors, pane)
     for row, a in pairs(anchors or {}) do
       if a.kind == "line" then
-        local entry = per_file[a.file]
+        local entry = out[a.file]
         if not entry then
-          entry = { before = {}, after = {}, visible = false }
-          per_file[a.file] = entry
+          entry = { before = {}, after = {}, first = row, last = row }
+          out[a.file] = entry
         end
-        -- A file is parsed whole once any part of it is near the window: parsing only the
-        -- visible slice would cache a partial capture set that the next scroll invalidates.
-        -- The panes hold the same rows, so one pane's bounds answer for both.
-        if row >= lo and row <= hi then
-          entry.visible = true
-        end
+        entry.first = math.min(entry.first, row)
+        entry.last = math.max(entry.last, row)
         local ln = view.files[a.file].hunks[a.hunk].lines[a.line]
         if pane == "before" then
           -- In the split layout the pane decides the image, not the line. A context line is
@@ -262,14 +248,46 @@ function M.apply(view, ns)
     end
   end
 
+  local split = view.before_render ~= nil
   collect(view.render.anchors, split and "after" or "unified")
   if split then
     collect(view.before_render.anchors, "before")
   end
+  return out
+end
 
-  for fi, maps in pairs(per_file) do
+---Paint treesitter highlights over the rendered diff.
+---
+---Bounded by the viewport, not by the diff: a file is parsed the first time any of its
+---rows come near the window, and never otherwise. Without this a 60-file review pays for
+---120 parses before it can draw anything, which is a second of latency on open for
+---highlighting nobody can see yet.
+---
+---Safe to call repeatedly. The row map is inverted once per paint, each file's captures are
+---memoised, and `syntax_painted` stops already-painted files from having their extmarks
+---emitted twice per render -- so a call with nothing new near the window is a lookup.
+---@param view CRView
+---@param ns integer
+function M.apply(view, ns)
+  if not config.get().syntax or not view.render then
+    return
+  end
+  view.syntax_cache = view.syntax_cache or {}
+  view.syntax_painted = view.syntax_painted or {}
+  -- Rebuilt here rather than in the paint, so that dropping it is all a repaint has to do
+  -- and the first pass after one pays for it.
+  view.syntax_rows = view.syntax_rows or invert(view)
+
+  local lo, hi = viewport(view)
+  local split = view.before_render ~= nil
+
+  for fi, maps in pairs(view.syntax_rows) do
     local file = view.files[fi]
-    if maps.visible and not file.binary and not view.syntax_painted[file.path] then
+    -- A file is parsed whole once any part of it is near the window: parsing only the
+    -- visible slice would cache a partial capture set that the next scroll invalidates.
+    -- The panes hold the same rows, so one pane's bounds answer for both.
+    local near = maps.first <= hi and maps.last >= lo
+    if near and not file.binary and not view.syntax_painted[file.path] then
       local lang = M.lang_for(file.path)
       if lang then
         -- An untracked file has no committed pre-image; its "after" is the working tree.
@@ -285,20 +303,28 @@ function M.apply(view, ns)
   end
 end
 
----Drop memoised captures. Called when the underlying diff is re-read.
+---Drop everything memoised about the diff on screen. Called when it is re-read and when
+---the scope changes: the captures are keyed by path and side only, so they mean nothing
+---once the refs behind those sides move, and the row map describes rows drawn from files
+---that are being replaced.
 ---@param view CRView
 function M.invalidate(view)
   view.syntax_cache = {}
   view.syntax_painted = {}
+  view.syntax_rows = nil
 end
 
----Forget which files have been painted, without discarding their parsed captures.
+---Drop what a repaint invalidated, keeping the parsed captures.
 ---
----Called on every repaint: the extmarks are gone (the namespace was cleared) but the
----captures are still valid, so the files back in view repaint from cache.
+---Called on every repaint: the extmarks are gone (the namespace was cleared) and the row
+---map was inverted from renders that no longer exist, but the captures are still valid, so
+---the files back in view repaint from cache. A map that outlives its render points at rows
+---that no longer hold what it claims, which is highlighting on unrelated code rather than
+---highlighting that is merely missing.
 ---@param view CRView
-function M.reset_painted(view)
+function M.repainted(view)
   view.syntax_painted = {}
+  view.syntax_rows = nil
 end
 
 ---Forget capture-name -> highlight-group resolutions.
