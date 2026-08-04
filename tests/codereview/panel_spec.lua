@@ -445,8 +445,11 @@ describe("dismissing and summoning the tree", function()
     view.toggle_reviewed()
   end)
 
-  -- The tree repaints only when the diff cursor crosses into a different file, and while
-  -- there is no tree to repaint that latch is holding a file nobody is reading any more.
+  -- The tree repaints only when the diff cursor crosses into a different file, and the
+  -- crossing is judged with no tree to repaint -- so the latch tracks a reviewer through a
+  -- dismissed tree rather than freezing on the file that was being read when it went away.
+  -- The crossing *back* at the end is what pins that: against a latch that had frozen, it
+  -- would not read as a crossing at all, and the highlight would stay where it was.
   it("follows the diff cursor again once it is back", function()
     local function look_at(index)
       vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index], 0 })
