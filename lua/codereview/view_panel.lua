@@ -2,20 +2,28 @@
 ---
 ---`panel.lua` is the pure half -- the tree built out of a file list, the single-child chains
 ---compacted, what folding leaves visible, the per-directory tallies -- and this is the half
----that was never split out with it: where that tree is drawn, when it is redrawn, which file
----it is following, and what each of its keys does to the review underneath it. The same
----division `render.lua` and `view.lua` already have for the diff.
+---that was never split out with it: where that tree is drawn, when it is redrawn, and what
+---each of its keys does to the review underneath it. The same division `render.lua` and
+---`view.lua` already have for the diff.
+---
+---**Which file the diff cursor is in is not this module's.** The tree highlights it and
+---follows it, but it is a fact about the diff and its anchor map, so it is `view.lua`'s
+---`current_file` -- asked for here, never kept here. The crossing that decides *repaint
+---now* is `view.lua`'s too, and is judged whether or not there is a tree; this module is
+---told, it does not ask. That is what lets a second surface follow the same crossing
+---without reaching down into the tree for it.
 ---
 ---**The review view is handed in rather than required**, as `keymaps.lua`, `queue_float.lua`
 ---and `view_layout.lua` are handed it. Where this calls back -- the tree's `<CR>` expands a
 ---collapsed file and jumps into the diff, a subtree marked reviewed repaints and persists,
----and the window toggle repaints -- it takes `view` as an argument. That is what keeps this
----module out of the cycle `view` and `annotate` already sit in.
+---the window toggle repaints, and every paint asks which file the cursor is in -- it takes
+---`view` as an argument. That is what keeps this module out of the cycle `view` and
+---`annotate` already sit in.
 ---
 ---**`CRView` is handed in too, and mutated in place.** The view is one table, owned by
----`view.lua`, and the tree's window, its buffer, its render and the file it is following are
----written onto it here exactly where they were written before -- the same arrangement
----`syntax.lua` has with its caches. Nothing about a review is copied into a local.
+---`view.lua`, and the tree's window, its buffer and its render are written onto it here
+---exactly where they were written before -- the same arrangement `syntax.lua` has with its
+---caches. Nothing about a review is copied into a local.
 ---
 ---The tree's window is not a **pane**: the panes are the two images a split layout draws, and
 ---this window sits beside them. What it does share with them is how a review window is made --
@@ -38,25 +46,9 @@ end
 
 --- Painting --------------------------------------------------------------------
 
----Index of the file the diff cursor is currently inside, for the panel's highlight.
 ---@param V CRView
----@return integer|nil
-local function current_file_index(V)
-  local win, rendered = view_layout.focused_pane(V)
-  if not (rendered and vim.api.nvim_win_is_valid(win)) then
-    return nil
-  end
-  local row = vim.api.nvim_win_get_cursor(win)[1]
-  for r = row, 1, -1 do
-    if rendered.anchors[r] then
-      return rendered.anchors[r].file
-    end
-  end
-  return nil
-end
-
----@param V CRView
-function M.paint_panel(V)
+---@param view table The review view, asked which file the diff cursor is in.
+function M.paint_panel(V, view)
   if not (V.panel_win and vim.api.nvim_win_is_valid(V.panel_win)) then
     return
   end
@@ -67,7 +59,11 @@ function M.paint_panel(V)
     reviewed = V.reviewed,
     notes = V.notes,
     collapsed = V.collapsed,
-    current = current_file_index(V),
+    -- Asked, rather than read off `V.current_file`: a paint can run between two crossings
+    -- -- a fold, a resize, the tree arriving beside a cursor nothing has moved since. The
+    -- two agree everywhere `CursorMoved` has reached, so the suite cannot tell them apart;
+    -- asking is what the tree did for itself before this moved, and a prefactor keeps it.
+    current = view.current_file(),
   })
   vim.bo[V.panel_buf].modifiable = true
   vim.api.nvim_buf_set_lines(V.panel_buf, 0, -1, false, V.panel_render.lines)
@@ -80,19 +76,18 @@ end
 
 ---Move the panel's highlight (and cursor, when it is not focused) to follow the diff.
 ---
----Repaints only when the file actually changed: this runs on every CursorMoved, and
----rebuilding the tree on each keystroke is wasted work on a large review.
+---Reached only when the diff cursor has crossed into a different file -- `view.lua` judges
+---that, and does so with or without a tree. Rebuilding the tree on each keystroke is
+---wasted work on a large review, so the cheapness that guard buys is unchanged; what
+---changed is that the guard is no longer this module's to hold.
 ---@param V CRView|nil
-function M.sync_panel(V)
+---@param view table The review view, asked which file the diff cursor is now in.
+function M.sync_panel(V, view)
   if not (V and V.panel_win and vim.api.nvim_win_is_valid(V.panel_win)) then
     return
   end
-  local index = current_file_index(V)
-  if index == V.panel_current then
-    return
-  end
-  V.panel_current = index
-  M.paint_panel(V)
+  M.paint_panel(V, view)
+  local index = view.current_file()
   local row = index and V.panel_render.file_row[index]
   if row and vim.api.nvim_get_current_win() ~= V.panel_win then
     pcall(vim.api.nvim_win_set_cursor, V.panel_win, { row, 0 })
@@ -115,7 +110,7 @@ function M.toggle_focus(V, view)
     vim.api.nvim_set_current_win(V.win)
   else
     -- Entering the tree, land on the file being read rather than wherever the cursor was.
-    local index = current_file_index(V)
+    local index = view.current_file()
     local row = index and V.panel_render and V.panel_render.file_row[index]
     vim.api.nvim_set_current_win(V.panel_win)
     if row then
@@ -154,7 +149,7 @@ function M.panel_select(V, view)
   local fi, dir, row = panel_at_cursor(V)
   if dir then
     V.collapsed[dir] = not V.collapsed[dir] or nil
-    M.paint_panel(V)
+    M.paint_panel(V, view)
     keep_panel_cursor(V, row)
     return
   end
@@ -188,8 +183,9 @@ function M.panel_open_diff(V, view)
 end
 
 ---@param V CRView
+---@param view table The review view, asked which file the diff cursor is in.
 ---@param shut boolean|nil nil toggles
-function M.panel_fold(V, shut)
+function M.panel_fold(V, view, shut)
   local _, dir, row = panel_at_cursor(V)
   if not V.panel_render then
     return
@@ -206,7 +202,7 @@ function M.panel_fold(V, shut)
     for r = row - 1, 1, -1 do
       if V.panel_render.row_dir[r] and (V.panel_render.row_depth[r] or 0) < (depth or 0) then
         V.collapsed[V.panel_render.row_dir[r]] = true
-        M.paint_panel(V)
+        M.paint_panel(V, view)
         keep_panel_cursor(V, r)
         return
       end
@@ -219,7 +215,7 @@ function M.panel_fold(V, shut)
   else
     V.collapsed[dir] = shut or nil
   end
-  M.paint_panel(V)
+  M.paint_panel(V, view)
   keep_panel_cursor(V, row)
 end
 
@@ -236,7 +232,7 @@ function M.panel_fold_all(V, view, shut)
       V.collapsed[dir] = true
     end
   end
-  M.paint_panel(V)
+  M.paint_panel(V, view)
   keep_panel_cursor(V, 1)
 end
 
@@ -343,10 +339,14 @@ end
 local function hide_panel(V)
   local win = V.panel_win
   V.panel_buf, V.panel_win, V.panel_render = nil, nil, nil
-  -- The tree follows the diff by repainting only when the cursor crosses into a different
-  -- file. With no tree to repaint, that latch would sit on whatever was being read when it
-  -- was dismissed, and reading that file again once it is back would repaint nothing.
-  V.panel_current = nil
+  -- `V.current_file` is deliberately left alone. It used to be cleared here, because the
+  -- crossing was judged inside this module's sync and stopped being judged the moment the
+  -- window went away -- so the latch sat on whatever was being read at that instant, and
+  -- reading that file again once the tree was back repainted nothing. The crossing is
+  -- `view.lua`'s now and keeps being judged with no tree, so the latch tracks a reviewer
+  -- through a dismissed tree instead of going stale behind one, and clearing it would only
+  -- forge a crossing that did not happen. `panel_spec` pins the property either way.
+  --
   -- A reviewer who dismisses the tree is not asking to be left in the window they
   -- dismissed, so leave it deliberately rather than letting Neovim pick a successor.
   if vim.api.nvim_get_current_win() == win then

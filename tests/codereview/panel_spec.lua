@@ -233,7 +233,7 @@ describe("panel and diff staying in sync", function()
   vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
 
   it("follows the diff cursor", function()
-    assert.same(5, V.panel_current)
+    assert.same(5, V.current_file)
   end)
 
   it("highlights exactly the current file's row", function()
@@ -481,6 +481,23 @@ describe("a review configured to start without a tree", function()
 
   it("opens with none", function()
     assert.is_nil(W.panel_win)
+  end)
+
+  -- The crossing is the diff's, not the tree's, so it is judged where there has never been
+  -- a tree to repaint -- the case the tree's own highlight can say nothing about. Two
+  -- crossings rather than one: a latch that never moved off its first value would pass a
+  -- single absolute assertion.
+  it("notices a file crossing with no tree to repaint", function()
+    local function look_at(index)
+      vim.api.nvim_win_set_cursor(W.win, { W.render.file_rows[index], 0 })
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = W.buf })
+    end
+
+    assert.is_nil(W.panel_win)
+    look_at(3)
+    assert.same(3, W.current_file)
+    look_at(1)
+    assert.same(1, W.current_file)
   end)
 
   it("summons one on the keystroke", function()
