@@ -1275,3 +1275,74 @@ describe("the sticky header in the split layout", function()
     assert.is_truthy(vim.wo[V.before_win].winbar:find(V.scope.before, 1, true), vim.wo[V.before_win].winbar)
   end)
 end)
+
+-- The sticky header and **muting**, together. Neither slice could see this: the winbar was
+-- written against a base with no muting in it, and muting against one whose winbar named no
+-- file. What their combination implies is that the file segment is chrome of a review window
+-- and has to recede with it -- and the bar carries no highlight group of the plugin's own,
+-- so it draws in `WinBar` and `WinBarNC` and mutes only because the muted set covers those
+-- two. Nothing about that is visible in the bar's *text*, which is identical bright or
+-- muted, so this is asserted at the cell and can be asserted nowhere else.
+--
+-- One child process per reading, as `muted_spec` does and for the reason measured there:
+-- `nvim__inspect_cell` is honest only on the first call a process makes.
+describe("the sticky header on a muted pane", function()
+  ---@param env table<string, string>
+  ---@return string
+  local function child(env)
+    local run = vim
+      .system({
+        vim.v.progpath,
+        "--clean",
+        "-l",
+        vim.fs.joinpath(h.root, "tests", "codereview", "winbar_child.lua"),
+      }, {
+        cwd = root,
+        text = true,
+        env = vim.tbl_extend("force", {
+          FIXTURE = root,
+          XDG_STATE_HOME = vim.fn.tempname() .. "-state",
+          GIT_CONFIG_GLOBAL = "/dev/null",
+          GIT_CONFIG_SYSTEM = "/dev/null",
+        }, env),
+      })
+      :wait(60000)
+    -- `nvim -l` sends print to stderr, so read both streams rather than guessing.
+    local out = (run.stdout or "") .. (run.stderr or "")
+    assert(run.code == 0, out)
+    return vim.trim(out)
+  end
+
+  -- Always the *after* pane's bar, over the first character of the path it names. Which pane
+  -- has focus is what decides whether that pane is the muted one.
+  local muted = child({ FOCUS = "before", MUTED = "1" })
+  local bright = child({ FOCUS = "after", MUTED = "1" })
+  local unmuted_nc = child({ FOCUS = "before", MUTED = "0" })
+
+  -- Every reading is of a cell inside the path, so a bar that had stopped naming the file
+  -- would fail here before any colour was compared.
+  it("really read the file segment in all three arrangements", function()
+    for _, reading in ipairs({ muted, bright, unmuted_nc }) do
+      assert.same("cell s", reading:sub(1, #"cell s"), reading)
+    end
+  end)
+
+  it("draws the file segment at full brightness on the pane with focus", function()
+    assert.same("cell s fg=eeee00 bg=006600", bright)
+  end)
+
+  -- `WinBar`'s colours blended halfway to `Normal`'s background -- the muted namespace's
+  -- variant, not the group itself.
+  it("mutes the file segment with the pane it names the file for", function()
+    assert.same("cell s fg=770000 bg=002200", muted)
+  end)
+
+  -- The reading that gives the one above its teeth. A non-current window draws its winbar in
+  -- `WinBarNC` whether or not anything is muted, so "the muted pane's bar is not `WinBar`"
+  -- would hold with the namespace never reaching the winbar at all. With muting off the same
+  -- cell comes back at `WinBarNC`'s own brightness, which is what the muted reading is
+  -- darker *than*.
+  it("comes back at that group's own brightness with muting off", function()
+    assert.same("cell s fg=ee0000 bg=004400", unmuted_nc)
+  end)
+end)

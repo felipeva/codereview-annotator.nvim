@@ -32,6 +32,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/muted_child.lua` | Spawned four times by `muted_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
+| `codereview/winbar_child.lua` | Spawned three times by `split_spec` to read one cell of a pane's winbar — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
 | Spec | Covers |
@@ -39,7 +40,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, and a review with no files |
-| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, and each pane's winbar naming its own side of a rename |
+| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cell proving that bar mutes with its pane |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
@@ -280,6 +281,17 @@ so the out-of-core language path is still checked locally without ever failing C
   column 80 is drawn into cells nothing can read; and the cell has to be located with
   `screenpos`, because the change bar and the `│` separator are multibyte and a buffer
   column is not a screen column.
+- **A muted winbar cannot be told from a bright one by its text**, and a non-current window
+  draws its winbar in `WinBarNC` whether or not anything is muted — so "the unfocused pane's
+  bar is not `WinBar`" holds with the muted namespace never reaching the winbar at all. The
+  sticky header carries no group of the plugin's own, so that namespace covering `WinBar`
+  and `WinBarNC` is the only thing making it recede with its pane, and the only assertion
+  that can see it is the painted cell. `split_spec` spawns `winbar_child.lua` three times
+  over one cell inside the path the bar names — focused, muted, and **muted off** — and it
+  is the third that gives the second its teeth: without it the muted reading is only known
+  to differ from `WinBar`, not to be a blend of anything. Its window position is taken from
+  `nvim_win_get_position`, which is the winbar's own row, and the offset into the bar is a
+  display width, since the icon and the chevron in front of the path are both multibyte.
 - **`WinResized` is no use to a test.** It is fired from the main loop, so it lands after
   whatever changed the width has returned — and in a headless spec, which never pumps the
   loop, it does not land at all. Anything that changes a window's width has to repaint for
