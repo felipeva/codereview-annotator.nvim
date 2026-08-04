@@ -5,12 +5,17 @@
 ---pipeline be exercised headlessly.
 local M = {}
 
+---@class CRSpan
+---@field col integer      0-indexed byte offset into the line's own `text`
+---@field end_col integer  Byte offset one past the span's last byte
+
 ---@class CRLine
 ---@field side "add"|"del"|"ctx"
 ---@field old integer|nil  Line number on the pre-image side
 ---@field new integer|nil  Line number on the post-image side
 ---@field text string      Content WITHOUT the leading +/-/space
 ---@field no_newline boolean|nil  Carried the "\ No newline at end of file" marker
+---@field spans CRSpan[]|nil  What differs from this line's counterpart, when it has one
 
 ---@class CRHunk
 ---@field header string     Verbatim "@@ -19,6 +19,8 @@ ..." line
@@ -68,6 +73,129 @@ local function decode_path(raw)
     return nil
   end
   return (raw:gsub("^[ab]/", ""))
+end
+
+--- Spans ----------------------------------------------------------------------
+
+---Above this proportion of the longer line inside spans, a pair is left plainly coloured.
+---
+---Two lines sharing almost nothing are not an edit, they are a replacement, and
+---emphasising nine tenths of both tells a reviewer less than emphasising neither.
+---
+---The figure is a judgement read off real diffs rather than derived. Measured over three
+---corpora -- this repository's own history, a file put through stylua at a different width
+---and indent, and two unrelated modules paired line for line, which is what the pairing
+---rule produces inside a long run:
+---
+---| | above 60% | above 70% |
+---| --- | --- | --- |
+---| one deletion replaced by one addition | 5.6% | 2.8% |
+---| a re-indentation | 0% | 0% |
+---| unrelated lines paired by index | 90.6% | 73.6% |
+---
+---70%, the figure this started at, still emphasises a quarter of the unrelated pairs, and
+---reading them confirms they are noise. Every genuine one-for-one edit above 60% in that
+---history reads as a replacement rather than an edit -- a `nvim_win_set_cursor` call
+---becoming `place(1)`, a statement becoming a comment -- so 60% loses nothing worth
+---keeping and removes three quarters more of the noise. A re-indentation is nowhere near
+---either figure: every reformatted pair measured under 10%.
+local SUPPRESS_ABOVE = 0.6
+
+---Split `text` into characters, with the byte offset each one starts at.
+---
+---By character, not by byte. Splitting a Lua string with a pattern splits by byte and
+---passes every ASCII test while corrupting the first accented, CJK or emoji line it meets:
+---extmark columns are byte offsets, and a boundary inside a multibyte character is a
+---rendering error rather than a cosmetic one.
+---@param text string
+---@return string[] chars, integer[] offsets  `offsets[i]` starts character `i`; there is
+---        one extra entry holding the length, so `offsets[i + n]` ends a run of `n`
+local function characters(text)
+  local chars, offsets = {}, {}
+  local i, n = 1, #text
+  while i <= n do
+    local next_i = i + vim.str_utf_end(text, i) + 1
+    chars[#chars + 1] = text:sub(i, next_i - 1)
+    offsets[#offsets + 1] = i - 1
+    i = next_i
+  end
+  offsets[#offsets + 1] = n
+  return chars, offsets
+end
+
+---What differs between two versions of the same line.
+---
+---A character-level diff through Neovim's own diff primitive, each line handed to it as a
+---sequence of characters. Nothing hand-written and nothing added as a dependency: for
+---`local cfg = load()` against `local cfg = load_config()` it returns a single edit of
+---seven characters, which is exactly `_config`.
+---@param del string
+---@param add string
+---@return CRSpan[]|nil del_spans, CRSpan[]|nil add_spans
+local function line_spans(del, add)
+  local dchars, doffs = characters(del)
+  local achars, aoffs = characters(add)
+  -- An empty line has nothing to point at, and everything on the other side is new.
+  if #dchars == 0 or #achars == 0 then
+    return nil, nil
+  end
+
+  local edits =
+    vim.diff(table.concat(dchars, "\n") .. "\n", table.concat(achars, "\n") .. "\n", { result_type = "indices" })
+  if not edits or #edits == 0 then
+    return nil, nil
+  end
+
+  local dspans, aspans = {}, {}
+  local dcount, acount = 0, 0
+  for _, edit in ipairs(edits) do
+    local dstart, dlen, astart, alen = edit[1], edit[2], edit[3], edit[4]
+    if dlen > 0 then
+      dcount = dcount + dlen
+      dspans[#dspans + 1] = { col = doffs[dstart], end_col = doffs[dstart + dlen] }
+    end
+    if alen > 0 then
+      acount = acount + alen
+      aspans[#aspans + 1] = { col = aoffs[astart], end_col = aoffs[astart + alen] }
+    end
+  end
+
+  local longer = math.max(#dchars, #achars)
+  local covered = #dchars >= #achars and dcount or acount
+  if covered / longer > SUPPRESS_ABOVE then
+    return nil, nil
+  end
+  return #dspans > 0 and dspans or nil, #aspans > 0 and aspans or nil
+end
+
+---Attach spans to the paired lines of one hunk.
+---
+---**The i-th deletion of a contiguous run pairs with the i-th addition of the run that
+---follows it**, and a context line ends both runs. Not a rule invented here: it is the
+---pairing the split layout's own walk already produces, since it is what puts a deletion
+---and its replacement on the same row. One rule in both layouts is what makes the emphasis
+---survive a layout toggle.
+---
+---Where the runs are unequal, the surplus on the longer side is unpaired and left alone.
+---@param hunk CRHunk
+local function attach_spans(hunk)
+  local dels, adds = {}, {}
+  local function flush()
+    for i = 1, math.min(#dels, #adds) do
+      dels[i].spans, adds[i].spans = line_spans(dels[i].text, adds[i].text)
+    end
+    dels, adds = {}, {}
+  end
+  for _, ln in ipairs(hunk.lines) do
+    if ln.side == "del" then
+      dels[#dels + 1] = ln
+    elseif ln.side == "add" then
+      adds[#adds + 1] = ln
+    else
+      flush()
+    end
+  end
+  flush()
 end
 
 --- Parsing ---------------------------------------------------------------------
@@ -130,9 +258,19 @@ local function new_file(path)
 end
 
 ---Parse `git diff` output into a list of files.
+---
+---`opts.spans` is passed rather than read: this module has no configuration of its own,
+---and the work is genuinely skipped when it is off rather than computed and ignored.
+---
+---It is done here, once per git read, and not at render time. On a 12,000-line diff the
+---spans cost about as much again as a whole repaint -- which would be a ~50% regression on
+---the one operation that has to feel immediate, since it runs on every resize, expansion,
+---reviewed toggle and scope change. Here it is paid once, and invalidation is free because
+---a re-read produces new lines carrying new spans. `make perf` reports the figure.
 ---@param text string|nil
+---@param opts { spans?: boolean }|nil
 ---@return CRFile[]
-function M.parse(text)
+function M.parse(text, opts)
   ---@type CRFile[]
   local files = {}
   if not text or text == "" then
@@ -250,6 +388,14 @@ function M.parse(text)
   for _, f in ipairs(files) do
     if f.path == "" then
       f.path = f.old_path or "?"
+    end
+  end
+
+  if opts and opts.spans then
+    for _, f in ipairs(files) do
+      for _, hunk in ipairs(f.hunks) do
+        attach_spans(hunk)
+      end
     end
   end
 

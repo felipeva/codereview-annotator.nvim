@@ -24,9 +24,16 @@ printf 'local a = 1\nlocal b = 2\n' > src/routes.lua
 printf 'local gone = true\n' > src/gone.lua
 # Three lines, not two: git's rename detection compares whole lines, so a two-line file
 # with one line rewritten lands at 47% similarity -- just under the 50% default -- and the
-# rename silently degrades into an add plus a delete.
+# rename silently degrades into an add plus a delete. For the same reason this file stays
+# ASCII: lengthening line one pushes the similarity index back under the threshold.
 printf 'local name = "old"\nlocal second = 2\nlocal third = 3\n' > src/oldname.lua
-printf '# no trailing newline' > src/nonl.md
+# The fixture's only non-ASCII content, and it is deliberate. Everything else here is
+# ASCII, and an ASCII line CANNOT fail the byte-splitting bug -- a span computed over bytes
+# passes every assertion an ASCII fixture can make. é/è share their leading byte, as do
+# 🎉/🎈, so a byte-wise diff emphasises a trailing byte alone: a boundary inside a
+# character, which is a rendering error. It rides on the line this file already changes, so
+# no count anywhere moves and nothing else has to know.
+printf '# no trailing newline café 🎉' > src/nonl.md
 printf 'x\0y\0binary\n' > src/blob.bin
 printf 'ignored.txt\n' > .gitignore
 git add -A && git commit -qm base
@@ -38,7 +45,7 @@ git rm -q src/gone.lua                                                          
 git mv src/oldname.lua src/newname.lua                                                          # rename...
 printf 'local name = "new"\nlocal second = 2\nlocal third = 3\n' > src/newname.lua               # ...+ edit
 printf 'local function fresh() end\n' > src/fresh.lua                                            # add
-printf '# no trailing newline CHANGED' > src/nonl.md           # both sides lack a trailing newline
+printf '# no trailing newline CHANGED cafè 🎈' > src/nonl.md   # both sides lack a trailing newline
 git add -A && git commit -qm work
 
 # --- uncommitted working state (must be last) ---

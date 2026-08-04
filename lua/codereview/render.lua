@@ -35,7 +35,10 @@ M.LAYOUTS = { "unified", "split" }
 ---Explicit so the layers compose predictably: diff backgrounds sit underneath, the
 ---treesitter foregrounds `syntax.lua` adds sit on top. Leaving these at the extmark
 ---default makes the result depend on insertion order, which changes as the view repaints.
-M.PRIORITY = { diff = 100, gutter = 110, syntax = 150 }
+---
+---`span` sits above the line's own background, so the emphasis is visible at all, and
+---below the syntax replay, so code colouring survives inside an emphasised span.
+M.PRIORITY = { diff = 100, gutter = 110, span = 120, syntax = 150 }
 
 ---Stable identity for an annotatable line, independent of buffer position.
 ---
@@ -350,7 +353,8 @@ function M.build(files, opts)
   ---@param row integer
   ---@param ln CRLine
   ---@param bar_len integer
-  local function paint_line(pane, row, ln, bar_len)
+  ---@param code_col integer Byte offset where the line's own text starts in the row
+  local function paint_line(pane, row, ln, bar_len, code_col)
     if ln.side == "add" then
       mark(pane, row, 0, { line_hl_group = "CodeReviewAdd" })
       mark(pane, row, 0, { end_col = bar_len, hl_group = "CodeReviewAddBar" })
@@ -359,6 +363,20 @@ function M.build(files, opts)
       mark(pane, row, 0, { end_col = bar_len, hl_group = "CodeReviewDelBar" })
     end
     mark(pane, row, bar_len, { end_col = bar_len + digits + #SEP, hl_group = "CodeReviewLineNr" })
+
+    -- What differs inside the line, if it has a counterpart. The offsets were computed
+    -- against the line's own text when the diff was parsed; all that happens here is
+    -- shifting them past a gutter that is itself multibyte.
+    if ln.spans then
+      local group = ln.side == "add" and "CodeReviewAddSpan" or "CodeReviewDelSpan"
+      for _, span in ipairs(ln.spans) do
+        mark(pane, row, code_col + span.col, {
+          end_col = code_col + span.end_col,
+          hl_group = group,
+          priority = M.PRIORITY.span,
+        })
+      end
+    end
   end
 
   for fi, file in ipairs(files) do
@@ -477,7 +495,7 @@ function M.build(files, opts)
           local text, code_col, bar_len =
             line_text(ln, ln.new or ln.old, ln.side == "add" and "+" or (ln.side == "del" and "-" or " "))
           local r = push(after, text, { kind = "line", file = fi, hunk = hi, line = li, col = code_col })
-          paint_line(after, r, ln, bar_len)
+          paint_line(after, r, ln, bar_len, code_col)
           attach_notes(r, nil, M.line_key(file.path, ln))
         end
       else
@@ -503,10 +521,10 @@ function M.build(files, opts)
           push(before, btext or "", bln and { kind = "line", file = fi, hunk = hi, line = bi, col = bcol } or fill)
 
           if aln then
-            paint_line(after, r, aln, abar)
+            paint_line(after, r, aln, abar, acol)
           end
           if bln then
-            paint_line(before, r, bln, bbar)
+            paint_line(before, r, bln, bbar, bcol)
           end
           -- A deletion and its replacement share a row, so both keys are offered: each
           -- pane draws the notes its own key owns and mirrors the other's height.

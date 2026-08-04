@@ -11,7 +11,7 @@ make perf                                             # open-time report, not a 
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 800 cases in ~6 seconds.
+The whole suite is about 880 cases in ~6 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -30,7 +30,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
-| `perf.lua` | Open-time report on a 60-file diff. Not part of `make test`. |
+| `perf.lua` | Open-time report on a 60-file diff, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
 | Spec | Covers |
 | --- | --- |
@@ -39,6 +39,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling |
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring with no windows; then the binding, annotation parity against the unified layout, and the two intersections nobody else owns |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
+| `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, guardrails |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
@@ -70,6 +71,8 @@ interchangeable, and the assertions know which one they are looking at.
   context lines that produce filler — so that slice needed no fixture of its own. The
   layout toggle needed none either: `src/main.lua`'s deletion and its replacement collapse
   onto one row in the split layout, which is what makes every row below them move.
+  `src/nonl.md`'s changed line is the fixture's only non-ASCII content, and it is the only
+  line in the suite that can fail the byte-splitting bug — see "Things that bite".
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
@@ -206,6 +209,25 @@ so the out-of-core language path is still checked locally without ever failing C
   loses them.** `set_scope` swaps `V.reviewed` and `V.expanded` for the new scope's tables.
   A fixture built and *then* switched to another scope arrives empty, and a "nothing
   changed" assertion over it compares two empty tables and passes regardless.
+- **An ASCII fixture cannot fail the byte-splitting bug.** Intra-line spans are computed
+  over *characters*; the obvious implementation splits a Lua string with a pattern, which
+  splits by byte, and it passes every assertion an ASCII line can make. `src/nonl.md`'s
+  changed line therefore carries `café 🎉` against `cafè 🎈`: `é`/`è` share a leading byte,
+  as do `🎉`/`🎈`, so a byte-wise diff emphasises a trailing byte alone — a boundary inside
+  a character. Replacing `diff.lua`'s `characters()` with a byte loop must red five cases,
+  two of which come through the fixture. It rides on a line that file already changed, so
+  no count anywhere moved. This is the same trap as "a filter test needs a fixture only that
+  filter can reject".
+- **The rename fixture cannot carry it.** `src/oldname.lua` was the obvious host and is the
+  wrong one: lengthening its one changed line pushes the similarity index back under git's
+  50% default, and the rename silently degrades into an add plus a delete. Three cases go
+  green-to-red for reasons that have nothing to do with what was being tested. Keep that
+  file ASCII.
+- **A "both panes" assertion needs a pair that emphasises both sides.** `src/main.lua`'s
+  edit is a pure insertion, so its *deletion* carries no spans at all — asserting emphasis
+  in both panes on its row passes with the before pane never drawing anything, because the
+  case is then reading the after pane twice. `spans_spec` uses `src/nonl.md`, the fixture's
+  only pair that changes something on each side.
 - **`interactive_spec` must keep its teeth.** To confirm it still reproduces the bug,
   remove the `BufEnter`/`WinEnter`/`InsertEnter` autocmd in `view.lua` and the
   `stopinsert` in `annotate.lua`'s `collect`: it must fail with `mode='i'`. A headless

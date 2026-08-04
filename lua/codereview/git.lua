@@ -338,7 +338,7 @@ end
 ---git-free, and everything downstream receives one already-complete list.
 ---@param scope CRScope
 ---@param root string
----@param opts? { context?: integer, untracked?: boolean }
+---@param opts? { context?: integer, untracked?: boolean, spans?: boolean }
 ---@return CRFile[]|nil files, string|nil err
 function M.collect(scope, root, opts)
   opts = opts or {}
@@ -349,7 +349,7 @@ function M.collect(scope, root, opts)
   end
 
   local diff = require("codereview.diff")
-  local files = diff.parse(text)
+  local files = diff.parse(text, { spans = opts.spans })
 
   -- Untracked files are invisible to `git diff` entirely, so a brand-new file would
   -- silently never appear in the review.
