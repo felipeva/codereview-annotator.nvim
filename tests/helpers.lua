@@ -8,21 +8,26 @@ local M = {}
 M.root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 
 ---Build a fixture repository and return its path.
----@param script "mkfixture"|"mktree"
+---
+---Anything after the script name is passed to it after the path, which is how `mkbig` is
+---asked for a diff of a particular height: it takes a file count and a line count.
+---@param script "mkfixture"|"mktree"|"mkbig"
+---@param ... string
 ---@return string dir
-function M.fixture(script)
+function M.fixture(script, ...)
   local dir = vim.fn.tempname() .. "-" .. script
   local sh = vim.fs.joinpath(M.root, "tests", "fixtures", script .. ".sh")
-  local res = vim.system({ "bash", sh, dir }, { text = true }):wait(60000)
+  local res = vim.system(vim.list_extend({ "bash", sh, dir }, { ... }), { text = true }):wait(60000)
   assert(res.code == 0, ("%s failed (%d): %s"):format(script, res.code, res.stderr or ""))
   return dir
 end
 
 ---Build a fixture and make it the current directory.
----@param script "mkfixture"|"mktree"
+---@param script "mkfixture"|"mktree"|"mkbig"
+---@param ... string
 ---@return string dir
-function M.cd_fixture(script)
-  local dir = M.fixture(script)
+function M.cd_fixture(script, ...)
+  local dir = M.fixture(script, ...)
   vim.cmd("cd " .. vim.fn.fnameescape(dir))
   return dir
 end

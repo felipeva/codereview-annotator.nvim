@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuild the large fixture repo used by tests/perf.lua.
+# Rebuild the large fixture repo used by tests/perf.lua and by bounded_spec.
 #
 # 60 files of 200 lines by default, with half of every file rewritten on the feature
 # branch: roughly 12k rendered rows once headers and context are counted. Sized to be the
@@ -9,7 +9,9 @@
 # Both counts are arguments because one size cannot show everything: every cost in the
 # review view is linear in the size of the diff, so `perf.lua` asks for this same shape at
 # 60 files and again at 300, where a keystroke and a repaint are large enough to read a
-# change from.
+# change from, and `bounded_spec` asks for 6 -- the smallest that renders a diff taller
+# than a window and the margin around it, which is the only size at which a bounded paint
+# can be told from an unbounded one.
 set -e
 # Hermetic: no user or system git config. Without this the fixture inherits things that
 # change what it is (commit.gpgsign, diff.renames, core.autocrlf, hooks) -- gpg signing in
