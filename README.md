@@ -17,7 +17,7 @@ vim-native navigation, a file tree, reviewed-file collapsing, and a batch submit
 │     ▾ routes    0/1 ││  19 │  const app = express()                              │
 │       ○ users.ts    ││ ▌20 │ -const cfg = load()                                 │
 │     ● main.ts     3 ││ ▌21 │ +const cfg = loadConfig()                           │
-│   ▾ web/src     0/2 ││ ▌    │   🐞 why the rename? no callers were updated       │
+│   ▾ web/src     0/2 ││ ▌   │   🐞 why the rename? no callers were updated        │
 │     ✓ index.ts      ││  22 │  app.listen(cfg.port)                               │
 │ ▾ packages/…    0/1 ││                                                           │
 │   ○ types.ts        ││ ✓ ▸ apps/api/src/routes.ts                       +4 -0    │
@@ -549,6 +549,11 @@ goes to a single global store beside the others. Nothing ever reconciles that st
 a diff, so nothing would ever clear it: entries older than **seven days** are dropped when
 it is read. That bounds its growth but not its staleness, which is the accepted cost of not
 making those annotations second-class.
+
+</details>
+
+<details>
+<summary>What staleness is judged against</summary>
 
 Each kind is judged against whatever its blob was actually taken from. A review annotation
 is judged against the diff on screen, and a file the current scope does not include is not
