@@ -693,20 +693,23 @@ function M.reconcile()
   end
 end
 
----@param spec string|nil nil cycles to the next scope in git.CYCLE
+---@param spec string|nil nil cycles to the next scope this repository offers
 function M.set_scope(spec)
   if not M.current() then
     return
   end
   if not spec then
+    -- Asked per repository rather than read off a constant: which scopes are safe to walk
+    -- blind depends on whether anything has ever been dispatched from this one.
+    local cycle = git.cycle(V.root)
     local at = 1
-    for i, name in ipairs(git.CYCLE) do
+    for i, name in ipairs(cycle) do
       if name == V.scope.name then
         at = i
         break
       end
     end
-    spec = git.CYCLE[(at % #git.CYCLE) + 1]
+    spec = cycle[(at % #cycle) + 1]
   end
 
   local scope, err = git.resolve_scope(spec, V.root)

@@ -115,15 +115,35 @@ end
 --- Scopes ----------------------------------------------------------------------
 
 ---@class CRScope
----@field name string       "branch"|"staged"|"unstaged"|"worktree"|"revspec"
+---@field name string       "branch"|"staged"|"unstaged"|"worktree"|"since-batch"|"revspec"
 ---@field label string      Shown in the view title
 ---@field args string[]     Appended to the `git diff` invocation
 ---@field before string     Ref for the pre-image; ":0" means the index
 ---@field after string|nil  Ref for the post-image; nil means the working tree
 ---@field untracked boolean Whether untracked files belong in this scope
 
----Scopes cycled by `gs`, in order. A bare revspec is resolved separately.
-M.CYCLE = { "branch", "staged", "unstaged", "worktree" }
+---Every scope with a name, in the order `gs` moves through them. A bare revspec is
+---resolved separately, and completion offers exactly this list.
+M.SCOPES = { "branch", "staged", "unstaged", "worktree", "since-batch" }
+
+---The scopes `gs` actually moves through in this repository.
+---
+---`since-batch` is reachable by name and offered in completion unconditionally -- asking
+---for it with an empty archive reports a sentence -- but the cycle drops it, because a
+---cycle is walked blind and must never land on an error in a repository nothing has ever
+---been dispatched from. Two rules, deliberately: one is a question a reviewer asked, the
+---other is a key they held down.
+---@param root string
+---@return string[]
+function M.cycle(root)
+  local names = {}
+  for _, name in ipairs(M.SCOPES) do
+    if name ~= "since-batch" or #require("codereview.state").archive(root) > 0 then
+      names[#names + 1] = name
+    end
+  end
+  return names
+end
 
 ---Resolve a scope name, or any git revspec, into the refs the rest of the plugin needs.
 ---
@@ -147,6 +167,29 @@ function M.resolve_scope(spec, root)
     return { name = "unstaged", label = "unstaged", args = {}, before = ":0", after = nil, untracked = false }
   elseif spec == "worktree" then
     return { name = "worktree", label = "worktree", args = { "HEAD" }, before = "HEAD", after = nil, untracked = true }
+  elseif spec == "since-batch" then
+    -- Resolved here rather than anywhere of its own, and to a *real ref*: the diff parser,
+    -- the blob hashing and the whole-file fetch the highlighter needs all read content out
+    -- of `before`, and none of them can read a marker. Which is why the archive keeps a
+    -- commit object -- read back here through the accessor every other consumer uses.
+    local batch = require("codereview.state").archive(root)[1]
+    if not batch then
+      return nil, "nothing has been dispatched from this repository yet"
+    end
+    if not batch.snapshot then
+      return nil, "the last batch went out with no snapshot to diff against"
+    end
+    return {
+      name = "since-batch",
+      label = "since the last batch",
+      args = { batch.snapshot },
+      before = batch.snapshot,
+      after = nil,
+      -- A file untracked at dispatch is not in the snapshot commit at all, so it arrives
+      -- through the same synthesis the branch and worktree scopes already apply rather
+      -- than through a mechanism of its own.
+      untracked = true,
+    }
   elseif spec == "branch" or spec == "" or spec == nil then
     local branch = M.default_branch(root)
     if not branch then

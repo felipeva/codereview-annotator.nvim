@@ -17,10 +17,13 @@ function M.setup(opts)
   end, {
     nargs = "?",
     desc = "Open the code review view (scope name or any git revspec)",
+    -- Every named scope, unconditionally -- including `since-batch` in a repository with an
+    -- empty archive, which answers with a sentence. Completion says what exists; whether
+    -- there is anything to show is the scope's own answer to give.
     complete = function(lead)
       return vim.tbl_filter(function(name)
         return name:sub(1, #lead) == lead
-      end, vim.deepcopy(require("codereview.git").CYCLE))
+      end, vim.deepcopy(require("codereview.git").SCOPES))
     end,
   })
 
