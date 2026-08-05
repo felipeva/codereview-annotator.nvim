@@ -75,9 +75,16 @@ describe("replaying captures onto the diff", function()
     end
   end)
 
+  -- A **faded** file's tokens are replayed in the blended twin of the same group, which is
+  -- that group's own name behind the family's prefix -- so the check is made on the name
+  -- underneath it. What must never appear either way is a name no colorscheme can reach.
+  local FADED = "CodeReviewFaded."
+
   it("uses @-prefixed treesitter groups a colorscheme can colour", function()
     for _, m in ipairs(marks) do
-      assert.same("@", m[4].hl_group:sub(1, 1))
+      local group = m[4].hl_group
+      local bare = group:sub(1, #FADED) == FADED and group:sub(#FADED + 1) or group
+      assert.same("@", bare:sub(1, 1), group)
     end
   end)
 

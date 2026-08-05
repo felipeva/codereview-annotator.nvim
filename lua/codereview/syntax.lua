@@ -147,7 +147,8 @@ end
 ---@param map table<integer, { row: integer, col: integer }>
 ---@param ref string|nil
 ---@param lang string
-local function apply_side(view, ns, buf, file, side, map, ref, lang)
+---@param group_of (fun(group: string): string)|nil What the caller wants a token drawn in
+local function apply_side(view, ns, buf, file, side, map, ref, lang, group_of)
   if vim.tbl_isempty(map) then
     return
   end
@@ -181,7 +182,7 @@ local function apply_side(view, ns, buf, file, side, map, ref, lang)
     if slot then
       pcall(vim.api.nvim_buf_set_extmark, buf, ns, slot.row - 1, slot.col + c.cs, {
         end_col = slot.col + c.ce,
-        hl_group = c.hl,
+        hl_group = group_of and group_of(c.hl) or c.hl,
         priority = render.PRIORITY.syntax,
       })
     end
@@ -282,9 +283,15 @@ end
 ---Safe to call repeatedly. The row map is inverted once per paint, each file's captures are
 ---memoised, and `syntax_painted` stops already-painted files from having their extmarks
 ---emitted twice per render -- so a call with nothing new near the window is a lookup.
+---
+---`group_for` is asked, per file, what that file's tokens should be drawn in. It is how a
+---**faded** file's code keeps its syntax structure while receding with the rest of the file,
+---and the rule behind it lives with the caller: this module knows which file it is painting
+---and nothing about where the cursor is.
 ---@param view CRView
 ---@param ns integer
-function M.apply(view, ns)
+---@param group_for (fun(fi: integer): (fun(group: string): string)|nil)|nil
+function M.apply(view, ns, group_for)
   if not config.get().syntax or not view.render then
     return
   end
@@ -306,13 +313,14 @@ function M.apply(view, ns)
     if near and not file.binary and not view.syntax_painted[file.path] then
       local lang = M.lang_for(file.path)
       if lang then
+        local group_of = group_for and group_for(fi) or nil
         -- An untracked file has no committed pre-image; its "after" is the working tree.
         local after_ref = file.status == "U" and nil or view.scope.after
-        apply_side(view, ns, view.buf, file, "after", maps.after, after_ref, lang)
+        apply_side(view, ns, view.buf, file, "after", maps.after, after_ref, lang, group_of)
         -- Each image paints onto the pane that shows it. With one pane, that is the same
         -- buffer twice, which is what the unified layout has always done.
         local before_buf = split and view.before_buf or view.buf
-        apply_side(view, ns, before_buf, file, "before", maps.before, view.scope.before, lang)
+        apply_side(view, ns, before_buf, file, "before", maps.before, view.scope.before, lang, group_of)
       end
       view.syntax_painted[file.path] = true
     end

@@ -309,7 +309,7 @@ local function ensure_link(group)
   if linked[group] then
     return
   end
-  local twin = hl.muted_group(group)
+  local twin = hl.blended("muted", group)
   if not twin then
     return
   end

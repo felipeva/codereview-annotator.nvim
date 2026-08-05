@@ -14,10 +14,11 @@
 ---update, because the one thing that would go wrong is invisible until someone looks at an
 ---unfocused pane.
 ---
----**The muted colours are groups of this module, not colours in a window.** A group that a
----**muted** window draws gets a twin here, named for the group it blends. The window that
----mutes links to that twin instead of holding a colour of its own, so the same colour is
----reachable from outside that window. See `M.muted_group` below.
+---**The blended colours are groups of this module, not colours in a window.** A group that
+---a **muted** window draws, or that a **faded** file's row carries, gets a twin here, named
+---for the group it blends. The window that mutes links to that twin instead of holding a
+---colour of its own, and the fade emits it in place of the group the row would carry, so the
+---same arithmetic answers both. See `M.blended` below.
 local M = {}
 
 local LINKS = {
@@ -135,26 +136,44 @@ function M.groups()
   return out
 end
 
---- The muted colours ------------------------------------------------------------
+--- The blended colours ----------------------------------------------------------
 
----What the name of a blended group starts with.
+---@alias CRBlendFamily "muted"|"faded"
+
+---The families of blended groups: what each one's members are named, and how far each pulls.
 ---
----A blended group is named for the group it blends, so its name is derivable from that
----group alone and no table maps one to the other. The dot keeps the two parts apart: a
----treesitter capture group carries `@` and dots of its own, and `CodeReviewMuted.@keyword`
----can only be the twin of `@keyword`. No group this plugin defines starts with
----`CodeReviewMuted.`, so a twin shadows none of them.
-local MUTED_PREFIX = "CodeReviewMuted."
+---A blended group is named for the group it blends, so its name is derivable from that group
+---and its family alone, and no table maps one to the other. The dot keeps the two parts
+---apart: a treesitter capture group carries `@` and dots of its own, and
+---`CodeReviewMuted.@keyword` can only be the twin of `@keyword`. No group this plugin
+---defines starts with either prefix, so a twin shadows none of them.
+---
+---**Two families, one blend.** A **muted** window and a **faded** file pull the same colours
+---toward the same background, and each has its own strength because the two cover very
+---different amounts of the screen: the window rule answers for the panes a reviewer is not
+---in, the fade for every file but one. A second copy of the arithmetic is how the two would
+---drift apart in colour, which is what one family with a strength of its own avoids.
+---
+---`option` names the table in the configuration each family takes its strength from, so a
+---family knows where its number comes from and nothing else has to.
+---@type table<CRBlendFamily, { prefix: string, option: string }>
+local FAMILIES = {
+  muted = { prefix = "CodeReviewMuted.", option = "muted" },
+  faded = { prefix = "CodeReviewFaded.", option = "faded" },
+}
 
----The twin of every group that has one, keyed by the group it blends.
----@type table<string, string>
+---The twin of every group that has one, per family, keyed by the group it blends.
+---@type table<CRBlendFamily, table<string, string>>
 local twins = {}
+for family in pairs(FAMILIES) do
+  twins[family] = {}
+end
 
 ---`Normal`'s background, memoised until the colorscheme changes.
 ---@type integer|nil
 local toward = nil
 
----What a muted colour is pulled toward.
+---What a blended colour is pulled toward, whichever family asks.
 ---
 ---A theme that gives `Normal` no background at all has the terminal's behind it. The only
 ---knowable fact about that background is which way the theme leans.
@@ -182,45 +201,48 @@ local function blend(colour, target, strength)
   return out
 end
 
----Write the twin of `group`, or report that `group` has no colour to blend.
+---Write `family`'s twin of `group`, or report that `group` has no colour to blend.
 ---
 ---Only the true-colour attributes are blended. `ctermfg` and `ctermbg` are indices into a
 ---palette with no channels to pull, so they are copied without a change.
+---@param family CRBlendFamily
 ---@param group string
 ---@return boolean written True if the twin now holds a blend of `group`.
-local function write_twin(group)
+local function write_twin(family, group)
   local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
   if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil) then
     return false
   end
-  local strength = require("codereview.config").get().muted.strength
-  local muted = vim.tbl_extend("force", {}, def)
-  muted.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
-  muted.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
-  return (pcall(vim.api.nvim_set_hl, 0, MUTED_PREFIX .. group, muted))
+  local strength = require("codereview.config").get()[FAMILIES[family].option].strength
+  local twin = vim.tbl_extend("force", {}, def)
+  twin.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
+  twin.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
+  return (pcall(vim.api.nvim_set_hl, 0, FAMILIES[family].prefix .. group, twin))
 end
 
----The group that holds `group` blended toward the background, computed once.
+---The group that holds `group` blended at `family`'s strength, computed once.
 ---
 ---**A group with no colour of its own gets no twin, and that is the feature.** A caller
 ---that finds nothing here must draw `group` as it is. That keeps a colorscheme this plugin
----has never seen merely less muted instead of wrongly coloured. Nothing here reaches for a
----palette when a lookup is empty, and nothing must.
+---has never seen merely less muted, or merely less faded, instead of wrongly coloured.
+---Nothing here reaches for a palette when a lookup is empty, and nothing must.
 ---
 ---An empty lookup is not remembered as done. A pass that somehow runs before the theme's
 ---own groups are linked again costs one more pass, not a review that stays bright until
 ---the next colorscheme change.
+---@param family CRBlendFamily
 ---@param group string
 ---@return string|nil name The twin's name, or nil if `group` has nothing to blend.
-function M.muted_group(group)
-  if twins[group] then
-    return twins[group]
+function M.blended(family, group)
+  local known = twins[family]
+  if known[group] then
+    return known[group]
   end
-  if not write_twin(group) then
+  if not write_twin(family, group) then
     return nil
   end
-  twins[group] = MUTED_PREFIX .. group
-  return twins[group]
+  known[group] = FAMILIES[family].prefix .. group
+  return known[group]
 end
 
 ---Write every twin again, against the colorscheme that is active now.
@@ -237,12 +259,15 @@ end
 ---A group that loses its colour to the new theme keeps its twin, as a link back to itself.
 ---The window then draws that group at full brightness, which is what a group with no twin
 ---gets. A link that reaches no definition draws nothing at all, so every twin a caller
----already links to must stay a definition.
-local function recolour_muted()
+---already links to must stay a definition -- and a mark already emitted in a twin's name is
+---the same case as a namespace linking to one.
+local function recolour_twins()
   toward = nil
-  for group, twin in pairs(twins) do
-    if not write_twin(group) then
-      pcall(vim.api.nvim_set_hl, 0, twin, { link = group })
+  for family, known in pairs(twins) do
+    for group, twin in pairs(known) do
+      if not write_twin(family, group) then
+        pcall(vim.api.nvim_set_hl, 0, twin, { link = group })
+      end
     end
   end
 end
@@ -265,12 +290,13 @@ function M.apply()
     require("codereview.syntax").clear_hl_cache()
   end
   -- Last, because a twin blends what the links above resolve to. With no review open there
-  -- are no twins and this costs one empty loop.
-  recolour_muted()
+  -- are no twins and this costs one empty loop per family.
+  recolour_twins()
 end
 
 ---Re-link after a colorscheme change, since `nvim_set_hl` definitions are cleared by
----`:colorscheme`. That clears the muted twins too, so `apply` writes them again as well.
+---`:colorscheme`. That clears the blended twins too, of both families, so `apply` writes
+---them again as well.
 function M.setup()
   M.apply()
   vim.api.nvim_create_autocmd("ColorScheme", {

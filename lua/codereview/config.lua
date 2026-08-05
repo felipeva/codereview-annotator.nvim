@@ -58,6 +58,25 @@ M.defaults = {
   ---the active colorscheme's -- an unrecognised theme is muted in its own colours or, for a
   ---group the plugin cannot know about, left bright rather than replaced.
   muted = { enabled = true, strength = 0.5 }, ---@type { enabled: boolean, strength: number }
+  ---Draw every file except the one the cursor is in **faded**: the colours of its rows
+  ---pulled toward the background, so the file being read has a visible boundary and the
+  ---file just left stops competing with it. The unit is the file and never the hunk, so a
+  ---cursor moving from one hunk to the next inside one file changes nothing on screen.
+  ---
+  ---A faded file keeps its header row bright, and its hunk headers fade with its body: the
+  ---header is the one row that names the file, and this exists to help a reviewer find a
+  ---place rather than to hide the map.
+  ---
+  ---On by default, and coarse the way `muted` is: off is nothing emitted, no colour
+  ---computed, and the diff drawn exactly as it was before this existed. There is no keymap
+  ---beside it.
+  ---
+  ---`strength` is its own, and deliberately gentler than `muted.strength`: the fade covers
+  ---every file but one, where the window rule covers the panes a reviewer is not in, and a
+  ---blend that reads as quiet over a pane reads as washed out over a whole review. Both
+  ---numbers pull the active colorscheme's own colours, so an unrecognised theme fades in
+  ---its own colours or, for a group the plugin cannot know about, stays bright.
+  faded = { enabled = true, strength = 0.35 }, ---@type { enabled: boolean, strength: number }
   panel = {
     enabled = true,
     width = 34,
@@ -182,18 +201,22 @@ local function validate_boolean(name, value)
   end
 end
 
----Reject the switch beside this one written as a bare boolean.
+---Reject a switch with a strength beside it written as a bare boolean.
 ---
----`spans` and `archived` are bare booleans and `muted` is a table, so `muted = false` is the
----natural mistake to make. Without this it is an index error raised from inside a window
----helper the next time a review opens, rather than a sentence at `setup()` naming the line
----to change.
+---`spans` and `archived` are bare booleans and `muted` and `faded` are tables, so
+---`muted = false` is the natural mistake to make. Without this it is an index error raised
+---from inside a window helper the next time a review opens, rather than a sentence at
+---`setup()` naming the line to change. Named for the switch it is checking, because two
+---copies of this sentence would be two chances to word it differently.
+---@param name string
 ---@param value any
-local function validate_muted(value)
+local function validate_blend(name, value)
   if type(value) ~= "table" then
     error(
-      ("codereview.setup: `muted` must be a table — got %s; write `muted = { enabled = false }`"):format(
-        vim.inspect(value)
+      ("codereview.setup: `%s` must be a table — got %s; write `%s = { enabled = false }`"):format(
+        name,
+        vim.inspect(value),
+        name
       ),
       0
     )
@@ -205,13 +228,11 @@ end
 ---In the same voice as the switches above. A number outside 0..1 is not a stronger effect
 ---but an arithmetic accident: past 1 the blend overshoots the background and comes back out
 ---the other side, which is a colour nobody asked for rather than a louder version of one.
+---@param name string
 ---@param value any
-local function validate_strength(value)
+local function validate_strength(name, value)
   if type(value) ~= "number" or value < 0 or value > 1 then
-    error(
-      ("codereview.setup: `muted.strength` must be a number between 0 and 1 — got %s"):format(vim.inspect(value)),
-      0
-    )
+    error(("codereview.setup: `%s` must be a number between 0 and 1 — got %s"):format(name, vim.inspect(value)), 0)
   end
 end
 
@@ -221,9 +242,12 @@ function M.setup(opts)
   validate_layout(M.options.layout)
   validate_boolean("spans", M.options.spans)
   validate_boolean("archived", M.options.archived)
-  validate_muted(M.options.muted)
+  validate_blend("muted", M.options.muted)
   validate_boolean("muted.enabled", M.options.muted.enabled)
-  validate_strength(M.options.muted.strength)
+  validate_strength("muted.strength", M.options.muted.strength)
+  validate_blend("faded", M.options.faded)
+  validate_boolean("faded.enabled", M.options.faded.enabled)
+  validate_strength("faded.strength", M.options.faded.strength)
   M.options.types = resolve_types(M.options)
   return M.options
 end

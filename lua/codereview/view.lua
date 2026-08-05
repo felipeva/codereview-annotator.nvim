@@ -22,6 +22,7 @@ local config = require("codereview.config")
 local git = require("codereview.git")
 local render = require("codereview.render")
 local hl = require("codereview.hl")
+local fade = require("codereview.fade")
 local delivery = require("codereview.delivery")
 local queue_float = require("codereview.queue_float")
 local view_layout = require("codereview.view_layout")
@@ -60,6 +61,7 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@field current_file integer|nil        File index the diff cursor is in; the crossing latch
 ---@field panel_render CRPanelRender|nil
 ---@field painted_bands table<integer, boolean>|nil  Row bands whose marks have been emitted
+---@field painted_file integer|nil        File index those bands were emitted bright; the fade's latch
 ---@field syntax_cache table<string, CRCapture[]|false>  `path|side` -> captures; false to skip it
 ---@field syntax_painted table<string, boolean>|nil      Path -> already replayed onto this render
 ---@field syntax_rows table<integer, CRFileRows>|nil     File index -> where its lines are drawn
@@ -394,21 +396,47 @@ local function lower_bound(marks, row)
 end
 
 ---Emit every mark one pane's render put on rows `first`..`last`, 1-indexed and inclusive.
+---
+---`faded` decides which of those rows are drawn in the blended groups rather than in the
+---ones the render gave them. Asked per mark and never remembered, so a row emitted long
+---after a crossing carries what the fade says now.
 ---@param buf integer
 ---@param rendered CRRender
 ---@param first integer
 ---@param last integer
-local function emit_rows(buf, rendered, first, last)
+---@param faded (fun(row: integer): boolean)|nil
+local function emit_rows(buf, rendered, first, last, faded)
   local marks = rendered.marks
   for i = lower_bound(marks, first - 1), #marks do
     local m = marks[i]
     if m.row > last - 1 then
       return
     end
+    local opts = m.opts
+    if faded and faded(m.row + 1) then
+      opts = fade.opts(opts)
+    end
     -- An end_col past the end of a line is a hard error; a mis-measured header should
     -- lose its colour, not abort the whole repaint.
-    pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, m.opts)
+    pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, opts)
   end
+end
+
+---How the replay's groups are renamed on one file's rows, or nil when that file is bright.
+---
+---Handed to `syntax.apply` rather than asked for from inside it: the replay knows which file
+---it is painting, and the rule for which file is faded lives out here with the cursor.
+---@param fi integer
+---@return (fun(group: string): string)|nil
+local function faded_replay(fi)
+  if not fade.enabled() then
+    return nil
+  end
+  local current = M.current_file()
+  if not current or fi == current then
+    return nil
+  end
+  return fade.group
 end
 
 ---Emit the marks for the rows near the window, in every pane there is.
@@ -430,6 +458,20 @@ local function paint_bands()
   local syntax = require("codereview.syntax")
   local band = syntax.VIEWPORT_MARGIN
   local lo, hi = syntax.viewport(V)
+  -- Once for the whole pass, and for both panes: they hold the same rows and the same header
+  -- rows, so one answer keeps the two images comparable row for row. Asked live rather than
+  -- read off `V.current_file`, for the reason the winbar asks live: a paint can run between
+  -- two crossings -- a resize, a fold, a layout toggle -- and park the cursor in a third file
+  -- without the latch hearing a thing.
+  local current = M.current_file()
+  local faded = fade.rows(V.render, current)
+  -- Which file the rows on screen were emitted bright, kept beside the bands that hold them
+  -- and for the same reason: what a mark means is decided by the emission it came from, and a
+  -- crossing has to know what the rows already painted were painted for. Taken here only when
+  -- a paint has just dropped it -- a band emitted while a crossing is pending is put right by
+  -- the `refade` a tick later, and moving this would tell that `refade` there was nothing to
+  -- do.
+  V.painted_file = V.painted_file or current
   V.painted_bands = V.painted_bands or {}
   for b = math.floor((lo - 1) / band), math.floor((hi - 1) / band) do
     if not V.painted_bands[b] then
@@ -437,11 +479,72 @@ local function paint_bands()
       -- Both panes draw the same rows, so one set of bands answers for both: a band is
       -- emitted into both or into neither, which is what keeps the two images comparable
       -- row for row wherever a reviewer has scrolled.
-      emit_rows(V.buf, V.render, b * band + 1, (b + 1) * band)
+      emit_rows(V.buf, V.render, b * band + 1, (b + 1) * band, faded)
       if V.before_render then
-        emit_rows(V.before_buf, V.before_render, b * band + 1, (b + 1) * band)
+        emit_rows(V.before_buf, V.before_render, b * band + 1, (b + 1) * band, faded)
       end
     end
+  end
+end
+
+---Emit the rows of the files whose fade has just changed, and no others.
+---
+---Only two files change on a crossing: the one the rows on screen were emitted for, and the
+---one the cursor is in now. Their bodies are dropped and written again in the groups the fade
+---decides now -- the header rows are not touched at all, because a header carries the same
+---group faded or bright.
+---
+---**The file left is the one the emission drew bright, not the one the crossing latch names.**
+---The two differ wherever a paint has parked the cursor without a crossing: the latch is
+---still on the file being read before it, and the rows on screen are already drawn for the
+---file it landed in. Re-emitting against the latch would leave that third file bright.
+---
+---Bounded by the bands a paint has reached, as every emission here is: a row the reviewer
+---has never been near holds nothing to replace, and it arrives faded when it is painted.
+---The replay is dropped for those files and run again for the same reason -- its marks were
+---cleared with the rest, and a file too far from the window to be repainted is one whose
+---flag is left down for the next scroll.
+---@param entered integer|nil The file the cursor is in now
+local function refade(entered)
+  local left = V.painted_file
+  V.painted_file = entered
+  if not (V.render and V.painted_bands and fade.enabled()) then
+    return
+  end
+  local syntax = require("codereview.syntax")
+  local band = syntax.VIEWPORT_MARGIN
+  local faded = fade.rows(V.render, entered)
+  local changed = {}
+  if left then
+    changed[#changed + 1] = left
+  end
+  if entered and entered ~= left then
+    changed[#changed + 1] = entered
+  end
+  for _, fi in ipairs(changed) do
+    local first, last = fade.body(V.render, fi)
+    if first <= last then
+      vim.api.nvim_buf_clear_namespace(V.buf, NS, first - 1, last)
+      if V.before_render then
+        vim.api.nvim_buf_clear_namespace(V.before_buf, NS, first - 1, last)
+      end
+      for b = math.floor((first - 1) / band), math.floor((last - 1) / band) do
+        if V.painted_bands[b] then
+          local from, to = math.max(first, b * band + 1), math.min(last, (b + 1) * band)
+          emit_rows(V.buf, V.render, from, to, faded)
+          if V.before_render then
+            emit_rows(V.before_buf, V.before_render, from, to, faded)
+          end
+        end
+      end
+      local file = V.files[fi]
+      if file and V.syntax_painted then
+        V.syntax_painted[file.path] = nil
+      end
+    end
+  end
+  if config.get().syntax then
+    syntax.apply(V, NS, faded_replay)
   end
 end
 
@@ -491,8 +594,9 @@ function M.paint(keep_file)
   end
   -- The namespaces above were just cleared, so nothing this records still exists. Dropped
   -- here rather than in `paint_bands` for the reason `syntax_painted` is dropped by the
-  -- paint: what a band means is decided by the render it was emitted from.
-  V.painted_bands = {}
+  -- paint: what a band means is decided by the render it was emitted from. The file those
+  -- bands were emitted bright goes with them, and `paint_bands` takes it again below.
+  V.painted_bands, V.painted_file = {}, nil
 
   view_panel.paint_panel(V, M)
 
@@ -520,7 +624,7 @@ function M.paint(keep_file)
   local syntax = require("codereview.syntax")
   syntax.repainted(V)
   if config.get().syntax then
-    syntax.apply(V, NS)
+    syntax.apply(V, NS, faded_replay)
   end
   -- A pass that parsed a file resolved capture groups nothing knew about before it, and a
   -- **muted** window needs a variant of each or the tokens it just gained come out bright.
@@ -635,6 +739,10 @@ local function follow_file()
   update_winbar()
   update_before_winbar()
   view_panel.sync_panel(V, M)
+  -- The third thing hanging off the crossing, and the only one that writes to the diff: the
+  -- file the rows on screen were drawn bright is faded, and the file entered is brightened.
+  -- Nothing else on screen moves, so nothing else is emitted again.
+  refade(index)
 end
 
 ---Everything a moved cursor comes due for, in the order it comes due.
@@ -655,7 +763,7 @@ function M.cursor_moved()
   end
   paint_bands()
   if config.get().syntax then
-    require("codereview.syntax").apply(V, NS)
+    require("codereview.syntax").apply(V, NS, faded_replay)
   end
   -- Whatever that pass resolved, muted in the pane that does not have focus -- which is
   -- usually not the pane the scroll happened in. Cheap when it resolved nothing new: one

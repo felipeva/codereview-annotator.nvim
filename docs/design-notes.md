@@ -148,6 +148,18 @@ It is also why `syntax_spec` asserts the map against the render on screen, and a
 the marks still cover their own tokens after a repaint that moved rows, rather than merely
 asserting that a map exists.
 
+**That map exists only when highlighting is on, so nothing outside `syntax.lua` may depend
+on it.** It holds a span per file — `first` and `last` — which is exactly what anything
+wanting to know where a file is drawn reaches for first, and it is the wrong answer twice
+over. It is nil for a reviewer with `syntax = false`, so a rule built on it silently does
+nothing for them while every case that runs with highlighting on still passes. And its span
+covers a file's *line* rows only: the header row above them and the hunk header before the
+first of them are outside it. What records where a file is drawn is the render —
+`file_rows`, the header row of every file, so a file runs from its own header to the row
+before the next one. The **faded** file rule takes its spans from there, and
+`faded_spec` runs one case with `syntax = false` for this reason alone: gate the fade on
+`syntax_rows` and that case is the only one in the suite that goes red.
+
 **Extmark emission is bounded by the viewport, and the render is not.** A 300-file review
 produces 271,000 marks, and writing all of them into a buffer is 141 ms of a 384 ms
 repaint — paid on every resize, expansion, reviewed toggle, scope change and queued
@@ -420,6 +432,33 @@ facts here were measured, not assumed:
   have *no* entry in the namespace, and a blend the new theme cannot compute keeps its
   group as a link back to the group it blends. Either way that group draws bright. An entry
   that points at a group the theme wiped draws a hole.
+
+**A highlight namespace colours a whole window, so it cannot colour one part of one.** That
+is the whole reason the two quiet states are two mechanisms rather than one. A **muted**
+window's unit *is* the window, so it is a namespace: attach it and every group the window
+draws is answered at once, including the groups the plugin cannot enumerate. A **faded**
+file's unit is a file inside a pane, which no namespace can express, so the fade changes
+which group each *mark* carries — the blended twin of the group the row would have carried
+anyway, emitted in its place.
+
+**The fade renames a mark. It does not add one, and it does not change the priority order.**
+One grey foreground laid over a faded file at a priority above the syntax replay is the
+obvious shape and the wrong one: it wins where a parser painted and loses where none did, so
+the result changes with the parsers a reader happens to have installed. This project already
+refused that shape once, for the intra-line **span** emphasis, which is why those groups set
+a background and no foreground. Renaming leaves every composition rule above this one true.
+
+**What a crossing re-emits is keyed to the file the emission drew, not to the crossing
+latch.** They are the same answer almost always, and the exceptions are what a fade built on
+the latch fails on. The latch (`V.current_file`) starts nil and moves only on a crossing; a
+*paint* asks the live question and can park the cursor in a third file without the latch
+hearing anything — a layout toggle whose anchor round trip lands elsewhere does exactly
+that. So the rows on screen can already be drawn bright for a file the latch has never
+named, and re-emitting "the file left" against the latch leaves that file bright for good.
+The view therefore records which file the painted bands were emitted bright, beside the
+bands themselves and dropped with them, for the same reason: what a mark means is decided by
+the emission it came from. Both traps in `faded_spec` caught this, and neither was written
+for it.
 
 **Which review window is bright is the review's last-focused one, not the current one.** The
 composer, the queue float and the archive float all take focus out of every review window, so
