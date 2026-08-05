@@ -51,7 +51,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
-| `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, and the four things it refuses |
+| `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, the four things it refuses, and the key that opens it from the diff and from the tree while the command still opens it from anywhere |
 | `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |

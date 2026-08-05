@@ -114,6 +114,9 @@ function M.diff(buf, view)
     -- From the `g` family the other view-level commands come from, and clear of `gt`/`gT`,
     -- which are how `<CR>`'s new tab is returned from.
     ["gl"] = { view.toggle_layout, "Switch between the unified and split layouts" },
+    -- `gb` for the **batch**, from the same `g` family. It opens the surface the command
+    -- opens, so a reviewer reads one fact off one surface however they asked for it.
+    ["gb"] = { view.last_batch, "Read the last batch back" },
     ["<CR>"] = { view.open_file, "Open the real file here" },
     ["Q"] = { view.review_queue, "Review the queue" },
     -- `gy`, not `Y`: yank is not dead in this buffer the way append is, and pulling a code
@@ -199,6 +202,7 @@ function M.panel(buf, view)
     ["<Tab>"] = { view.toggle_focus, "Focus the diff" },
     ["gp"] = { view.toggle_panel, "Hide the file tree" },
     ["gl"] = { view.toggle_layout, "Switch between the unified and split layouts" },
+    ["gb"] = { view.last_batch, "Read the last batch back" },
     ["R"] = { view.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { view.close, "Close the review" },
   })

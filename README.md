@@ -435,9 +435,11 @@ an answer anywhere but the agent's transcript. `:CodeReviewLastBatch` gives it o
 annotations of the batch that went last, grouped by type exactly as the queue float and the
 payload group them, with the target it went to and when it went in the frame.
 
-It needs no review open — a batch is not a window, and what you asked for is worth checking
-from anywhere. A bare note is listed like anything else, even though it was kept in a
-different store than the annotations with a file behind them.
+`gb` opens that same float from inside a review, in the diff and in the tree, so which
+window you are in never decides whether the key exists. The command needs no review open —
+a batch is not a window, and what you asked for is worth checking from anywhere. A bare note
+is listed like anything else, even though it was kept in a different store than the
+annotations with a file behind them.
 
 It is **read-only**, and that is a statement about the record rather than a feature left
 out. An archived entry says something happened; a surface that let you drop, edit or
@@ -544,6 +546,7 @@ worth a look before we ship this
 | `gr` | Re-read the diff from git |
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
+| `gb` | Read the last dispatched batch back |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `Q` | Review the queue |
@@ -588,6 +591,7 @@ is to stop looking at them, so the useful motion is "the next thing I have not d
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree, landing back in the diff |
 | `gl` | Switch between the unified and split layouts |
+| `gb` | Read the last dispatched batch back |
 | `q` | Close |
 
 Jumping to a file that was collapsed because it is reviewed expands it: you asked to look
@@ -615,9 +619,9 @@ listing is still there.
 
 ### In the last-batch float
 
-`:CodeReviewLastBatch` lists an annotation the same way — the reserved gutter, the bar in
-its type's colour, the code it inlined and its note — so the two read as one family. What
-is missing is every key that would change something.
+`gb`, or `:CodeReviewLastBatch` from anywhere, lists an annotation the same way — the
+reserved gutter, the bar in its type's colour, the code it inlined and its note — so the two
+read as one family. What is missing is every key that would change something.
 
 | Key | Action |
 | --- | --- |

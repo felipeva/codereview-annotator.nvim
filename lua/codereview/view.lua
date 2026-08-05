@@ -1495,6 +1495,16 @@ function M.review_queue()
   queue_float.open(M)
 end
 
+---Read the last dispatched **batch** back, from inside a review.
+---
+---The surface is `archive`'s, and it consults no view: a batch has already gone, so nothing
+---about which window is current could change which one went last. What stays here is the
+---name `keymaps.lua` binds to `gb` in both the diff and the file tree, so the key table does
+---not learn where the body lives -- exactly as `gp` and `gl` are named here.
+function M.last_batch()
+  require("codereview.archive").open()
+end
+
 function M.close()
   if V and vim.api.nvim_tabpage_is_valid(V.tab) then
     -- Closing the tab takes both windows and both scratch buffers with it.

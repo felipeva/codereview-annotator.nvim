@@ -179,6 +179,21 @@ local function extent(buf, index)
   return first, last
 end
 
+---Normal-mode mappings bound to a buffer, as a set.
+---
+---Through `vim.keycode` on both sides: the API reports a key in its own notation rather
+---than the one it was bound with, so comparing the strings as written can silently never
+---match.
+---@param buf integer
+---@return table<string, boolean>
+local function bound(buf)
+  local lhs = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+    lhs[vim.keycode(m.lhs)] = true
+  end
+  return lhs
+end
+
 ---A window's title or footer, as one string.
 ---@param win integer
 ---@param field "title"|"footer"
@@ -522,6 +537,90 @@ describe("opened with a review view on screen", function()
   end)
 
   codereview.close()
+end)
+
+--- The key beside the command ---------------------------------------------------
+
+-- `gb` names the **batch**, and it opens the surface the command opens rather than one of
+-- its own: there is one surface for one fact. Bound in the diff and in the tree, so which
+-- window a reviewer is in never decides whether a key exists.
+describe("the key inside a review", function()
+  fresh()
+  queued({ note = "already gone" })
+  dispatch()
+
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+
+  ---The float `gb` opens from one of the review's windows, as rows and frame.
+  ---
+  ---Guarded as a *float* rather than merely as another window: a key that is not bound at
+  ---all leaves focus where it was, and "somewhere other than the diff" is then satisfied by
+  ---the tree — which would read the tree's own rows and close the review with the `q` below.
+  ---@param from integer The window to press it in
+  ---@return string[] rows, string title
+  local function by_key(from)
+    vim.api.nvim_set_current_win(from)
+    h.feed("gb")
+    local win = vim.api.nvim_get_current_win()
+    assert.are_not.same(from, win, "gb opened no window of its own")
+    assert.are_not.same("", vim.api.nvim_win_get_config(win).relative, "gb opened no float")
+    local out = { lines(vim.api.nvim_win_get_buf(win)), chrome(win, "title") }
+    h.feed("q")
+    return out[1], out[2]
+  end
+
+  it("is bound in the diff and in the tree", function()
+    assert.is_true(bound(review.buf)[vim.keycode("gb")] == true, "gb is not bound in the diff")
+    assert.is_true(bound(assert(review.panel_buf))[vim.keycode("gb")] == true, "gb is not bound in the tree")
+  end)
+
+  -- Opening a file from the review is a new tab, and `gt`/`gT` are how a reviewer comes
+  -- back from it. The `g` family this joins may take neither.
+  it("shadows neither of the tab-switching keys", function()
+    for _, buf in ipairs({ review.buf, assert(review.panel_buf) }) do
+      assert.is_nil(bound(buf)[vim.keycode("gt")], "gt is shadowed")
+      assert.is_nil(bound(buf)[vim.keycode("gT")], "gT is shadowed")
+    end
+  end)
+
+  it("opens the same float the command opens, pressed in the diff", function()
+    local rows, title = by_key(review.win)
+    local win, buf = open_float()
+    local commanded, commanded_title = lines(buf), chrome(win, "title")
+    h.feed("q")
+    assert.same(commanded, rows)
+    assert.same(commanded_title, title)
+  end)
+
+  it("opens it from the file tree as well", function()
+    local rows = by_key(assert(review.panel_win, "no file tree"))
+    assert.is_true(vim.tbl_contains(rows, note_row("already gone")), table.concat(rows, "\n"))
+  end)
+
+  it("leaves the review it was pressed in on screen", function()
+    assert.same(review, view.current())
+    assert.is_true(vim.api.nvim_win_is_valid(review.win))
+  end)
+
+  codereview.close()
+end)
+
+-- The plugin binds no global mappings, and this key changes nothing about that: a host
+-- that wants the batch one keystroke away from anywhere maps the command itself.
+describe("the key outside a review", function()
+  it("is bound nowhere globally", function()
+    for _, m in ipairs(vim.api.nvim_get_keymap("n")) do
+      assert.are_not.same(vim.keycode("gb"), vim.keycode(m.lhs), "gb is mapped globally")
+    end
+  end)
+
+  it("leaves the command opening the float with no review open", function()
+    assert.is_false(codereview.is_open())
+    local _, buf = open_float()
+    assert.is_true(vim.tbl_contains(lines(buf), note_row("already gone")), table.concat(lines(buf), "\n"))
+    h.feed("q")
+  end)
 end)
 
 --- Wrapping ----------------------------------------------------------------------
