@@ -102,6 +102,7 @@ Buffer-local, inside the review view:
     gy               Copy the batch to the `+` register, without submitting
     <C-t>            Choose the delivery target
     <C-s>            Submit the batch
+    <C-a>            Submit the batch under a |codereview-preamble|
     q                Close the review
 
 Navigation:                                          *codereview-navigation*
@@ -149,9 +150,10 @@ hands focus back to the diff. Collapsed directories belong to the review, not
 to the tree, so they are exactly as you left them when it comes back.
 
 In the queue float: <CR> jumps to the annotation under the cursor, x drops an
-entry, gy copies the batch, <C-t> routes, <C-s> submits, q closes and keeps
-the queue. `gy` leaves the float open -- it takes nothing out of the queue, so
-every row it is listing is still true.
+entry, gy copies the batch, <C-t> routes, <C-s> submits, <C-a> submits under a
+|codereview-preamble|, q closes and keeps the queue. `gy` leaves the float
+open -- it takes nothing out of the queue, so every row it is listing is
+still true.
 
 A jump closes the float and centres the line the annotation is about,
 expanding the file first if it was collapsed. The queue is shared with the
@@ -529,6 +531,12 @@ started in: annotating a file in the review and capturing it from an ordinary
 buffer are the same thought about the same code, and meet the same draft. A
 draft for one file never surfaces while you annotate another.
 
+A |codereview-preamble| has no file, so it is keyed by the repository the
+batch would go out of, and by one key for everything outside a checkout --
+the same split the queue's two stores make. That leaves one preamble draft
+per repository, which is what coming back to a batch you were writing for
+expects. It never meets a note's draft, whichever file that note is about.
+
 They live in `stdpath("state")/codereview/drafts.json`, separate from review
 progress because a draft is not review progress -- that document is rewritten
 whenever the queue changes, and a draft has nothing to do with the queue.
@@ -538,6 +546,40 @@ you the note you were about to write in order to report one you had already
 abandoned.
 
 Wire |codereview-opt-compose| to replace this composer with your own.
+
+Covering a batch                                      *codereview-preamble*
+
+<C-s> submits with no questions asked. <C-a> -- in the diff and in the queue
+float -- opens the composer first and submits when the composer is submitted.
+What you write there is the *preamble*: the prose above the batch, addressed
+to the receiving agent, that is not an annotation.
+
+It carries what the batch is about as a whole -- which part matters most,
+what to ignore, how the pieces relate. The payload writes it above the
+header, with a blank line under it, so it is read before the findings: >
+    the auth rewrite is the part to read -- the route moves are mechanical
+
+    Code review — 4 annotations on branch vs master (8 files, 6 reviewed)
+<
+A preamble is never queued. It is written at the moment the batch goes and
+forgotten afterwards: the queue holds annotations and nothing else, so
+nothing about the queue or its persistence changes for it.
+
+An abandoned composer is not a submit. Nothing reaches |codereview-opt-send|,
+nothing is archived, and the queue is exactly as it was -- and what you wrote
+is kept as a draft, so the next <C-a> offers it back. That draft is keyed by
+the repository rather than by a file, because a preamble is about a batch;
+outside a checkout there is one key for all of them, which is the split the
+queue's own two stores make. See |codereview-drafts|.
+
+A batch that did not go keeps its preamble the same way. Its annotations wait
+in the queue to be retried, and the preamble has no queue to wait in.
+
+An empty composer still submits, and an empty preamble renders nothing at
+all: the payload is byte for byte what <C-s> would have sent. `gy` and
+|:CodeReviewCopy| carry none either, because copying is not submitting, and
+an |codereview-immediate-send| carries none: a batch of one has no batch to
+cover.
 
 What you already reported                             *codereview-archived*
 
@@ -765,8 +807,18 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
             rel_path    repository-relative path; nil outside a checkout
             file_path   absolute path; nil for a note with no file
             origin_win  window the annotation was started from
-            routing     immediate sends only -- see below
+            routing     immediate sends and preambles -- see below
+            preamble    true when the text is a |codereview-preamble| for
+                        the batch rather than a note about code
+            root        repository the batch is going out of; nil outside a
+                        checkout. Preambles only
 <
+        A preamble is about a batch, so it names no file at all: both
+        paths above are nil and `root` is what a draft of it is keyed by. A
+        composer that keeps drafts should key them through
+        `require("codereview.drafts").key(ctx)`, which answers for every
+        shape at once.
+
         `routing` is `{ label(), pick(on_done) }` for the target *this note*
         will reach: `label()` is what to name in the chrome, `pick()` changes
         it and calls {on_done} once the picker has answered. It is absent for a

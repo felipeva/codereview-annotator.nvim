@@ -155,6 +155,56 @@ describe("rendering a mixed queue in-tree", function()
   end)
 end)
 
+-- The prose above the batch, addressed to the agent rather than to a line of code.
+--
+-- Rendered from the same queue the block above rendered, so "an empty preamble leaves the
+-- payload exactly as it is today" is asserted against the message this suite already pins
+-- down, byte for byte -- not against a message shaped for the case.
+describe("rendering a batch with a preamble", function()
+  local opts = { types = config.get().types, scope_label = V.scope.label, files = #V.files, reviewed = 0 }
+  ---@param preamble string|nil
+  local function rendered(preamble)
+    return payload.render(queue.all(), V.root, vim.tbl_extend("force", opts, { preamble = preamble }))
+  end
+  local today = rendered(nil)
+
+  it("renders the same message twice from the same arguments", function()
+    assert.same(today, rendered(nil))
+  end)
+
+  it("writes the preamble above the header, with a blank line between them", function()
+    assert.same("read the second one first\n\n" .. today, rendered("read the second one first"))
+  end)
+
+  -- The whole message, not only its first lines: a preamble is written above the batch and
+  -- changes nothing inside it.
+  it("leaves the header, the groups and the entries untouched", function()
+    local text = rendered("read the second one first")
+    assert.same(vim.split(today, "\n"), vim.list_slice(vim.split(text, "\n"), 3))
+    assert.is_truthy(text:find("\n\nCode review — 4 annotations on branch", 1, true), text)
+  end)
+
+  -- The empty case is the one a reviewer reaches by pressing the submit key on a composer
+  -- they decided they had nothing to write in.
+  it("renders nothing at all for an empty preamble", function()
+    assert.same(today, rendered(""))
+  end)
+
+  it("renders nothing for a preamble of whitespace either", function()
+    assert.same(today, rendered("  \n\n  "))
+  end)
+
+  -- A preamble arrives with the reviewer's own spacing around it, which is theirs to write
+  -- and not theirs to have counted: the blank line below it is the payload's.
+  it("keeps one blank line however the reviewer spaced it", function()
+    assert.same(rendered("mind the gap"), rendered("\n mind the gap \n\n"))
+  end)
+
+  it("keeps a preamble written over several lines as it was written", function()
+    assert.same("first line\n\nsecond line\n\n" .. today, rendered("first line\n\nsecond line"))
+  end)
+end)
+
 -- A remark worth reading with no instruction attached. It used to be dropped here: the
 -- renderer collected the entries matching each configured type, so one matching none never
 -- reached the agent at all.

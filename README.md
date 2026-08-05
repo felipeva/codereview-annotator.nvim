@@ -428,6 +428,29 @@ in the `+` register without submitting it. It is the same text `send` would have
 handed, target and all, and it costs the batch nothing: the queue is untouched, so reading
 what an agent will be told is not a decision to send it.
 
+### A batch can carry a preamble
+
+`<C-s>` submits with no questions asked. `<C-a>` — in the diff and in the queue float —
+opens the composer first, and submits when you submit the composer. What you write is the
+**preamble**: the prose above the batch, addressed to the agent, that is not an annotation.
+It is where what the batch is about as a whole goes — which part matters most, what to
+ignore, how the pieces relate — instead of an untyped annotation in the middle of the
+findings.
+
+It is rendered above the header, so it is read before them, and it is never queued. A
+preamble is written at the moment the batch goes and forgotten afterwards: the queue holds
+annotations and nothing else.
+
+Abandon the composer and nothing is sent. The queue is whole, nothing is archived, and what
+you wrote is kept as a draft, so the next `<C-a>` offers it back rather than making you
+write it twice. That draft is kept per repository rather than per file, because a preamble
+is about a batch and not about a line of code.
+
+An empty composer still submits and renders nothing at all, leaving the payload exactly
+what `<C-s>` would have sent. `gy` copies no preamble either, because copying is not
+submitting, and an annotation [sent on its own](#send-one-annotation-now) carries none: a
+batch of one has no batch to cover.
+
 ### Read the last batch back after it goes
 
 A submit clears the queue, which is the moment "what did I actually ask for?" stops having
@@ -501,9 +524,13 @@ the tally off along with everything else.
 ### The payload
 
 Grouped by type, in the configured order, most actionable first, with anything untyped
-last. A diff is inlined where an `@ref` cannot carry the change.
+last. A diff is inlined where an `@ref` cannot carry the change. A preamble, where one was
+written, sits above the header with a blank line under it; with none the payload starts at
+the header.
 
 ````markdown
+the auth rewrite is the part to read — the route moves are mechanical
+
 Code review — 4 annotations on branch vs origin/master (8 files, 6 reviewed)
 
 ## Bugs (2) — diagnose and fix these
@@ -550,6 +577,7 @@ worth a look before we ship this
 | `gy` | Copy the batch to the `+` register, without submitting it |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
+| `<C-a>` | Submit the batch under a [preamble](#a-batch-can-carry-a-preamble) |
 | `q` | Close |
 
 Annotation keys are prefixed with `a` rather than bound bare, because bare `b`, `f`, `n`
@@ -608,6 +636,7 @@ under the cursor and not what a heading further up happened to say.
 | `gy` | Copy the batch to the `+` register, without submitting it |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
+| `<C-a>` | Submit the batch under a [preamble](#a-batch-can-carry-a-preamble) |
 | `q` / `<Esc>` | Close, keeping the queue |
 
 `gy` leaves the float open, because it takes nothing out of the queue — everything it is

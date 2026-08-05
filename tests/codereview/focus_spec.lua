@@ -232,6 +232,92 @@ local function settled(win)
   return vim.api.nvim_get_current_win()
 end
 
+--- Submitting under a preamble ---------------------------------------------------
+
+-- `<C-a>` is a submit too, so the two window rules a submit carries are its rules as well,
+-- one composer later. The float here has already lost focus, which is the state the view's
+-- own rule exists for: the failure `<C-s>` had was a batch sent with a dialog left on
+-- screen listing it.
+--
+-- The composer for the submit itself hands back from the tree, rather than through the
+-- host-shaped stand-in above. Measured, not assumed: closing that stand-in's windows leaves
+-- focus on the diff here anyway, so an assertion made against it would pass with nothing
+-- restoring anything -- the same trap the stand-in was written for on the annotation path.
+-- A host composer is a window of its own and is entitled to hand back from wherever it
+-- likes; the plugin is what puts focus back (see `codereview-opt-compose`).
+---@param text string
+---@return fun(ctx: table, on_accept: fun(target: table|nil, text: string))
+local function composer_handing_back_from_the_tree(text)
+  return function(_, on_accept)
+    local tree = assert(V.panel_win, "no file tree to hand back from")
+    vim.api.nvim_set_current_win(tree)
+    on_accept(nil, text)
+  end
+end
+
+describe("submitting under a preamble from the diff while a float is open", function()
+  sent = {}
+  composer = host_composer("something worth covering")
+  annotate_something("fix")
+  composer = composer_handing_back_from_the_tree("read the whole thing first")
+  view.review_queue()
+  local qwin = vim.api.nvim_get_current_win()
+
+  it("opened a float", function()
+    assert.is_true(vim.api.nvim_win_is_valid(qwin))
+  end)
+
+  vim.api.nvim_set_current_win(V.win)
+  view.submit_with_preamble()
+
+  it("submits the batch under what the composer collected", function()
+    assert.same(1, #sent)
+    assert.same("read the whole thing first", vim.split(sent[1].text, "\n")[1])
+    assert.same(0, queue.count())
+  end)
+
+  it("leaves no stale float behind", function()
+    assert.is_false(vim.api.nvim_win_is_valid(qwin))
+    assert.is_nil(V.queue_win)
+  end)
+end)
+
+-- Where the reviewer is left afterwards. A batch that did not go repaints nothing --
+-- there is nothing new to draw and the entries are all still queued -- so nothing behind
+-- the composer moves the cursor back, and a reviewer who asked from the diff would be left
+-- in the tree with a batch to retry.
+describe("a preamble whose batch the adapter refused", function()
+  local cfg = require("codereview.config").get()
+  local sending = cfg.send
+  composer = host_composer("something worth covering")
+  annotate_something("fix")
+  -- Drained before the submit starts. The annotation above restores focus on the *next*
+  -- tick, so a submit begun on this one would be measured against that restore rather than
+  -- against anything this block does -- and the case would pass with nothing here restoring
+  -- anything. Measured: without this the assertion below survives the restore being cut.
+  vim.wait(50)
+  cfg.send = function()
+    return false, "the agent pane is gone"
+  end
+  composer = composer_handing_back_from_the_tree("kept for the retry")
+
+  vim.api.nvim_set_current_win(V.win)
+  local msgs, restore = h.capture_notify()
+  view.submit_with_preamble()
+  restore()
+  local focused = settled(V.win)
+  cfg.send = sending
+
+  it("keeps the batch to be retried", function()
+    assert.same(1, queue.count())
+    assert.is_true(h.notified(msgs, "the agent pane is gone"), vim.inspect(msgs))
+  end)
+
+  it("still puts focus back in the window the submit was asked from", function()
+    assert.same(V.win, focused)
+  end)
+end)
+
 describe("annotating from the diff", function()
   composer = host_composer("a note")
 

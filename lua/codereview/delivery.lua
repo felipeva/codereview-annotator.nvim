@@ -13,10 +13,15 @@
 ---And the submit, which is what holds the rule the other two serve: restore the queue,
 ---deliver it, and empty it only if the send reports it went (ADR-0005).
 ---
----Windows are deliberately not its business. It calls the picker adapter and keeps what
----comes back; putting focus back where the question was asked is the one concession, and
----only because the picker answers on a later tick, by which time no caller is still on the
----stack to do it. What a surface then has to repaint is the surface's own affair.
+---The **preamble** is composed here for the same reason the handoff is. It is written at
+---the moment the batch goes, it is rendered with the batch, and it is not an **entry** --
+---so no queue holds it and no surface is where it belongs either.
+---
+---Windows are deliberately not its business. It calls the picker and the composer adapters
+---and keeps what comes back; putting the editor back where the question was asked is the
+---one concession, and only because both answer on a later tick, by which time no caller is
+---still on the stack to do it. What a surface then has to repaint is the surface's own
+---affair.
 local config = require("codereview.config")
 local git = require("codereview.git")
 
@@ -173,11 +178,16 @@ end
 ---misrepresents the send it stands in for.
 ---@param items CRAnnotation[]
 ---@param base string
----@param opts { scope_label?: string, files?: integer, reviewed?: integer }
+---@param opts { preamble?: string, scope_label?: string, files?: integer, reviewed?: integer }
 ---@return string
 local function render_at(items, base, opts)
   return require("codereview.payload").render(items, base, {
     types = config.get().types,
+    -- Absent on every path but a submit that composed one. A copy performs no submit, so it
+    -- composes nothing and carries nothing, and an **immediate send** is a batch of one with
+    -- no batch to cover (ADR-0004) -- both reach this with no preamble in their opts rather
+    -- than with a rule of their own saying so.
+    preamble = opts.preamble,
     scope_label = opts.scope_label,
     files = opts.files,
     reviewed = opts.reviewed,
@@ -192,7 +202,7 @@ end
 ---an agent would have been given.
 ---@param items CRAnnotation[]
 ---@param to table|nil Where it would be going, or nil for the adapter's default
----@param opts { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---@param opts { root?: string, preamble?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
 ---@return string
 function M.render(items, to, opts)
   opts = opts or {}
@@ -209,7 +219,7 @@ end
 ---knowing about views ended up depending on one being open.
 ---@param items CRAnnotation[]
 ---@param to table|nil Where it is going, or nil for whatever the adapter defaults to
----@param opts { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---@param opts { root?: string, preamble?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
 ---       `root` is the review's, when there is one. Without it the working directory's
 ---       repository stands in, which is the only answer available to a caller -- buffer
 ---       capture sending a single note -- that never had a review behind it.
@@ -275,8 +285,11 @@ end
 ---Here rather than on the review view because a batch is not a window. It can be
 ---submitted with nothing open, and what remains the view's share of this is closing the
 ---float that was listing the batch and repainting the diff behind it.
----@param ctx { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
----       What the review the batch came from can say about itself, when there was one.
+---@param ctx { root?: string, preamble?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---       What the review the batch came from can say about itself, when there was one, plus
+---       the **preamble** when one was composed for this batch. The preamble arrives here
+---       rather than out of the queue because it is not an **entry**: it is written about
+---       the batch, at the moment the batch goes.
 ---@return boolean dispatched
 function M.submit(ctx)
   local queue = require("codereview.queue")
@@ -313,6 +326,111 @@ function M.submit(ctx)
     )
   )
   return true
+end
+
+---Put the editor back once a composer has handed control over.
+---
+---Two concessions of the same kind the picker already makes: windows are not this module's
+---business, but a composer answers on a later tick and no caller is still on the stack by
+---then. Closing a window does not end insert mode, so a composer submitted from its
+---insert-mode mapping leaves focus in the review buffer still inserting -- and that buffer
+---is `nomodifiable`, where every navigation key lands as a failed edit instead of a motion.
+---A composer the plugin did not ship is under no obligation to put focus back either.
+---
+---Scheduled rather than immediate: returning from an insert-mode mapping puts Vim straight
+---back into insert, and a composer is free to call back before closing its own window.
+---@param win integer The window the submit was asked for from
+local function restore_editing(win)
+  vim.schedule(function()
+    if vim.fn.mode():sub(1, 1) == "i" then
+      vim.cmd("stopinsert")
+    end
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_set_current_win(win)
+    end
+  end)
+end
+
+---Compose a **preamble**, then submit the batch under it.
+---
+---The fast path costs nothing: this is the ordinary submit with a composer in front of it,
+---and the rule behind it is the same one -- a dispatch is what empties the queue, and
+---nothing else does (ADR-0005). The flow is here for the reason the submit is: none of it
+---is about a window, and both work with nothing open.
+---
+---An abandoned composer is not a submit. A composer that is dismissed never calls back, so
+---nothing is rendered, nothing is handed to the adapter, nothing is archived and the queue
+---is exactly where it was -- and what was typed is kept as a **draft** by whichever composer
+---collected it, under the key that composer read on the way in.
+---
+---The preamble never joins the queue. It is composed here, at the moment the batch goes,
+---handed to the renderer as one more thing the payload is rendered with, and forgotten. The
+---queue keeps **entries** and nothing else, so nothing about its shape or its persistence
+---changes.
+---@param ctx { root?: string, scope_label?: string, files?: integer, reviewed?: integer }|nil
+---       What the review the batch came from can say about itself, exactly as `submit`
+---       takes it. The preamble is added to it here.
+---@param after fun(dispatched: boolean)|nil Runs once a submit has been made, which an
+---       abandoned composer never is. What a surface repaints afterwards is its own affair,
+---       and it can no longer do it when this returns: the composer answers on a later tick.
+function M.submit_with_preamble(ctx, after)
+  local queue = require("codereview.queue")
+  ctx = ctx or {}
+
+  -- Asked before the composer opens rather than after it closes, exactly as an immediate
+  -- send asks for its target first: there is no covering note worth writing for a batch that
+  -- does not exist, and discovering that afterwards would cost what was written.
+  ensure_queue()
+  local count = queue.count()
+  if count == 0 then
+    info("Queue is empty — annotate something first")
+    return
+  end
+
+  -- The repository the batch is going out of, resolved exactly as the batch's own
+  -- destination resolves it, so the preamble's draft is filed against the same repository
+  -- the archive is keyed on.
+  local _, repo = destination(target, ctx)
+  local compose_ctx = {
+    -- The adapter contract's own field, answered honestly: a preamble carries no separate
+    -- context either, and there is no file for `rel_path` or `file_path` to name.
+    scope = "none",
+    label = ("Preamble · %d annotation%s"):format(count, count == 1 and "" or "s"),
+    preamble = true,
+    root = repo,
+    -- The batch's routing, because a preamble goes exactly where the batch goes. It is the
+    -- same footer and the same key an annotation joining the queue gets.
+    routing = M.routing(),
+    -- Read before anything opens, and handed on: a composer the reviewer dismisses never
+    -- calls back, so on that path nothing but the composer can put focus back.
+    origin_win = vim.api.nvim_get_current_win(),
+  }
+
+  local compose = config.get().compose or require("codereview.composer").open
+  -- "submit" is the verb the composer names its submit key with. What that key does here is
+  -- exactly what `<C-s>` on the diff does, which is why it is not called anything else.
+  compose(compose_ctx, function(_, text)
+    restore_editing(compose_ctx.origin_win)
+
+    -- Whatever the composer collected, including nothing at all: the submit key means
+    -- submit, and an empty preamble renders nothing, leaving the payload what it was.
+    ctx.preamble = text or ""
+    local dispatched = M.submit(ctx)
+
+    -- Where a batch that did not go keeps its entries in the queue to be retried, a preamble
+    -- has no queue to wait in -- and by now the composer has closed its window, wiped its
+    -- buffer and cleared its draft, because a submitted note is not an abandoned one. Same
+    -- shape as an undispatched immediate send, and the same reason (ADR-0005): the reviewer
+    -- typed it once. The next `<C-a>` reads it back from the key it was written under.
+    if not dispatched then
+      local drafts = require("codereview.drafts")
+      drafts.set(drafts.key(compose_ctx), ctx.preamble)
+    end
+
+    if after then
+      after(dispatched)
+    end
+  end, "submit")
 end
 
 ---Put the payload in the `+` register, deliberately, without submitting the batch.

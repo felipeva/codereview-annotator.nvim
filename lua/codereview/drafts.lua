@@ -66,9 +66,22 @@ end
 ---draft -- they are the same thought about the same code, and both paths already carry a
 ---canonical absolute path. A bare note has no file at all, and every bare note shares the
 ---one slot there is.
+---
+---A **preamble** has no file either, and keying it by one would file prose about a batch
+---under whichever file the reviewer happened to be looking at. It is keyed by the repository
+---the batch is going out of, and by one fixed key outside a checkout -- the same split the
+---**queue**'s two stores already make, and the same reason: what has no repository behind it
+---has to share one slot. That leaves one preamble draft per repository, which is what a
+---reviewer coming back to a batch they were writing for expects.
+---
+---Prefixed, so neither preamble key can collide with an absolute path or with the bare
+---note's slot. Nothing else in this store carries a prefix, because nothing else needs one.
 ---@param ctx table
 ---@return string
 function M.key(ctx)
+  if ctx.preamble then
+    return ("preamble:%s"):format(ctx.root or "(no repository)")
+  end
   return ctx.file_path or "(no file)"
 end
 

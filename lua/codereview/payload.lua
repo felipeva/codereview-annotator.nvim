@@ -130,7 +130,9 @@ end
 ---Render the whole queue as one message.
 ---@param items CRAnnotation[]
 ---@param base string Directory `@refs` should resolve against
----@param opts { types: CRType[], scope_label?: string, files?: integer, reviewed?: integer }
+---@param opts { types: CRType[], preamble?: string, scope_label?: string, files?: integer, reviewed?: integer }
+---       `preamble` is the prose the batch is covered by, composed at submit time. It is
+---       not an entry and never comes out of the queue.
 ---@return string
 function M.render(items, base, opts)
   local out = {}
@@ -138,6 +140,19 @@ function M.render(items, base, opts)
   -- Once, before the entries: the comparison below is against paths that are already
   -- canonical, and `base` is the only side that never went through git or a realpath.
   base = M.resolve_base(base)
+
+  -- Above the header rather than under it, because it is read first: the agent is told what
+  -- the batch is about before it is told what is in it.
+  --
+  -- Trimmed, so that the blank line below it is the one this renderer writes and not one the
+  -- reviewer happened to leave at the end of a composer. Nothing to say is nothing rendered:
+  -- an empty preamble leaves the message byte for byte what it was before preambles existed,
+  -- which is what makes the whole feature cost the fast path nothing.
+  local preamble = vim.trim(opts.preamble or "")
+  if preamble ~= "" then
+    out[#out + 1] = preamble
+    out[#out + 1] = ""
+  end
 
   -- Grouped from the arguments rather than through queue.lua, so this stays a pure
   -- function of them: the same list always renders the same message, which is what makes

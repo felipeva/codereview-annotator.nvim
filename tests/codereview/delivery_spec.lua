@@ -587,3 +587,296 @@ describe("a copy taken with a review view open", function()
     assert.same(sent[#sent].text, copied)
   end)
 end)
+
+--- The preamble, which is composed and never queued ----------------------------
+
+-- `<C-a>` is `<C-s>` with a composer in front of it. What the composer collects is rendered
+-- above the batch's header; the submit that follows is the same submit, under the same one
+-- rule about what empties the queue (ADR-0005).
+--
+-- The compose adapter is the seam here, exactly as `send` is below it: the composer the
+-- plugin ships is the default implementation of that contract and not a lesser path beside
+-- it (ADR-0003), so a stub that answers is the honest way to drive the flow.
+describe("a batch submitted with a preamble", function()
+  codereview.open("branch")
+  local composed = {}
+  cfg.compose = function(ctx, on_accept, label)
+    composed[#composed + 1] = { ctx = ctx, label = label }
+    on_accept(nil, "read the second one first")
+  end
+  queue_one("submitted under a preamble")
+  local before, before_archive = #sent, #archived()
+  local msgs, restore = h.capture_notify()
+  h.feed("<C-a>")
+  restore()
+
+  it("opens a composer", function()
+    assert.same(1, #composed)
+  end)
+
+  -- A preamble is about the batch, so the composer is told nothing about a file: there is
+  -- none, and a path there would key its draft to code the preamble is not about.
+  it("tells the composer it is writing a preamble, not annotating a file", function()
+    assert.is_nil(composed[1].ctx.file_path)
+    assert.is_nil(composed[1].ctx.rel_path)
+    assert.is_true(composed[1].ctx.preamble)
+    assert.same(root, composed[1].ctx.root)
+  end)
+
+  it("hands the adapter the preamble above the batch's header", function()
+    assert.same(before + 1, #sent)
+    assert.same("read the second one first", vim.split(sent[#sent].text, "\n")[1])
+    assert.is_truthy(sent[#sent].text:find("\n\nCode review — 1 annotation", 1, true), sent[#sent].text)
+  end)
+
+  it("empties the queue, because a dispatch is a dispatch", function()
+    assert.same(0, queue.count())
+  end)
+
+  it("records the batch in the archive", function()
+    assert.same(before_archive + 1, #archived())
+  end)
+
+  it("confirms it in the words `<C-s>` confirms a submit in", function()
+    assert.is_true(h.notified(msgs, "Submitted 1 annotation"), vim.inspect(msgs))
+  end)
+
+  -- The queue keeps entries and nothing else. A preamble is composed at submit time, so
+  -- there is nothing about it for the queue's document to have written down.
+  it("writes no preamble into the persisted queue", function()
+    local doc = table.concat(vim.fn.readfile(state.path(root)), "\n")
+    assert.is_nil(doc:find("read the second one first", 1, true), doc)
+  end)
+end)
+
+-- The other surface a batch is submitted from. The float lists the batch, so a submit
+-- through it closes it exactly as `<C-s>` does: what has gone must not be left on screen.
+describe("a batch submitted with a preamble from the queue float", function()
+  queue_one("submitted from the list")
+  cfg.compose = function(_, on_accept)
+    on_accept(nil, "written over the queue")
+  end
+  codereview.queue()
+  local float = vim.api.nvim_get_current_win()
+  local before = #sent
+  h.feed("<C-a>")
+
+  it("opened a float to submit from", function()
+    assert.is_truthy(float)
+  end)
+
+  it("closes the float", function()
+    assert.is_false(vim.api.nvim_win_is_valid(float))
+  end)
+
+  it("dispatches with the preamble above the header", function()
+    assert.same(before + 1, #sent)
+    assert.same("written over the queue", vim.split(sent[#sent].text, "\n")[1])
+  end)
+
+  it("empties the queue", function()
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- The float opens with no review view, as a batch is submitted with none. The view is what
+-- closes a float over a batch that has gone, and with nothing open there is no view to do
+-- it -- so the float closing is the float's own business on this path and nobody else's.
+describe("a preamble submitted from the queue float with no review open", function()
+  codereview.close()
+  queue_one("submitted from a float with nothing behind it")
+  cfg.compose = function(_, on_accept)
+    on_accept(nil, "written with no review open")
+  end
+  codereview.queue()
+  local float = vim.api.nvim_get_current_win()
+  local before = #sent
+  h.feed("<C-a>")
+
+  it("had no review view to lean on", function()
+    assert.is_nil(require("codereview.view").current())
+  end)
+
+  it("closes the float", function()
+    assert.is_false(vim.api.nvim_win_is_valid(float))
+  end)
+
+  it("dispatches with the preamble above the header", function()
+    assert.same(before + 1, #sent)
+    assert.same("written with no review open", vim.split(sent[#sent].text, "\n")[1])
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- The submit key means submit. A reviewer who opens the composer and decides they have
+-- nothing to write still asked for a batch to go, and an empty preamble renders nothing --
+-- so what goes is exactly what `<C-s>` would have sent.
+describe("a preamble left empty", function()
+  -- Back on the diff, where both keys are bound: the block above submitted with the review
+  -- closed, and the pair below is a claim about what the two keys produce from one surface.
+  codereview.open("branch")
+  cfg.compose = nil
+  queue_one("byte for byte")
+  h.feed("<C-s>")
+  local plain = sent[#sent].text
+  cfg.compose = function(_, on_accept)
+    on_accept(nil, "")
+  end
+  queue_one("byte for byte")
+  local before = #sent
+  h.feed("<C-a>")
+
+  it("submits anyway", function()
+    assert.same(before + 1, #sent)
+    assert.same(0, queue.count())
+  end)
+
+  it("hands over the payload `<C-s>` produces, byte for byte", function()
+    assert.same(plain, sent[#sent].text)
+  end)
+end)
+
+-- Backing out of the note backs out of the send. A composer that never calls back is what
+-- abandoning one looks like from here: nothing was collected, so nothing was submitted.
+describe("a preamble composer that was abandoned", function()
+  queue_one("still here, because nothing was submitted")
+  cfg.compose = function() end
+  local before, before_archive = #sent, #archived()
+  local msgs, restore = h.capture_notify()
+  h.feed("<C-a>")
+  restore()
+
+  it("hands the send adapter nothing", function()
+    assert.same(before, #sent)
+  end)
+
+  it("leaves the queue whole", function()
+    assert.same(1, queue.count())
+    assert.same("still here, because nothing was submitted", queue.all()[1].note)
+  end)
+
+  it("archives nothing, because nothing was dispatched", function()
+    assert.same(before_archive, #archived())
+  end)
+
+  it("claims nothing was submitted", function()
+    assert.is_false(h.notified(msgs, "Submitted"), vim.inspect(msgs))
+  end)
+
+  -- The batch is exactly where it was, so the fast path still takes it.
+  it("leaves the batch submittable", function()
+    h.feed("<C-s>")
+    assert.same(before + 1, #sent)
+    assert.same(0, queue.count())
+  end)
+end)
+
+-- An empty queue is an empty queue whichever key was pressed, and there is no covering note
+-- worth writing for a batch that does not exist.
+describe("a preamble asked for with nothing queued", function()
+  queue.clear()
+  local composed = 0
+  cfg.compose = function(_, on_accept)
+    composed = composed + 1
+    on_accept(nil, "nothing to cover")
+  end
+  local before = #sent
+  local msgs, restore = h.capture_notify()
+  h.feed("<C-a>")
+  restore()
+
+  it("opens no composer", function()
+    assert.same(0, composed)
+  end)
+
+  it("takes the guard `<C-s>` takes, worded the same", function()
+    assert.is_true(h.notified(msgs, "Queue is empty — annotate something first"), vim.inspect(msgs))
+    assert.same(before, #sent)
+  end)
+end)
+
+-- A batch that did not go is still queued and can be retried. The preamble has no queue to
+-- wait in, so it goes where an undispatched errand's note goes (ADR-0005): the draft store,
+-- under the key the composer wrote it from.
+describe("a preamble whose batch was not dispatched", function()
+  drafts.clear()
+  cfg.compose = function(_, on_accept)
+    on_accept(nil, "kept, because nothing took the batch")
+  end
+  cfg.send = function(text, target)
+    records(text, target)
+    return false, "the agent pane is gone"
+  end
+  queue_one("queued still")
+  local msgs, restore = h.capture_notify()
+  h.feed("<C-a>")
+  restore()
+  cfg.send = records
+
+  it("keeps the queue", function()
+    assert.same(1, queue.count())
+  end)
+
+  it("says why it did not go", function()
+    assert.is_true(h.notified(msgs, "the agent pane is gone"), vim.inspect(msgs))
+    assert.is_false(h.notified(msgs, "Submitted"), vim.inspect(msgs))
+  end)
+
+  -- Written once. The shipped composer is what reads a draft back, so the proof that
+  -- "kept" means what it says is the next `<C-a>` holding it.
+  it("offers the preamble back the next time one is asked for", function()
+    cfg.compose = nil
+    h.feed("<C-a>")
+    local reopened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    h.feed("q")
+    assert.same({ "kept, because nothing took the batch" }, reopened)
+  end)
+end)
+
+-- Copy is deliberately not a dispatch, and a preamble belongs to a send: `gy` performs no
+-- submit, so it composes nothing and carries nothing.
+describe("copying a batch with a compose adapter wired", function()
+  drafts.clear()
+  queue_one("copied without a preamble")
+  local composed = 0
+  cfg.compose = function(_, on_accept)
+    composed = composed + 1
+    on_accept(nil, "never in a copy")
+  end
+  vim.fn.setreg("+", "")
+  h.feed("gy")
+  local copied = vim.fn.getreg("+")
+
+  it("opens no composer", function()
+    assert.same(0, composed)
+  end)
+
+  it("heads the register with the batch's own header", function()
+    assert.is_truthy(vim.split(copied, "\n")[1]:find("Code review — 1 annotation", 1, true), copied)
+  end)
+
+  it("carries no preamble at all", function()
+    assert.is_nil(copied:find("never in a copy", 1, true), copied)
+  end)
+end)
+
+-- An immediate send is a batch of one (ADR-0004) and the smallest act there is: it bypasses
+-- the queue, so there is no batch for a preamble to cover.
+describe("an immediate send", function()
+  queue.clear()
+  codereview.close()
+  vim.cmd("edit " .. vim.fn.fnameescape(main))
+  cfg.compose = function(_, on_accept)
+    on_accept(nil, "an errand under no preamble")
+  end
+  codereview.annotate("bug", nil, { immediate = true })
+  cfg.compose = nil
+
+  it("heads its payload with the batch header, with nothing above it", function()
+    assert.is_truthy(vim.split(sent[#sent].text, "\n")[1]:find("Code review — 1 annotation", 1, true))
+  end)
+
+  it("carries the note it collected as an annotation, not as a preamble", function()
+    assert.is_truthy(sent[#sent].text:find("### 1. ", 1, true), sent[#sent].text)
+  end)
+end)

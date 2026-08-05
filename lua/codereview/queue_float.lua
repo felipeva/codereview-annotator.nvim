@@ -291,7 +291,7 @@ function M.open(view)
       n == 1 and "" or "s",
       stale > 0 and (" · %d stale"):format(stale) or ""
     )
-    cfg_win.footer = (" ^T %s · ⏎ jump · x drop · gy copy · ^S submit · q close "):format(
+    cfg_win.footer = (" ^T %s · ⏎ jump · x drop · gy copy · ^S submit · ^A preamble · q close "):format(
       #name > 24 and (name:sub(1, 23) .. "…") or name
     )
     if vim.api.nvim_win_is_valid(win) then
@@ -376,6 +376,13 @@ function M.open(view)
     close()
     view.submit()
   end, { buffer = buf, desc = "Submit the batch" })
+
+  -- Closed first, exactly as `<C-s>` closes it: the composer opens over this list, and a
+  -- batch that is about to go must not be left listed behind it.
+  vim.keymap.set("n", "<C-a>", function()
+    close()
+    view.submit_with_preamble()
+  end, { buffer = buf, desc = "Submit the batch under a preamble" })
 
   vim.keymap.set("n", "q", close, { buffer = buf, desc = "Close (keeps the queue)" })
   vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Close (keeps the queue)" })
