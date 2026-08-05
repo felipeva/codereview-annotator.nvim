@@ -48,7 +48,10 @@ end
 ---`hl_group` and `line_hl_group` are what a mark puts on the row it sits on, and they are
 ---what the fade renames. The virtual lines hanging under a row are left as they are: they
 ---are the **queue**'s entries and the **archive**'s, drawn beneath the code rather than on
----it, and what a faded file does to those is #112's question.
+---it, and their colours are in the chunks of that mark rather than in either field. So a
+---queued entry inside a faded file stays bright, and an archived one keeps the dimness it
+---already has -- which is how *already sent* and *not the file I am in* stay two statements.
+---The early return below is what says so, and `quiet_spec` is what pins it.
 ---
 ---A copy, never the render's own table: the same mark is emitted again whenever the fade
 ---moves, and it has to start from the group it was built with.

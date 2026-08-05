@@ -11,7 +11,7 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 1,115 cases in ~6 seconds.
+The whole suite is about 1,245 cases in ~5 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -32,6 +32,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/muted_child.lua` | Spawned four times by `muted_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/faded_child.lua` | Spawned three times by `faded_spec`, one painted cell each — deliberately not a spec. |
+| `codereview/quiet_child.lua` | Spawned eight times by `quiet_spec`, one painted cell each, where two quiet states meet — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `codereview/winbar_child.lua` | Spawned three times by `split_spec` to read one cell of a pane's winbar — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
@@ -61,6 +62,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `faded_spec` | Every file but the one the cursor is in: what a review draws when it opens, the crossing, the hunk that changes nothing, the header left bright, both panes, a repaint that moves the rows, an empty review, the two families of blended groups, the switch — the two traps, `syntax = false` and a scroll past the last paint — and the cells three child processes read |
 | `muted_spec` | The review window without focus: which window is bright, the namespace and the `cursorline` that follow focus, a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, the switch — and the cells four child processes read |
+| `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float |
@@ -80,7 +82,7 @@ interchangeable, and the assertions know which one they are looking at.
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
   `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `queue_float_spec`,
   `split_spec`, `layout_spec`, `open_diff_spec`, `archive_spec`, `touched_spec`,
-  `faded_spec` and `interactive_spec`. Its
+  `faded_spec`, `quiet_spec` and `interactive_spec`. Its
   dirty working tree is what makes a snapshot worth minting, so `archive_spec` builds a
   second copy and resets it to get a clean one. It already covers everything the split layout has
   to render, including the files that exist on only one side and the additions between
@@ -344,6 +346,30 @@ so the out-of-core language path is still checked locally without ever failing C
   were really drawn for stays bright. The view records what the emission drew, beside the
   bands. Both traps above caught this while it was being written, and neither was written
   for it.
+- **Two quiet states that meet are invisible to the spec of either one.** A queued entry and
+  an archived one inside a faded file keep their own colours because the fade renames
+  `hl_group` and `line_hl_group` and returns early for a mark carrying neither — an entry's
+  colours are in the chunks of its virtual lines. A faded file inside a muted pane is faded
+  once because the muted namespace links the groups `hl.groups()` names, and the faded family
+  is not among them. Both were true from the day the fade landed and neither was measured:
+  making the fade rename an entry's chunks reds seven cases, **all** of them in `quiet_spec`,
+  and linking the faded family into the muted namespace reds two, both there. Nothing else in
+  the suite notices either cut.
+- **An absent namespace entry and a dead link draw different things.** A group a namespace
+  does not name falls back to its global definition and draws it; a link that reaches no
+  definition draws nothing at all. So "the muted namespace holds no entry for
+  `CodeReviewFaded.CodeReviewAdd`" is only half the claim, and the half a cell cannot show:
+  `quiet_spec` reads the global definition beside it and asserts it holds a colour and is not
+  itself a link. `hl.lua` writes a twin that loses its colour back as a link to the group it
+  blends for the same reason.
+- **Two blends can only be counted apart when the two strengths differ.** A cell says how far
+  a colour was pulled, not how many times it was pulled, so with `muted.strength` equal to
+  `faded.strength` a file faded once and a file merely muted print the same number — and
+  "faded once, not twice" then passes for a fade that never ran. `quiet_spec` and
+  `quiet_child.lua` run the window rule at 0.25 and the fade at 0.5, which gives one token
+  four readings that are all different: `ec0000` on `004400` bright, `760000` on `002200`
+  faded, `b10000` on `003300` muted, and `590000` on `001a00` had the two stacked. Their
+  channels divide by four so all three blends are exact.
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.
