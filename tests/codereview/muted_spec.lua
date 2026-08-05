@@ -1,4 +1,8 @@
--- A review window without focus is **muted**.
+-- A **pane** without focus is **muted**. The file tree never is.
+--
+-- The tree keeps the other half of the rule: focus landing in it still mutes the panes, so
+-- "the muted window is the one I am not in" stays true of the panes and says nothing about
+-- the tree.
 --
 -- Asserted at the altitude a reviewer's editor actually holds it: the highlight namespace
 -- each review window is drawing through, and its `cursorline`. Never the functions that set
@@ -169,25 +173,62 @@ describe("a review in the split layout with the tree open", function()
     assert.is_true(config.get().muted.enabled)
   end)
 
-  it("leaves the focused pane bright and mutes the other two", function()
-    assert.same({ after = "bright", before = "muted", tree = "muted" }, arrangement())
+  it("leaves the focused pane bright and mutes the other one", function()
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
   end)
 
-  it("lights one row, in the window that has focus", function()
-    assert.same({ after = true, before = false, tree = false }, cursorlines())
+  it("lights one row in the panes, in the one that has focus", function()
+    assert.same({ after = true, before = false, tree = true }, cursorlines())
   end)
 
   it("moves the brightness with focus, from one pane to the other", function()
     vim.api.nvim_set_current_win(V.before_win)
-    assert.same({ after = "muted", before = "bright", tree = "muted" }, arrangement())
-    assert.same({ after = false, before = true, tree = false }, cursorlines())
+    assert.same({ after = "muted", before = "bright", tree = "bright" }, arrangement())
+    assert.same({ after = false, before = true, tree = true }, cursorlines())
   end)
 
   it("moves it between a pane and the tree, in both directions", function()
     vim.api.nvim_set_current_win(V.panel_win)
     assert.same({ after = "muted", before = "muted", tree = "bright" }, arrangement())
     vim.api.nvim_set_current_win(V.win)
-    assert.same({ after = "bright", before = "muted", tree = "muted" }, arrangement())
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
+  end)
+end)
+
+--- The tree, under every focus ----------------------------------------------------
+
+-- Each of the three windows in turn rather than the one a mistake is most likely to be made
+-- in: what is claimed is about the tree and not about which pane is bright.
+describe("the file tree", function()
+  local V = assert(view.current(), "no review view open")
+  local windows = { after = V.win, before = V.before_win, tree = V.panel_win }
+
+  it("is never muted, whichever window has focus", function()
+    local drawn = {}
+    for name, win in pairs(windows) do
+      vim.api.nvim_set_current_win(win)
+      drawn[name] = arrangement().tree
+    end
+    assert.same({ after = "bright", before = "bright", tree = "bright" }, drawn)
+  end)
+
+  it("keeps a lit row, whichever window has focus", function()
+    local lit = {}
+    for name, win in pairs(windows) do
+      vim.api.nvim_set_current_win(win)
+      lit[name] = cursorlines().tree
+    end
+    assert.same({ after = true, before = true, tree = true }, lit)
+  end)
+
+  -- The half of the rule the tree keeps. A tree taken out of the rule whole would leave this
+  -- one arrangement unreachable, and muting nothing at all in the unified layout.
+  it("still mutes both panes of the split layout when focus lands in it", function()
+    vim.api.nvim_set_current_win(V.win)
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
+    vim.api.nvim_set_current_win(V.panel_win)
+    assert.same({ after = "muted", before = "muted", tree = "bright" }, arrangement())
+    assert.same({ after = false, before = false, tree = true }, cursorlines())
   end)
 end)
 
@@ -201,7 +242,7 @@ describe("focus moved with an ordinary window-switch key", function()
     vim.api.nvim_set_current_win(V.win)
     h.feed("<C-w>h")
     assert.same(V.before_win, vim.api.nvim_get_current_win())
-    assert.same({ after = "muted", before = "bright", tree = "muted" }, arrangement())
+    assert.same({ after = "muted", before = "bright", tree = "bright" }, arrangement())
   end)
 
   it("reaches the tree the same way", function()
@@ -259,7 +300,7 @@ describe("a float taking focus", function()
 
   it("leaves every review window exactly as it was", function()
     assert.same(was, arrangement())
-    assert.same({ after = true, before = false, tree = false }, cursorlines())
+    assert.same({ after = true, before = false, tree = true }, cursorlines())
   end)
 
   if composer and vim.api.nvim_win_is_valid(composer) then
@@ -289,7 +330,7 @@ describe("a float taking focus", function()
 
   it("leaves every review window exactly as it was, again", function()
     assert.same(was, arrangement())
-    assert.same({ after = true, before = false, tree = false }, cursorlines())
+    assert.same({ after = true, before = false, tree = true }, cursorlines())
   end)
 
   if float and vim.api.nvim_win_is_valid(float) then
@@ -309,7 +350,7 @@ describe("a float taking focus", function()
 
   it("leaves every review window exactly as it was, a third time", function()
     assert.same(was, arrangement())
-    assert.same({ after = true, before = false, tree = false }, cursorlines())
+    assert.same({ after = true, before = false, tree = true }, cursorlines())
   end)
 
   if archive and vim.api.nvim_win_is_valid(archive) then
@@ -320,22 +361,32 @@ end)
 
 --- Windows the review builds again ------------------------------------------------
 
-describe("a pane rebuilt by a layout toggle", function()
+describe("a layout toggle", function()
   local V = assert(view.current(), "no review view open")
   vim.api.nvim_set_current_win(V.win)
   view.toggle_layout()
 
   it("leaves the unified layout with one pane and the tree", function()
     assert.is_nil(V.before_win)
-    assert.same({ after = "bright", before = nil, tree = "muted" }, arrangement())
+    assert.same({ after = "bright", before = nil, tree = "bright" }, arrangement())
+  end)
+
+  -- The unified layout is where the tree earns the half of the rule it keeps: with one pane
+  -- beside it, a tree out of the rule whole would leave muting nothing to do here at all.
+  it("mutes that one pane when focus lands in the tree", function()
+    vim.api.nvim_set_current_win(V.panel_win)
+    assert.same({ after = "muted", before = nil, tree = "bright" }, arrangement())
+    assert.same({ after = false, tree = true }, cursorlines())
+    vim.api.nvim_set_current_win(V.win)
+    assert.same({ after = "bright", before = nil, tree = "bright" }, arrangement())
   end)
 
   view.toggle_layout()
 
   it("mutes the pane that comes back, without waiting for the next focus change", function()
     assert.is_truthy(V.before_win)
-    assert.same({ after = "bright", before = "muted", tree = "muted" }, arrangement())
-    assert.same({ after = true, before = false, tree = false }, cursorlines())
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
+    assert.same({ after = true, before = false, tree = true }, cursorlines())
   end)
 end)
 
@@ -351,10 +402,10 @@ describe("a tree dismissed and summoned again", function()
 
   view.toggle_panel()
 
-  it("mutes the tree that comes back, in a buffer nothing bound anything to before", function()
+  it("comes back bright, with its row lit, in a window built after the review opened", function()
     assert.is_truthy(V.panel_win)
-    assert.same({ after = "bright", before = "muted", tree = "muted" }, arrangement())
-    assert.same({ after = true, before = false, tree = false }, cursorlines())
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
+    assert.same({ after = true, before = false, tree = true }, cursorlines())
   end)
 end)
 

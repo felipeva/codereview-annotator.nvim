@@ -366,15 +366,21 @@ what reaches the queue and what the payload says are untouched.
 
 See |codereview-highlights| for the two groups it draws with.
 
-The window without focus                                 *codereview-muted*
+The pane you are not in                                  *codereview-muted*
 
 A review holds up to three windows -- the two panes and the file tree -- and
-the one that does not have focus is *muted*: its colours pulled toward the
+the pane that does not have focus is *muted*: its colours pulled toward the
 background, so which window your next keystroke acts on is on screen rather
-than something you press a key to find out. Only the focused window draws a
+than something you press a key to find out. Only the pane with focus draws a
 |cursorline|, which is what stops the split layout lighting a row in both
-panes while saying nothing about either. The tree is in the rule with the
-panes, because it competes with them for focus.
+panes while saying nothing about either.
+
+The file tree is never muted. It is the map of the review, so it draws in
+your colorscheme's own colours whichever window has focus, and the row for
+the file you are reading stays lit. Moving into the tree still mutes the
+panes -- both of them in the split layout, the one of them in the unified
+layout -- so the rule above holds of the panes and says nothing about the
+tree.
 
 Muting is a window-local highlight namespace holding a variant of every group
 in play, each computed by blending that group's colours toward `Normal`'s
@@ -856,8 +862,8 @@ untouched ones on the winbar (|codereview-archived|, |codereview-touched|).
 It is on by default and coarse on purpose: off is the whole history off --
 nothing drawn, nothing tallied and no `git` spent judging.
 
-`muted` mutes every review window that does not have focus
-(|codereview-muted|). `strength` is how far a colour is pulled toward the
+`muted` mutes the pane that does not have focus (|codereview-muted|); the
+file tree is never muted. `strength` is how far a colour is pulled toward the
 background, from 0 to 1. Coarse the same way: off is nothing muted, nothing
 computed and no highlight namespace attached to any window.
 
@@ -914,7 +920,7 @@ that is what keeps code readable inside an emphasised span. Both are still
 `default = true`, so overriding either works the same way as the rest.
 
 Two more families are computed, and neither is yours to set. A **muted**
-window (|codereview-muted|) draws every group through a twin named
+pane (|codereview-muted|) draws every group through a twin named
 `CodeReviewMuted.` plus the group it blends -- `CodeReviewMuted.CodeReviewAdd`,
 `CodeReviewMuted.@keyword`, and so on. A **faded** file (|codereview-faded|)
 carries a twin named `CodeReviewFaded.` plus the same, blended at

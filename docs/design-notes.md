@@ -412,8 +412,8 @@ muted (background only)     { background = 0x001100, foreground = 0xff0000 }
 The first two lines are a window-local highlight namespace doing what `NormalNC` cannot; the
 third is the graceful failure that namespace keeps — a group with no variant in it stays
 bright rather than going wrong. `NormalNC` is adequate only on the file tree, which has
-almost no highlights of its own, and one mechanism for the three windows is worth more than
-that.
+almost no highlights of its own — and the tree is never muted now, so there is nothing left
+there for it to do.
 
 **That namespace holds links, and the link is what makes the blend reachable.** Each entry
 names the group that holds the blended colour — `CodeReviewMuted.` plus the group it blends,

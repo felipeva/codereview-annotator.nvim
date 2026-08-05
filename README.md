@@ -213,13 +213,19 @@ can see which packages are done without opening them. It follows the diff cursor
 Collapsed directories belong to the review rather than to the tree, so they are exactly as
 you left them when it comes back.
 
-### The window you are in is the bright one
+### The pane you are in is the bright one
 
-A review can hold three windows at once — the before pane, the after pane and the tree —
-and the one without focus is **muted**: its colours pulled toward the background, so where
-you are is on screen instead of something you have to press a key to find out. The
-`cursorline` goes with it, which is what stops the split layout lighting a row in both panes
-while saying nothing about either.
+A review can hold three windows at once — the before pane, the after pane and the tree — and
+the pane without focus is **muted**: its colours pulled toward the background, so where you
+are is on screen instead of something you have to press a key to find out. The `cursorline`
+goes with it, which is what stops the split layout lighting a row in both panes while saying
+nothing about either.
+
+The file tree is never muted. It is the map of the review — the paths, the icons, the
+per-directory tallies and the `+N -M` counts — so it draws in your colorscheme's own colours
+whichever window you are in, with the row for the file you are reading lit. Move into it and
+the panes mute, both of them in the split layout and the one of them in the unified layout,
+so you can see that your keys now act on the tree.
 
 The colours come from your own colorscheme, blended: nothing here has a palette of its own,
 and a group the plugin cannot know about is left bright rather than guessed at, so an
@@ -634,7 +640,7 @@ opts = {
   spans = true,                    -- emphasise what changed inside a changed line
   archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
                                    -- and tally the untouched ones on the winbar
-  muted = { enabled = true,        -- mute every review window that does not have focus
+  muted = { enabled = true,        -- mute the pane that does not have focus; never the tree
             strength = 0.5 },      -- how far its colours are pulled toward the background
   faded = { enabled = true,        -- fade every file except the one the cursor is in
             strength = 0.35 },     -- its own number: this covers every file but one
@@ -652,7 +658,7 @@ without the plugin fighting back. The two exceptions are `CodeReviewAddSpan` and
 `default = true`, so overriding them works the same way.
 
 Two families of groups are computed rather than linked, and they are not yours to set. A
-**muted** window draws through a twin of each group named `CodeReviewMuted.` plus the group
+**muted** pane draws through a twin of each group named `CodeReviewMuted.` plus the group
 it blends — `CodeReviewMuted.CodeReviewAdd`, `CodeReviewMuted.@keyword`. A **faded** file's
 rows are drawn in a twin named `CodeReviewFaded.` plus the same, at `faded.strength` instead
 of `muted.strength`. Each holds that group's own colours pulled that far toward the
