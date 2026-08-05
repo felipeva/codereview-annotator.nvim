@@ -608,6 +608,32 @@ describe("the sticky header on a pane that has to choose", function()
   end)
 end)
 
+-- The rule the assembly exists for, reached the way a reviewer reaches it. A **target**'s
+-- short name is a name the plugin did not choose, so the bar has to draw it rather than
+-- expand it -- and no fixture is needed to say so, because a picker stub can carry a `%`
+-- where a file name cannot without moving every count in the suite.
+--
+-- The cases above prove the escape; this one proves the view still asks for it. Marking the
+-- summary as text the plugin wrote is a one-word change that nothing else here would notice.
+describe("the sticky header naming something with a % in it", function()
+  local V = view.current()
+  config.get().pick_target = function(cb)
+    cb({ short = "ja%nus" })
+  end
+  -- Wide, so what is asserted is the escape and not what a narrow pane had room for.
+  vim.api.nvim_win_set_width(V.win, 100)
+  view.pick_target()
+
+  local function bar()
+    return vim.wo[V.win].winbar
+  end
+
+  it("doubles the % rather than letting it start a statusline item", function()
+    assert.is_truthy(bar():find("ja%%nus", 1, true), bar())
+    assert.is_nil(bar():find("ja%nus", 1, true), bar())
+  end)
+end)
+
 describe("the sticky header on a review with no files", function()
   local V = view.current()
   -- A revspec whose two ends are the same commit: a review that opened on a real scope and
