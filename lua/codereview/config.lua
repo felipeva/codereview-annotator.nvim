@@ -41,12 +41,16 @@ M.defaults = {
   ---the archive existed. There is no keymap beside it yet; one can be added if the switch
   ---proves too blunt.
   archived = true, ---@type boolean
-  ---Draw every review window that does not have focus **muted**: its colours pulled toward
-  ---the background, so the focused window is the bright one and a reviewer never has to
-  ---press a key to find out where they are. The file tree is in the rule with the panes,
-  ---because it competes for focus with them, and the `cursorline` goes with it -- only the
-  ---focused window draws one, which is what stops the split layout lighting a row in both
-  ---panes while saying nothing about either.
+  ---Draw every **pane** that does not have focus **muted**: its colours pulled toward the
+  ---background, so the pane with focus is the bright one and a reviewer never has to press
+  ---a key to find out where they are. The `cursorline` goes with it -- only the pane with
+  ---focus draws one, which is what stops the split layout lighting a row in both panes
+  ---while saying nothing about either.
+  ---
+  ---**The file tree is never muted, and its row stays lit.** The tree is the map of the
+  ---review, and a muted map is harder to read for nothing in return: a tree looks nothing
+  ---like a diff, so no colour is needed to tell the two apart. Focus landing in the tree
+  ---still mutes the panes, so the rule above stays true of them.
   ---
   ---On by default, and coarse the way `archived` is: off is nothing muted, nothing
   ---computed and no highlight namespace attached to any window, for a reviewer whose own

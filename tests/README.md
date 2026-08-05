@@ -61,7 +61,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `faded_spec` | Every file but the one the cursor is in: what a review draws when it opens, the crossing, the hunk that changes nothing, the header left bright, both panes, a repaint that moves the rows, an empty review, the two families of blended groups, the switch — the two traps, `syntax = false` and a scroll past the last paint — and the cells three child processes read |
-| `muted_spec` | The review window without focus: which window is bright, the namespace and the `cursorline` that follow focus, a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, the switch — and the cells four child processes read |
+| `muted_spec` | The **pane** without focus: which pane is bright, the namespace and the `cursorline` that follow focus, the file tree never muted — bright with its row lit under every focus, and still muting the panes in both layouts when focus lands in it — a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, the switch — and the cells four child processes read |
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
@@ -255,12 +255,13 @@ so the out-of-core language path is still checked locally without ever failing C
   comes back in a *different* buffer carrying the same mappings, and drives one of them
   through the keys. Without that, a panel that comes back with no keymaps at all passes.
 - **A window option is reasserted downstream, so deleting the line that sets it proves
-  nothing.** `cursorline` is set in `view_layout.window_opts` where a review window is built
-  and then set again, as a function of focus, everywhere focus is decided — so a teeth check
-  that removes it from the helper reds nothing that matters. Break the muting where focus is
-  decided instead: mute against the *current* window rather than the view's latch, and the
-  float cases go red; stop recomputing on `WinEnter`/`WinLeave`, and everything about which
-  window is bright does.
+  nothing — except on the file tree.** `cursorline` is set in `view_layout.window_opts` where
+  a review window is built, and set again on the **panes**, as a function of focus, everywhere
+  focus is decided. So a teeth check that removes it from the helper reds the tree's lit row,
+  which the helper alone gives it, and nothing about the panes at all. Break the muting where
+  focus is decided instead: mute against the *current* window rather than the view's latch,
+  and the float cases go red; stop recomputing on `WinEnter`/`WinLeave`, and everything about
+  which pane is bright does.
 - **No fixture is both tall and multilingual, so one line of the muting has no spec.**
   `view.lua` widens the muted namespace at two moments, and only one of them can be
   measured here. A paint that parses a file is reached by `muted_spec`'s scope change;

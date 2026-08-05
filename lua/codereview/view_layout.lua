@@ -225,6 +225,10 @@ end
 ---layout toggle rebuilt and a tree dismissed and summoned again join the set on the same
 ---line that gives them their options, rather than by a caller remembering to say so.
 ---
+---Enrolment says two things: which windows `mute` walks, and which windows can move the
+---bright latch. The tree is here for the second. `mute` walks it too, but only to keep it
+---bright -- see there.
+---
 ---Module-level, because `window_opts` is handed a window and nothing else. Windows that
 ---have gone are dropped as they are found, and every read is filtered to the review's own
 ---tab page as well, so a window id Neovim reuses after a review closed cannot inherit a
@@ -269,9 +273,10 @@ function M.window_opts(win)
   vim.wo[win].relativenumber = false
   vim.wo[win].signcolumn = "no"
   vim.wo[win].foldcolumn = "0"
-  -- What a window opens with rather than what it keeps: with muting on, `cursorline`
-  -- becomes a function of focus and `mute` owns it from here. This is what a review window
-  -- looks like with muting off, which is what it looked like before muting existed.
+  -- What a **pane** opens with rather than what it keeps: with muting on, a pane's
+  -- `cursorline` becomes a function of focus and `mute` owns it from here. The file tree
+  -- keeps this one, because `mute` never touches it. With muting off every review window
+  -- keeps it, which is what a review looked like before muting existed.
   vim.wo[win].cursorline = true
   vim.wo[win].list = false
   vim.wo[win].spell = false
@@ -364,7 +369,7 @@ function M.recolour()
   M.mute_extend()
 end
 
----Mute every review window except the one focus last landed in.
+---Mute every **pane** except the one focus last landed in, and leave the file tree bright.
 ---
 ---**The bright one is the review's last-focused window, not the current one.** That is what
 ---makes a float change nothing: the composer, the queue float and the archive float all
@@ -372,6 +377,22 @@ end
 ---would mute the entire review the moment a reviewer started typing a note. The latch moves
 ---only when focus lands on a review window, and a latch naming a window that has gone
 ---answers the after pane -- the same default `focused_pane` takes for a caller in neither.
+---
+---**The file tree is never muted, and it still moves the latch.** A muted map is harder to
+---read than a bright one and buys nothing back: a tree looks nothing like a diff, so no
+---colour is needed to tell the two apart. The tree keeps the other half of the rule --
+---focus landing in it mutes the panes -- so "the muted window is the one I am not in" stays
+---true of the panes, and the tree is not part of that statement. It is named from the
+---`CRView` this is already handed, so no second set of windows is kept and no flag is put
+---on a window.
+---
+---**The tree is set bright rather than passed over.** A window id that carried the
+---namespace at some earlier moment would otherwise keep it.
+---
+---**The tree's `cursorline` is left alone**, so it keeps the one `window_opts` gives it. The
+---rule that lights one row at a time is about the panes: `cursorbind` holds them on the same
+---row, and two lit rows would say nothing about either. The tree is not cursorbound and its
+---lit row follows the diff cursor, so a lit row there names the file being read.
 ---
 ---With muting off this returns having done nothing at all: no namespace is attached to
 ---anything, no colour is computed, and `cursorline` is left as `window_opts` set it.
@@ -383,11 +404,13 @@ function M.mute(V)
   M.mute_extend()
   local bright = (V.focus_win and vim.api.nvim_win_is_valid(V.focus_win)) and V.focus_win or V.win
   for _, win in ipairs(review_windows(V)) do
-    local focused = win == bright
-    -- One lit row means one thing: in the split layout `cursorbind` holds both panes on the
-    -- same row, so two cursorlines say nothing about either.
-    vim.wo[win].cursorline = focused
-    vim.api.nvim_win_set_hl_ns(win, focused and 0 or NS_MUTED)
+    if win == V.panel_win then
+      vim.api.nvim_win_set_hl_ns(win, 0)
+    else
+      local focused = win == bright
+      vim.wo[win].cursorline = focused
+      vim.api.nvim_win_set_hl_ns(win, focused and 0 or NS_MUTED)
+    end
   end
 end
 

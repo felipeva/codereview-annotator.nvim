@@ -29,16 +29,17 @@ _side_: a diff line's side is already add/del/ctx, and one word must not do two 
 _Avoid_: side, column, window
 
 **Muted**:
-Said of a review window that does not have focus: its colours pulled toward the background
-through a highlight namespace of its own, so the focused window is the bright one and a
-reviewer never has to press a key to find out where they are. Said of a **pane** or of the
-file tree — never of a file, and never of anything drawn *on* the diff. Not _dimmed_: an
-archived **entry** is already drawn dimmed on the diff, and one word must not do two jobs —
-the same collision that kept _side_ reserved for a diff line's add/del/ctx when the split
-layout needed a word for its windows. Not _faded_ either: that is the file the cursor is not
-in. The three are different mechanisms as well as different statements: dimming is a
-highlight group the render chooses per entry, fading is the group a mark carries, muting is
-every group at once in one window.
+Said of a **pane** that does not have focus: its colours pulled toward the background through
+a highlight namespace of its own, so the pane with focus is the bright one and a reviewer
+never has to press a key to find out where they are. Said of a pane and never of the file
+tree: the tree is never muted, it draws in the active colorscheme's own colours under every
+focus, and focus landing in it mutes the panes instead. Never said of a file, and never of
+anything drawn *on* the diff. Not _dimmed_: an archived **entry** is already drawn dimmed on
+the diff, and one word must not do two jobs — the same collision that kept _side_ reserved
+for a diff line's add/del/ctx when the split layout needed a word for its windows. Not
+_faded_ either: that is the file the cursor is not in. The three are different mechanisms as
+well as different statements: dimming is a highlight group the render chooses per entry,
+fading is the group a mark carries, muting is every group at once in one window.
 _Avoid_: dimmed, greyed, faded, inactive
 
 **Faded**:
