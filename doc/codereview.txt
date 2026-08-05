@@ -97,6 +97,8 @@ Buffer-local, inside the review view:
     gp               Show or hide the file tree
     gl               Switch between the unified and split layouts
     gb               Read the last dispatched batch back
+    gA               Show or hide archived entries, for the rest of the
+                     session -- see |codereview-archived|
     <CR>             Open the real file here, in a new tab
     gd               Read this file in the host's own diff tool --
                      bound only with |codereview-opt-open_diff| wired
@@ -139,6 +141,8 @@ In the file tree:                                         *codereview-tree*
     gp               Dismiss the tree, landing back in the diff
     gl               Switch between the unified and split layouts
     gb               Read the last dispatched batch back
+    gA               Show or hide archived entries, for the rest of the
+                     session -- see |codereview-archived|
     q                Close the review
 
 The tree collapses single-child directory chains, so a monorepo shows
@@ -556,6 +560,15 @@ one, for the same reason |:CodeReviewLastBatch| is read-only. `archived =
 false` turns the whole of this off, and the diff then renders exactly as it
 did before the archive existed.
 
+`gA`, in the diff and in the file tree, reaches the same switch from inside a
+review. It repaints at once, it runs in both directions -- with `archived =
+false` configured it turns them on -- and it overrides the configured value
+rather than writing it, so `setup()` goes on saying what you wrote. The
+override holds for every review opened afterwards and dies with the Neovim
+process: a display preference never becomes durable state you forgot you set.
+Off is off entirely, so the `untouched` tally (|codereview-touched|) leaves
+the winbar with the entries and no `git` is spent judging them.
+
 Touched and untouched                                  *codereview-touched*
 
 Each entry of the *last* batch says whether its file has changed since that
@@ -862,8 +875,9 @@ read rather than every time the view is drawn.
 
 `archived` draws already-dispatched entries on the diff and tallies the
 untouched ones on the winbar (|codereview-archived|, |codereview-touched|).
-It is on by default and coarse on purpose: off is the whole history off --
-nothing drawn, nothing tallied and no `git` spent judging.
+It is on by default and coarse on purpose: off is the whole archive off --
+nothing drawn, nothing tallied and no `git` spent judging. `gA` overrides it
+for the rest of the session, in both directions, and writes nothing here.
 
 `muted` mutes the pane that does not have focus (|codereview-muted|); the
 file tree is never muted. `strength` is how far a colour is pulled toward the

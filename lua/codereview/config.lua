@@ -36,10 +36,10 @@ M.defaults = {
   ---Each of them says whether its file has been **touched** since its batch went, and the
   ---winbar tallies how many have not.
   ---
-  ---On by default, and coarse on purpose -- off is the whole history off: nothing drawn,
+  ---On by default, and coarse on purpose -- off is the whole archive off: nothing drawn,
   ---nothing tallied, no git spent judging, and the diff renders exactly as it did before
-  ---the archive existed. There is no keymap beside it yet; one can be added if the switch
-  ---proves too blunt.
+  ---the archive existed. `gA` overrides this while a session lasts, in both directions, and
+  ---never writes here -- see `M.archived` below.
   archived = true, ---@type boolean
   ---Draw every **pane** that does not have focus **muted**: its colours pulled toward the
   ---background, so the pane with focus is the bright one and a reviewer never has to press
@@ -262,6 +262,46 @@ function M.get()
     M.options.types = resolve_types(M.options)
   end
   return M.options
+end
+
+--- The archived switch at runtime ----------------------------------------------
+
+---What `gA` has said about **archived** entries, for the rest of this editing session.
+---
+---Beside the configured value rather than written over it. A key that edited `M.options`
+---would leave a host's own `setup()` call describing something that is no longer true, and
+---a reviewer reading their configuration back would be told the wrong thing by the file
+---they wrote themselves.
+---
+---Module-level rather than on the review view, because the choice has to outlive one: a
+---reviewer who pressed the key once is not quietly put back by opening the next review.
+---Deliberately not persisted either, for the reason the chosen **layout** is not -- a
+---display preference must never become durable state a reviewer has forgotten they set.
+---A module local lasts exactly as long as it should: until Neovim exits, after which
+---configuration decides again.
+---@type boolean|nil nil until the key has been pressed, when configuration decides
+local archived_override = nil
+
+---Whether **archived** entries are drawn, tallied and judged at all.
+---
+---Read wherever the flag itself is read. Unset means the configured value, which is what
+---makes `setup()` the answer at the start of every session.
+---@return boolean
+function M.archived()
+  if archived_override == nil then
+    return M.get().archived
+  end
+  return archived_override
+end
+
+---Turn archived entries on or off for the rest of this editing session.
+---
+---Both directions from wherever the switch stands now, so a reviewer whose configuration
+---has them off can turn them on.
+---@return boolean on Whether they are now drawn
+function M.toggle_archived()
+  archived_override = not M.archived()
+  return archived_override
 end
 
 return M

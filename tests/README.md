@@ -26,6 +26,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
 | `codereview/layout_child.lua` | Spawned by `layout_spec` — deliberately not a spec. |
+| `codereview/archived_child.lua` | Spawned by `render_spec` to archive a batch and turn archived entries off — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch and exit — deliberately not a spec. |
@@ -41,7 +42,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
-| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — how a winbar is assembled from typed segments, with no review, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, a name carrying a `%`, and a review with no files |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, the flag that removes them and the key that overrides that flag in both directions, for a session — how a winbar is assembled from typed segments, with no review, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, a name carrying a `%`, and a review with no files |
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cell proving that bar mutes with its pane |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
@@ -52,7 +53,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
 | `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, the four things it refuses, and the key that opens it from the diff and from the tree while the command still opens it from anywhere |
-| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
+| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally and the two switches that take it away with the entries, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
@@ -128,6 +129,38 @@ so the out-of-core language path is still checked locally without ever failing C
   back" would otherwise be satisfied by nothing coming back at all — the reviewed mark is
   what proves the store the two share is live. Its cases therefore have to run *first*,
   before this process has chosen a layout of its own.
+- **The `gA` cases have to sit at the end of `render_spec`, and what they are keeping clear
+  of is a winbar.** Opening a review is what runs `judge_archive`, and this file archives a
+  batch part-way down — so the first case that opens a review of its own is also the first to
+  put an `N untouched` segment on the **sticky header**, and every case below it then reads a
+  bar one segment longer than the one it was written against. The case that notices is `the
+  sticky header on a pane that has to choose`: at 45 columns the summary sheds its spares
+  first and then from its head, so one more segment pushes the shedding one step further and
+  the `0/N reviewed` tally that case asserts *survives* is exactly what goes. Measured rather
+  than predicted — a bare `view.reconcile()` above that block reds it, and nothing else in the
+  suite, on a bar reading `○ ▾ … → src/newname.lua  +1 -1  2 untouched` with the reviewed
+  tally gone. Nothing in that failure mentions archived entries or the key, which is what
+  makes it expensive: a case about `gA` breaks a case about narrow panes, and the two have
+  nothing to say to each other. Moving the block up the file brings it back, and so does
+  giving any earlier block a review of its own.
+- **A session-lived override can only be caught falling back to configuration once.** `gA`
+  overrides `archived` for the whole process, so "unset means the configured value" is
+  observable only while this process has not yet pressed the key. `render_spec`'s cases for
+  it therefore run last in that file and in one order: the child process first, whose whole
+  claim is what a *new* Neovim starts with, and then the direction a flag alone cannot go —
+  configured off, key on — which is the last case the override is still unset for. Reversed,
+  the configured value sits behind an override that agrees with nothing and both cases pass
+  whatever the accessor does. Same shape as `layout_spec`'s restart cases having to run
+  first. `archived_child.lua` archives a batch as well as pressing the key, for the reason
+  `layout_child.lua` marks a file reviewed: without something the store genuinely carries,
+  "the override did not come back" is satisfied by nothing coming back at all.
+- **The tally is what notices a toggle that forgot to judge.** Turning archived entries off
+  takes them off the diff whatever else the toggle skips, because a paint reads the switch —
+  so every case in `render_spec` passes either way. The winbar is where it shows: the
+  `untouched` segment is read off the view, and a paint drops it only when the *archive* has
+  been written since the last verdict, which turning a switch off is not. Deleting
+  `judge_archive()` from `view.toggle_archived` must red two cases in `touched_spec` and
+  nothing at all in `render_spec`.
 - **`norepo_spec` needs a directory that is genuinely outside a checkout**, and asserts it
   rather than assuming it. If the temp directory ever sits inside a repository, every case
   about a "loose" file silently becomes a test of the ordinary in-repository path.
