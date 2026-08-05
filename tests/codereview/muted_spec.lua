@@ -4,11 +4,14 @@
 -- "the muted window is the one I am not in" stays true of the panes and says nothing about
 -- the tree.
 --
+-- Every pane lights the row its cursor is on. The pane with focus lights it at full
+-- strength; a muted pane lights a **counterpart row**, in a group of its own.
+--
 -- Asserted at the altitude a reviewer's editor actually holds it: the highlight namespace
--- each review window is drawing through, and its `cursorline`. Never the functions that set
--- them -- focus is moved with an ordinary window-switch key as readily as with the plugin's
--- own `<Tab>`, because what is being pinned down is the autocommand wiring and not one code
--- path that happens to call the right helper.
+-- each review window is drawing through, and the group it lights its row in. Never the
+-- functions that set them -- focus is moved with an ordinary window-switch key as readily as
+-- with the plugin's own `<Tab>`, because what is being pinned down is the autocommand wiring
+-- and not one code path that happens to call the right helper.
 --
 -- One level lower, and only where there is no higher way to say it, the namespace's own
 -- contents are read: that a variant is derived from the theme that is active now, and that a
@@ -38,6 +41,9 @@ local MUTED = vim.api.nvim_create_namespace("codereview_muted")
 vim.o.termguicolors = true
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 vim.api.nvim_set_hl(0, "DiffAdd", { bg = 0x004400 })
+-- The row a pane lights. Its channels divide by four, so the muting's half and the
+-- counterpart row's quarter are both exact and the two cannot be mistaken for each other.
+vim.api.nvim_set_hl(0, "CursorLine", { bg = 0x004488 })
 -- A group this plugin cannot know about: not one of its own, and not one the treesitter
 -- replay resolves. Defined up here, before any review has built a namespace, so that an
 -- implementation which enumerated every group the editor knows would sweep it up and the
@@ -65,13 +71,39 @@ local function arrangement()
   return { after = drawing(V.win), before = drawing(V.before_win), tree = drawing(V.panel_win) }
 end
 
----@return table<string, boolean|nil>
-local function cursorlines()
+---The group a window lights its row in, in words.
+---
+---`cursorline` reading `true` says that a row is lit and nothing about what a reviewer sees:
+---the window draws that row through whatever namespace it is attached to, and a namespace
+---can carry `CursorLine` all the way down to the muting's own blend -- which is the one
+---answer a **counterpart row** must never have. So the group is named as well, and naming it
+---needs the namespace's own contents; there is no higher way to say it. The cells
+---`muted_child.lua` reads are what prove those names are colours.
+---@param win integer
+---@return string
+local function lit(win)
+  if not vim.wo[win].cursorline then
+    return "unlit"
+  end
+  if vim.api.nvim_get_hl_ns({ winid = win }) ~= MUTED then
+    return "focused"
+  end
+  local entry = vim.api.nvim_get_hl(MUTED, { name = "CursorLine" })
+  if entry.link == "CodeReviewCounterpart.CursorLine" then
+    return "counterpart"
+  end
+  -- A group the namespace does not name falls back to its global definition, so a muted pane
+  -- with no entry for `CursorLine` lights its row exactly as a focused one does.
+  return entry.link and "muted" or "focused"
+end
+
+---@return table<string, string|nil>
+local function lit_rows()
   local V = assert(view.current(), "no review view open")
   local out = {}
   for name, win in pairs({ after = V.win, before = V.before_win, tree = V.panel_win }) do
     if win and vim.api.nvim_win_is_valid(win) then
-      out[name] = vim.wo[win].cursorline
+      out[name] = lit(win)
     end
   end
   return out
@@ -177,14 +209,14 @@ describe("a review in the split layout with the tree open", function()
     assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
   end)
 
-  it("lights one row in the panes, in the one that has focus", function()
-    assert.same({ after = true, before = false, tree = true }, cursorlines())
+  it("lights a row in both panes, and the counterpart row in the muted one", function()
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 
   it("moves the brightness with focus, from one pane to the other", function()
     vim.api.nvim_set_current_win(V.before_win)
     assert.same({ after = "muted", before = "bright", tree = "bright" }, arrangement())
-    assert.same({ after = false, before = true, tree = true }, cursorlines())
+    assert.same({ after = "counterpart", before = "focused", tree = "focused" }, lit_rows())
   end)
 
   it("moves it between a pane and the tree, in both directions", function()
@@ -212,13 +244,13 @@ describe("the file tree", function()
     assert.same({ after = "bright", before = "bright", tree = "bright" }, drawn)
   end)
 
-  it("keeps a lit row, whichever window has focus", function()
-    local lit = {}
+  it("keeps a lit row of its own, whichever window has focus", function()
+    local rows = {}
     for name, win in pairs(windows) do
       vim.api.nvim_set_current_win(win)
-      lit[name] = cursorlines().tree
+      rows[name] = lit_rows().tree
     end
-    assert.same({ after = true, before = true, tree = true }, lit)
+    assert.same({ after = "focused", before = "focused", tree = "focused" }, rows)
   end)
 
   -- The half of the rule the tree keeps. A tree taken out of the rule whole would leave this
@@ -228,7 +260,13 @@ describe("the file tree", function()
     assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
     vim.api.nvim_set_current_win(V.panel_win)
     assert.same({ after = "muted", before = "muted", tree = "bright" }, arrangement())
-    assert.same({ after = false, before = false, tree = true }, cursorlines())
+  end)
+
+  -- The arrangement the **counterpart row** exists for the reviewer to read from: no pane
+  -- has focus, so neither may hold the focused variant, and both say where their cursor is.
+  it("leaves both panes on a counterpart row and neither on the focused one", function()
+    vim.api.nvim_set_current_win(V.panel_win)
+    assert.same({ after = "counterpart", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 end)
 
@@ -300,7 +338,7 @@ describe("a float taking focus", function()
 
   it("leaves every review window exactly as it was", function()
     assert.same(was, arrangement())
-    assert.same({ after = true, before = false, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 
   if composer and vim.api.nvim_win_is_valid(composer) then
@@ -330,7 +368,7 @@ describe("a float taking focus", function()
 
   it("leaves every review window exactly as it was, again", function()
     assert.same(was, arrangement())
-    assert.same({ after = true, before = false, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 
   if float and vim.api.nvim_win_is_valid(float) then
@@ -350,7 +388,7 @@ describe("a float taking focus", function()
 
   it("leaves every review window exactly as it was, a third time", function()
     assert.same(was, arrangement())
-    assert.same({ after = true, before = false, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 
   if archive and vim.api.nvim_win_is_valid(archive) then
@@ -376,7 +414,7 @@ describe("a layout toggle", function()
   it("mutes that one pane when focus lands in the tree", function()
     vim.api.nvim_set_current_win(V.panel_win)
     assert.same({ after = "muted", before = nil, tree = "bright" }, arrangement())
-    assert.same({ after = false, tree = true }, cursorlines())
+    assert.same({ after = "counterpart", tree = "focused" }, lit_rows())
     vim.api.nvim_set_current_win(V.win)
     assert.same({ after = "bright", before = nil, tree = "bright" }, arrangement())
   end)
@@ -386,7 +424,7 @@ describe("a layout toggle", function()
   it("mutes the pane that comes back, without waiting for the next focus change", function()
     assert.is_truthy(V.before_win)
     assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
-    assert.same({ after = true, before = false, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 end)
 
@@ -405,7 +443,7 @@ describe("a tree dismissed and summoned again", function()
   it("comes back bright, with its row lit, in a window built after the review opened", function()
     assert.is_truthy(V.panel_win)
     assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
-    assert.same({ after = true, before = false, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 end)
 
@@ -425,33 +463,84 @@ describe("a group the plugin cannot know about", function()
   end)
 end)
 
+-- A family of its own, holding one member. The alternative is a second copy of the blend
+-- arithmetic, which is how this one and the muting would drift apart in colour.
+describe("the group a muted pane lights its counterpart row in", function()
+  local theme = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false }).bg
+  local counterpart = muted_hl("CursorLine").bg
+
+  it("is named for the group it blends, in a family of its own", function()
+    assert.same("CodeReviewCounterpart.CursorLine", vim.api.nvim_get_hl(MUTED, { name = "CursorLine" }).link)
+  end)
+
+  it("is a blend of the lit row this theme draws, and not that row itself", function()
+    assert.same(0x004488, theme)
+    assert.is_truthy(counterpart, "a muted pane lights its row in no colour of its own")
+    assert.is_true(counterpart ~= theme, "the counterpart row is the focused pane's colour")
+  end)
+
+  -- What the family is for: a row pulled as far as the muting is would be lost inside the
+  -- pane it has to be found in. 0x004488 a quarter of the way to a black background is
+  -- 0x003366, where the muting's half would leave it at 0x002244.
+  it("is pulled less far toward the background than the muting pulls everything else", function()
+    assert.is_true(
+      config.get().counterpart.strength < config.get().muted.strength,
+      "the counterpart row is blended at least as far as the muting"
+    )
+    assert.same(0x003366, counterpart)
+  end)
+end)
+
 describe("changing colorscheme", function()
   local before = muted_hl("CodeReviewAdd").bg
   local was = vim.api.nvim_get_hl(0, { name = "CodeReviewAdd", link = false }).bg
+  local lit_before = muted_hl("CursorLine").bg
+  local lit_was = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false }).bg
 
   vim.cmd("colorscheme blue")
 
   local now = vim.api.nvim_get_hl(0, { name = "CodeReviewAdd", link = false }).bg
   local backdrop = vim.api.nvim_get_hl(0, { name = "Normal", link = false }).bg or 0x000000
   local after = muted_hl("CodeReviewAdd").bg
+  local lit_now = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false }).bg
+  local lit_after = muted_hl("CursorLine").bg
 
-  -- Without this the case below passes on a theme that happens to paint a changed line the
-  -- same colour the last one did, which would prove nothing about recomputing anything.
+  ---Assert that `blend` really is `theme` pulled some of the way to the background.
+  ---@param what string
+  ---@param blend integer
+  ---@param theme integer
+  local function pulled_toward_the_background(what, blend, theme)
+    local t, b, m = channels(theme), channels(backdrop), channels(blend)
+    for i = 1, 3 do
+      local lo, hi = math.min(t[i], b[i]), math.max(t[i], b[i])
+      assert.is_true(
+        m[i] >= lo and m[i] <= hi,
+        ("%s channel %d: %d is not between the theme's %d and the background's %d"):format(what, i, m[i], t[i], b[i])
+      )
+    end
+  end
+
+  -- Without these two the cases below pass on a theme that happens to paint a changed line,
+  -- or a lit row, the same colour the last one did -- which would prove nothing about
+  -- recomputing anything.
   it("is a change the theme really made", function()
     assert.is_true(was ~= now, ("both themes give a changed line %s"):format(tostring(now)))
+  end)
+
+  it("is a change the theme really made to a lit row as well", function()
+    assert.is_true(lit_was ~= lit_now, ("both themes light a row %s"):format(tostring(lit_now)))
   end)
 
   it("recomputes the muted colour against the theme that is active now", function()
     assert.is_true(before ~= after, "the muted colour is the one the old theme was blended into")
     assert.is_true(after ~= now, "the muted colour is the new theme's, unmuted")
-    local theme, back, muted = channels(now), channels(backdrop), channels(after)
-    for i = 1, 3 do
-      local lo, hi = math.min(theme[i], back[i]), math.max(theme[i], back[i])
-      assert.is_true(
-        muted[i] >= lo and muted[i] <= hi,
-        ("channel %d: %d is not between the theme's %d and the background's %d"):format(i, muted[i], theme[i], back[i])
-      )
-    end
+    pulled_toward_the_background("muted", after, now)
+  end)
+
+  it("recomputes the counterpart row against it too", function()
+    assert.is_true(lit_before ~= lit_after, "the counterpart row is the colour the old theme was blended into")
+    assert.is_true(lit_after ~= lit_now, "the counterpart row is the new theme's lit row, unblended")
+    pulled_toward_the_background("counterpart", lit_after, lit_now)
   end)
 end)
 
@@ -490,13 +579,46 @@ describe("a review opened with muting off", function()
   end)
 
   it("draws a cursorline in every one of them, as it did before muting existed", function()
-    assert.same({ after = true, before = true, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "focused", tree = "focused" }, lit_rows())
   end)
 
   it("leaves them that way when focus moves", function()
     vim.api.nvim_set_current_win(V.panel_win)
     assert.same({ after = "untouched", before = "untouched", tree = "untouched" }, arrangement())
-    assert.same({ after = true, before = true, tree = true }, cursorlines())
+    assert.same({ after = "focused", before = "focused", tree = "focused" }, lit_rows())
+  end)
+end)
+
+describe("a review opened with the counterpart row off", function()
+  require("codereview").setup({ layout = "split", syntax = true, counterpart = { enabled = false } })
+  view.close()
+  view.open("branch")
+  local V = assert(view.current(), "no review view open")
+  vim.api.nvim_set_current_win(V.win)
+
+  it("mutes the pane without focus exactly as it did", function()
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, arrangement())
+  end)
+
+  it("lights a row in the pane with focus only, as it did before this existed", function()
+    assert.same({ after = "focused", before = "unlit", tree = "focused" }, lit_rows())
+  end)
+
+  -- The teeth of the case above, which holds over a namespace still pointing `CursorLine` at
+  -- the counterpart family -- and that is the group the pane would light its row in the
+  -- moment the switch went back on.
+  it("mutes CursorLine with every other group instead", function()
+    assert.same("CodeReviewMuted.CursorLine", vim.api.nvim_get_hl(MUTED, { name = "CursorLine" }).link)
+  end)
+
+  -- And back on, without closing the review. The namespace is built once per set of resolved
+  -- capture groups, so a pass that did not run again would leave the counterpart row muted.
+  require("codereview").setup({ layout = "split", syntax = true })
+  vim.api.nvim_set_current_win(V.panel_win)
+  vim.api.nvim_set_current_win(V.win)
+
+  it("comes back to a counterpart row when the switch goes back on", function()
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
   end)
 end)
 
@@ -504,10 +626,18 @@ end)
 
 -- One child per reading, because `nvim__inspect_cell` is only honest on the first call a
 -- process makes. Each opens the same review over this spec's fixture, in the unified layout
--- at 80x24, and reads the first token the treesitter replay painted on an *added* line --
+-- at 80x24.
+--
+-- The muting is read on the first token the treesitter replay painted on an *added* line --
 -- one cell carrying a changed line's background under a foreground from a higher priority
 -- band, which is the only shape that can tell muting that reaches the diff from muting that
 -- reaches nothing but the empty space.
+--
+-- The lit row is read on a token of a **context** line instead, because `line_hl_group` wins
+-- over `CursorLine`: an added line prints its own background whether or not its row is lit,
+-- so a reading taken there would say nothing about either. Both of those readings are taken
+-- with the cursor inside the file the row belongs to, so the **fade** is the same in each and
+-- the one thing that moves is whether the row is the row the cursor is on.
 describe("the cell under a reviewer's eye", function()
   ---@param env table<string, string>
   ---@return string
@@ -557,18 +687,62 @@ describe("the cell under a reviewer's eye", function()
   it("paints exactly what it painted before muting existed when the switch is off", function()
     assert.same("cell l fg=ee0000 bg=004400", (off:gsub(" at %d+,%d+$", "")))
   end)
+
+  --- The row each pane lights ------------------------------------------------------
+
+  local lit_focused = child({ FOCUS = "diff", CELL = "row", CURSOR = "on" })
+  local lit_muted = child({ FOCUS = "tree", CELL = "row", CURSOR = "on" })
+  local unlit_muted = child({ FOCUS = "tree", CELL = "row", CURSOR = "off" })
+  local lit_off = child({ FOCUS = "tree", CELL = "row", CURSOR = "on", COUNTERPART = "0" })
+
+  it("lights the row the cursor is on, at the theme's own strength, in the pane with focus", function()
+    assert.same("cell l fg=ee0000 bg=004488", (lit_focused:gsub(" at %d+,%d+$", "")))
+  end)
+
+  -- The claim: a quarter of the way to the background where everything around it is half of
+  -- the way there, so the row is neither lost in its pane nor mistaken for the focused one.
+  it("lights the counterpart row more quietly once its pane loses focus", function()
+    assert.same("cell l fg=770000 bg=003366", (lit_muted:gsub(" at %d+,%d+$", "")))
+  end)
+
+  -- The control that proves the reading above came from the lit row and not from the pane:
+  -- the same cell, in the same pane, with the cursor moved off its row.
+  it("leaves every other row of that pane on the plain muted background", function()
+    assert.same("cell l fg=770000 bg=000000", (unlit_muted:gsub(" at %d+,%d+$", "")))
+  end)
+
+  -- And the control that proves the switch works: the row the cursor is on, in a muted pane,
+  -- reading exactly what the row beside it reads.
+  it("lights no row at all in a muted pane when the switch is off", function()
+    assert.same("cell l fg=770000 bg=000000", (lit_off:gsub(" at %d+,%d+$", "")))
+  end)
 end)
 
 --- A configuration mistake --------------------------------------------------------
 
--- Last, because it deliberately leaves a bad value in the options: the switches beside this
--- one are bare booleans, so `muted = false` is the mistake worth catching loudly.
+-- Last, because it deliberately leaves a bad value in the options: the switches beside these
+-- are bare booleans, so `muted = false` is the mistake worth catching loudly. The counterpart
+-- row's switch has the same shape and is asked the same question.
 describe("the switch written the way the coarse ones are", function()
   local ok, err = pcall(require("codereview").setup, { muted = false })
 
   it("fails at setup rather than inside a window helper later", function()
     assert.is_false(ok)
     assert.is_truthy(tostring(err):find("muted = { enabled = false }", 1, true), tostring(err))
+  end)
+
+  local ok_c, err_c = pcall(require("codereview").setup, { counterpart = false })
+
+  it("fails the same way for the counterpart row", function()
+    assert.is_false(ok_c)
+    assert.is_truthy(tostring(err_c):find("counterpart = { enabled = false }", 1, true), tostring(err_c))
+  end)
+
+  local ok_s, err_s = pcall(require("codereview").setup, { counterpart = { strength = 2 } })
+
+  it("rejects a strength that is not a fraction of the way to the background", function()
+    assert.is_false(ok_s)
+    assert.is_truthy(tostring(err_s):find("counterpart.strength", 1, true), tostring(err_s))
   end)
 
   require("codereview").setup({ layout = "split", syntax = true })

@@ -386,7 +386,7 @@ end)
 
 --- The colours behind it ------------------------------------------------------------
 
-describe("the two families of blended groups", function()
+describe("the fade's family of blended groups, beside the muting's", function()
   it("gives the fade a strength of its own", function()
     local faded = assert(hl.blended("faded", "CodeReviewAdd"), "the fade has no blend of a changed line")
     local muted = assert(hl.blended("muted", "CodeReviewAdd"), "the window rule has no blend of a changed line")

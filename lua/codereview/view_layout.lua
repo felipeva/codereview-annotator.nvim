@@ -273,8 +273,9 @@ function M.window_opts(win)
   vim.wo[win].relativenumber = false
   vim.wo[win].signcolumn = "no"
   vim.wo[win].foldcolumn = "0"
-  -- What a **pane** opens with rather than what it keeps: with muting on, a pane's
-  -- `cursorline` becomes a function of focus and `mute` owns it from here. The file tree
+  -- What a **pane** opens with rather than what it keeps: with muting on, `mute` owns a
+  -- pane's `cursorline` from here -- it leaves it set and decides which colour the row is lit
+  -- in, or, with the counterpart row off, makes it a function of focus again. The file tree
   -- keeps this one, because `mute` never touches it. With muting off every review window
   -- keeps it, which is what a review looked like before muting existed.
   vim.wo[win].cursorline = true
@@ -298,11 +299,32 @@ end
 ---survives a colorscheme change, because it holds a name and not a colour.
 local NS_MUTED = vim.api.nvim_create_namespace("codereview_muted")
 
----Which groups the namespace already links to a twin.
----@type table<string, boolean>
+---Which family's blend a muted pane draws `group` through.
+---
+---`CursorLine` is the **counterpart row**'s, and every other group is the muting's own. The
+---row a muted pane lights is the one thing in that pane which must not be pulled as far as
+---the rest of it: a reviewer has to find it against a window everything else is receding
+---into. With the counterpart row off it is muted like anything else, and the pane draws no
+---row at all -- see `mute` below.
+---@param group string
+---@return CRBlendFamily
+local function family_of(group)
+  if group == "CursorLine" and config.get().counterpart.enabled then
+    return "counterpart"
+  end
+  return "muted"
+end
+
+---Which family's twin the namespace links each group to already.
+---
+---The family and not merely the group, so that a pass made after the counterpart row's
+---switch moved re-links `CursorLine` rather than keeping the blend the last pass chose. A
+---review that opens, a colorscheme that changes and a file that parses in a new language all
+---make that pass run again.
+---@type table<string, CRBlendFamily>
 local linked = {}
 
----Link `group` to its muted twin, once.
+---Link `group` to its twin, once per family it is asked for in.
 ---
 ---**A group left without a link stays bright, and that is the feature.** A group the
 ---namespace does not name falls back to its global definition -- measured, not assumed --
@@ -311,14 +333,15 @@ local linked = {}
 ---decides which groups have a twin, and it hands back nothing for the rest.
 ---@param group string
 local function ensure_link(group)
-  if linked[group] then
+  local family = family_of(group)
+  if linked[group] == family then
     return
   end
-  local twin = hl.blended("muted", group)
+  local twin = hl.blended(family, group)
   if not twin then
     return
   end
-  linked[group] = true
+  linked[group] = family
   pcall(vim.api.nvim_set_hl, NS_MUTED, group, { link = twin })
 end
 
@@ -389,10 +412,19 @@ end
 ---**The tree is set bright rather than passed over.** A window id that carried the
 ---namespace at some earlier moment would otherwise keep it.
 ---
+---**Every pane lights the row its cursor is on**, and the namespace decides in which colour.
+---A muted pane lights a **counterpart row**: the same `cursorline`, drawn through the
+---counterpart family instead of at the theme's own strength. The panes are cursorbound, so
+---that row is the one opposite the row the reviewer is reading -- and where it is a
+---**filler**, a lit blank row is the only thing that says nothing existed there before.
+---Which row is lit stays Neovim's business; only which colour it is lit in is this.
+---
+---With the counterpart row off, `cursorline` is a function of focus again and a muted pane
+---lights nothing -- the behaviour shipped before this existed.
+---
 ---**The tree's `cursorline` is left alone**, so it keeps the one `window_opts` gives it. The
----rule that lights one row at a time is about the panes: `cursorbind` holds them on the same
----row, and two lit rows would say nothing about either. The tree is not cursorbound and its
----lit row follows the diff cursor, so a lit row there names the file being read.
+---tree is not cursorbound, and its lit row follows the diff cursor rather than sitting
+---opposite it, so a lit row there names the file being read.
 ---
 ---With muting off this returns having done nothing at all: no namespace is attached to
 ---anything, no colour is computed, and `cursorline` is left as `window_opts` set it.
@@ -402,13 +434,14 @@ function M.mute(V)
     return
   end
   M.mute_extend()
+  local counterpart = config.get().counterpart.enabled
   local bright = (V.focus_win and vim.api.nvim_win_is_valid(V.focus_win)) and V.focus_win or V.win
   for _, win in ipairs(review_windows(V)) do
     if win == V.panel_win then
       vim.api.nvim_win_set_hl_ns(win, 0)
     else
       local focused = win == bright
-      vim.wo[win].cursorline = focused
+      vim.wo[win].cursorline = focused or counterpart
       vim.api.nvim_win_set_hl_ns(win, focused and 0 or NS_MUTED)
     end
   end

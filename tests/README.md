@@ -31,7 +31,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
 | `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch and exit — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
-| `codereview/muted_child.lua` | Spawned four times by `muted_spec`, one painted cell each — deliberately not a spec. |
+| `codereview/muted_child.lua` | Spawned eight times by `muted_spec`, one painted cell each — four on a token of a changed line for the muting, four on a token of a context line for the row a pane lights — deliberately not a spec. |
 | `codereview/faded_child.lua` | Spawned three times by `faded_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/quiet_child.lua` | Spawned eight times by `quiet_spec`, one painted cell each, where two quiet states meet — deliberately not a spec. |
 | `codereview/drafts_child.lua` | Spawned by `drafts_spec` to abandon a half-written note and exit — deliberately not a spec. |
@@ -62,8 +62,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
-| `faded_spec` | Every file but the one the cursor is in: what a review draws when it opens, the crossing, the hunk that changes nothing, the header left bright, both panes, a repaint that moves the rows, an empty review, the two families of blended groups, the switch — the two traps, `syntax = false` and a scroll past the last paint — and the cells three child processes read |
-| `muted_spec` | The **pane** without focus: which pane is bright, the namespace and the `cursorline` that follow focus, the file tree never muted — bright with its row lit under every focus, and still muting the panes in both layouts when focus lands in it — a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, the switch — and the cells four child processes read |
+| `faded_spec` | Every file but the one the cursor is in: what a review draws when it opens, the crossing, the hunk that changes nothing, the header left bright, both panes, a repaint that moves the rows, an empty review, the fade's family of blended groups beside the muting's, the switch — the two traps, `syntax = false` and a scroll past the last paint — and the cells three child processes read |
+| `muted_spec` | The **pane** without focus: which pane is bright, the namespace that follows focus and the group each pane lights its row in, the **counterpart row** a muted pane lights and the family of one it comes from, the file tree never muted — bright with its row lit under every focus, and still muting the panes in both layouts when focus lands in it — a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, both switches — and the cells eight child processes read |
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
@@ -321,6 +321,15 @@ so the out-of-core language path is still checked locally without ever failing C
   column 80 is drawn into cells nothing can read; and the cell has to be located with
   `screenpos`, because the change bar and the `│` separator are multibyte and a buffer
   column is not a screen column.
+- **A lit row cannot be read on a changed line.** `line_hl_group` wins over `CursorLine` —
+  measured, not assumed — so every added line, every deleted line and every header prints its
+  own background whether or not the cursor is on that row. A painted cell taken there says
+  the same thing lit and unlit, which makes it a reading of the line and not of the row. The
+  four cells `muted_spec` reads for the **counterpart row** are on a token of a *context*
+  line for that reason, and they move the cursor between that row and the file's header row
+  rather than between two files: the **fade** would otherwise change the foreground under
+  them, and the reading would be measuring two things at once. Same trap as "a filter test
+  needs a fixture only that filter can reject".
 - **A muted winbar cannot be told from a bright one by its text**, and a non-current window
   draws its winbar in `WinBarNC` whether or not anything is muted — so "the unfocused pane's
   bar is not `WinBar`" holds with the muted namespace never reaching the winbar at all. The

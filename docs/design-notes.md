@@ -476,6 +476,26 @@ file's unit is a file inside a pane, which no namespace can express, so the fade
 which group each *mark* carries — the blended twin of the group the row would have carried
 anyway, emitted in its place.
 
+**A muted pane still lights a row, and the namespace is what makes it another colour.** The
+panes are cursorbound, so Neovim already lights the row opposite the one being read; what was
+missing was a colour of its own for it. `cursorline` therefore stays set in every pane, and
+the namespace links `CursorLine` to the **counterpart row**'s blend rather than to the
+muting's — a third family, holding that one member, because the alternative is a second copy
+of the blend arithmetic written where the row is lit. Nothing is emitted onto the diff, and a
+namespace could not have done it any other way: it colours a whole window, so *one row,
+differently* has to be a group that window already draws that row in.
+
+**`line_hl_group` wins over `CursorLine`.** Measured, with `CursorLine` set to a colour
+nothing else on screen holds: the cell on the cursor's own row printed the line background
+instead. So a row carrying one of its own — every added and deleted line, every file and hunk
+header — prints it whether or not the cursor is on that row, and a lit row can only be seen on
+a context line, a **pad** or a **filler**. That is as true of the focused pane's row as of a
+counterpart row, and it has been since the plugin drew its first diff. It costs the
+counterpart row nothing in the case it exists for, because the row opposite a pure addition is
+a filler and a filler is blank. It is also why the painted cell proving the counterpart row is
+read on a context line: a reading taken on an added row prints the same colour lit or unlit,
+and says nothing about either.
+
 **The fade renames a mark. It does not add one, and it does not change the priority order.**
 One grey foreground laid over a faded file at a priority above the syntax replay is the
 obvious shape and the wrong one: it wins where a parser painted and loses where none did, so

@@ -217,9 +217,15 @@ you left them when it comes back.
 
 A review can hold three windows at once — the before pane, the after pane and the tree — and
 the pane without focus is **muted**: its colours pulled toward the background, so where you
-are is on screen instead of something you have to press a key to find out. The `cursorline`
-goes with it, which is what stops the split layout lighting a row in both panes while saying
-nothing about either.
+are is on screen instead of something you have to press a key to find out.
+
+Both panes go on lighting the row their cursor is on. The muted one lights a **counterpart
+row** — the same row, in a group of its own, blended more gently than the muting so it is
+bright enough to find and never competes with the pane you are in. The panes are cursorbound,
+so that row is the one opposite the line you are reading, and on a pure addition it is the
+**filler**: a lit blank row saying nothing was here before, which is the fact you wanted and
+the one you could not otherwise get without counting rows. `counterpart = { enabled = false }`
+goes back to a lit row in the focused pane only.
 
 The file tree is never muted. It is the map of the review — the paths, the icons, the
 per-directory tallies and the `+N -M` counts — so it draws in your colorscheme's own colours
@@ -693,6 +699,8 @@ opts = {
             strength = 0.5 },      -- how far its colours are pulled toward the background
   faded = { enabled = true,        -- fade every file except the one the cursor is in
             strength = 0.35 },     -- its own number: this covers every file but one
+  counterpart = { enabled = true,  -- light the row opposite the cursor in a muted pane
+                  strength = 0.25 }, -- gentler than the muting, so the row stays findable
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },
@@ -706,15 +714,16 @@ without the plugin fighting back. The two exceptions are `CodeReviewAddSpan` and
 `CodeReviewDelSpan`, which take `DiffText`'s background and set no foreground — still
 `default = true`, so overriding them works the same way.
 
-Two families of groups are computed rather than linked, and they are not yours to set. A
+Three families of groups are computed rather than linked, and none is yours to set. A
 **muted** pane draws through a twin of each group named `CodeReviewMuted.` plus the group
 it blends — `CodeReviewMuted.CodeReviewAdd`, `CodeReviewMuted.@keyword`. A **faded** file's
 rows are drawn in a twin named `CodeReviewFaded.` plus the same, at `faded.strength` instead
-of `muted.strength`. Each holds that group's own colours pulled that far toward the
-background, and each is written again on every colorscheme change, so setting one yourself is
-overwritten. Set the strength, or the group the twin is named for. A group your theme gives
-no colour of its own gets no twin in either family, and is drawn at full brightness — muted
-or faded, that is the same rule.
+of `muted.strength`. The **counterpart row** a muted pane lights is one member only,
+`CodeReviewCounterpart.CursorLine`, at `counterpart.strength`. Each holds that group's own
+colours pulled that far toward the background, and each is written again on every colorscheme
+change, so setting one yourself is overwritten. Set the strength, or the group the twin is
+named for. A group your theme gives no colour of its own gets no twin in any of the three,
+and is drawn at full brightness — muted, faded or lit, that is the same rule.
 
 ## Adapters
 

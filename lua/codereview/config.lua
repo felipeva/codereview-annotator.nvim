@@ -43,9 +43,8 @@ M.defaults = {
   archived = true, ---@type boolean
   ---Draw every **pane** that does not have focus **muted**: its colours pulled toward the
   ---background, so the pane with focus is the bright one and a reviewer never has to press
-  ---a key to find out where they are. The `cursorline` goes with it -- only the pane with
-  ---focus draws one, which is what stops the split layout lighting a row in both panes
-  ---while saying nothing about either.
+  ---a key to find out where they are. Every pane goes on lighting the row its cursor is on;
+  ---which colour a muted one lights it in is `counterpart` below.
   ---
   ---**The file tree is never muted, and its row stays lit.** The tree is the map of the
   ---review, and a muted map is harder to read for nothing in return: a tree looks nothing
@@ -81,6 +80,25 @@ M.defaults = {
   ---numbers pull the active colorscheme's own colours, so an unrecognised theme fades in
   ---its own colours or, for a group the plugin cannot know about, stays bright.
   faded = { enabled = true, strength = 0.35 }, ---@type { enabled: boolean, strength: number }
+  ---Light the row the cursor is on in a **muted** pane as well -- the **counterpart row** --
+  ---in a group of its own rather than in the one the pane with focus uses. A reviewer
+  ---reading the after pane can then see which line of the before-image sits opposite the
+  ---line they are on, and where the opposite row is a **filler** the lit blank row is what
+  ---says nothing existed there before. That case is the whole reason this exists: the panes
+  ---are cursorbound, so on a paired line the reviewer could have counted rows, and on a pure
+  ---addition there is no row to count to.
+  ---
+  ---Which row is lit stays Neovim's business, because the panes are cursorbound. Only which
+  ---colour it is lit in is this. Nothing is emitted onto the diff and no extmark is added.
+  ---
+  ---On by default, and coarse the way `muted` is: off is a lit row in the pane with focus
+  ---only -- nothing computed, and no group of its own defined -- which is what a review
+  ---looked like before this existed.
+  ---
+  ---`strength` is deliberately gentler than `muted.strength`. The counterpart row has to
+  ---stay visible inside a window everything else in it is being pulled toward the
+  ---background, and it must still read as secondary to the row the pane with focus lights.
+  counterpart = { enabled = true, strength = 0.25 }, ---@type { enabled: boolean, strength: number }
   panel = {
     enabled = true,
     width = 34,
@@ -207,11 +225,11 @@ end
 
 ---Reject a switch with a strength beside it written as a bare boolean.
 ---
----`spans` and `archived` are bare booleans and `muted` and `faded` are tables, so
----`muted = false` is the natural mistake to make. Without this it is an index error raised
----from inside a window helper the next time a review opens, rather than a sentence at
----`setup()` naming the line to change. Named for the switch it is checking, because two
----copies of this sentence would be two chances to word it differently.
+---`spans` and `archived` are bare booleans while `muted`, `faded` and `counterpart` are
+---tables, so `muted = false` is the natural mistake to make. Without this it is an index
+---error raised from inside a window helper the next time a review opens, rather than a
+---sentence at `setup()` naming the line to change. Named for the switch it is checking,
+---because two copies of this sentence would be two chances to word it differently.
 ---@param name string
 ---@param value any
 local function validate_blend(name, value)
@@ -252,6 +270,9 @@ function M.setup(opts)
   validate_blend("faded", M.options.faded)
   validate_boolean("faded.enabled", M.options.faded.enabled)
   validate_strength("faded.strength", M.options.faded.strength)
+  validate_blend("counterpart", M.options.counterpart)
+  validate_boolean("counterpart.enabled", M.options.counterpart.enabled)
+  validate_strength("counterpart.strength", M.options.counterpart.strength)
   M.options.types = resolve_types(M.options)
   return M.options
 end
