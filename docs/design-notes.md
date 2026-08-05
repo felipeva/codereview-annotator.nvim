@@ -57,21 +57,36 @@ works too, and takes effect on the next redraw: measured in a prototype, not ass
 group the namespace does not define falls back to its global definition, so what is not in
 it stays bright.
 
-**The winbar draws in `WinBar`/`WinBarNC` and in nothing of the plugin's own.** The bar is
-plain text: it carries no `%#Group#` markup and cannot, because every `%` on it is escaped
-(see below). So the **sticky header** mutes with its window through those two built-in
-groups and needs nothing added to the muted set — which is also the whole of what keeps the
-two features from colliding, and is why `split_spec` asserts the painted cell of a muted
-pane's bar rather than trusting that the two happen to agree.
+**The winbar draws in `WinBar`/`WinBarNC` and in nothing of the plugin's own.** No segment
+on it carries a `%#Group#` today, so the **sticky header** mutes with its window through
+those two built-in groups and needs nothing added to the muted set — which is also the whole
+of what keeps the two features from colliding, and is why `split_spec` asserts the painted
+cell of a muted pane's bar rather than trusting that the two happen to agree. This used to
+be a rule the escaping *enforced*, and it is now only a fact about what the bar is built
+from: chrome may carry a group (see below), so the first segment that takes one leaves this
+paragraph out of date and the muted set with something to say about the winbar.
 
-**The winbar is padded by hand, in display columns, and every `%` in it is escaped.** The
-statusline's `%=` would right-align the review summary for free and cannot be used: the bar
-carries a path a reviewer's repository chose, and a `%f` in one would be read as a
-statusline item and expanded into something else — so the whole bar is escaped on the way
-out, `%=` included. What is left is arithmetic, and it counts columns rather than bytes.
-Almost everything on that bar is multibyte — the file icons, the chevron, the `·`
-separators, a rename's `→` — so a bar padded by `#` lands a dozen columns short of the pane
-and every ASCII assertion in the suite still passes. The renamed file is what catches it.
+**Every name on the winbar is escaped, per segment, and the bar is padded by hand in display
+columns.** A bar is built from typed segments — chrome, which the plugin wrote and may carry
+a highlight group, or a literal, which is a name the plugin did not choose — and
+`render.bar` doubles every `%` in a literal. The rule is the same one the wholesale escape
+held: the bar carries a path a reviewer's repository chose, and a `%f` in one would be read
+as a statusline item and expanded into something else. What moved is where it is applied, so
+that a caller cannot pass a path unescaped by accident: a segment has to say which kind it
+is, and the kind that takes a name is the kind that escapes it. The statusline's `%=` would
+now be possible, and would still buy nothing — see below.
+
+**The ruler for that bar is `render.bar_width`, and it measures what is drawn.** Two things
+separate a bar's string from its columns, and they pull opposite ways. Almost everything on
+the bar is multibyte — the file icons, the chevron, the `·` separators, a rename's `→` — so
+a bar padded by `#` lands a dozen columns short of the pane while every ASCII assertion in
+the suite still passes; the renamed file is what catches it. The mirror of that is a
+highlight marker: `%#Group#` is characters in the string and no columns at all on the
+screen, so a bar measured with its markers in drifts the other way, by the width of every
+one of them. Both are why the padding is arithmetic rather than `%=` — the fitting rule has
+to know how many columns the path may keep, which is the same measurement either way, and a
+bar that padded itself would take its own width out of reach of every assertion that reads
+it.
 
 **What the sticky header sheds on a narrow pane is decided by what it now says twice.** The
 summary drops the plugin's own name, the review's line totals and the queue's note count

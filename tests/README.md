@@ -41,7 +41,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
-| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, and a review with no files |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — how a winbar is assembled from typed segments, with no window, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, a name carrying a `%`, and a review with no files |
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cell proving that bar mutes with its pane |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
@@ -477,8 +477,23 @@ so the out-of-core language path is still checked locally without ever failing C
   whose bar carries `○`, `▾`, `→` and `·` at once, and asserts the bar's display width is
   the pane's width exactly — with a second assertion that the bar really is longer in bytes
   than in columns, or the case is comparing two equal numbers and measuring nothing.
-  Replacing `view.lua`'s two `cols(...)` calls in `lay_out` with `#` must red it. Same trap
-  as "an ASCII fixture cannot fail the byte-splitting bug".
+  Replacing the `strdisplaywidth` in `render.bar_width` with `#` — the one ruler both bars
+  are padded and fitted by — must red it, and reds four cases across `render_spec` and
+  `since_batch_spec`. Same trap as "an ASCII fixture cannot fail the byte-splitting bug".
+- **A highlight marker is the same trap arriving from the other side.** `%#Group#` occupies
+  several characters in a bar and no columns at all on the screen, so a ruler that counts it
+  overshoots exactly as a byte count undershoots — and nothing on the bar carries a marker
+  yet, so no assertion made against what the bar *says* can notice. `render_spec`'s winbar
+  assembly block measures both spellings of one, the group a segment carries and a marker
+  written into chrome, and asserts they weigh nothing. Deleting the stripping in
+  `render.bar_width` reds one case; measuring the escaped literal instead of the drawn one
+  reds two.
+- **The kinds on the bar are the view's choice, and only one case pins it.** `render.bar`
+  escapes a literal and leaves chrome alone, which the pure cases prove — but *which* kind
+  each piece of a bar is asked for is decided in `view.lua`, and no fixture in the suite
+  holds a `%` in a path, a branch name or a scope label. `render_spec` reaches it through a
+  picker stub instead: a **target** called `ja%nus`, on a wide pane, whose `%` must come out
+  doubled. Marking the summary's segments as chrome reds that case and nothing else.
 - **The sticky header's teeth are in the case with no tree.** With the tree open, a winbar
   hung off the tree's own repaint follows the cursor perfectly, so every case but that one
   passes with the crossing latch put back inside `view_panel.sync_panel`. Returning early

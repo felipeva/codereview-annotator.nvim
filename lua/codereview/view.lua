@@ -135,6 +135,9 @@ local SEP = " · "
 -- read as one sentence.
 local MARGIN, GAP = 1, 2
 
+---Columns of one bare string: the path, which is the only part of a bar that is cut rather
+---than assembled. Anything already in segments is measured with `render.bar_width`, which
+---is the same count plus what a segment can hold that a string cannot say.
 ---@param text string
 ---@return integer
 local function cols(text)
