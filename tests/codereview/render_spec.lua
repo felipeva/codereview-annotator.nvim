@@ -339,6 +339,120 @@ describe("line keys", function()
   end)
 end)
 
+-- How a winbar is assembled: typed segments in, the one string a bar is set to out.
+--
+-- No window, no fixture and no repository, which is why the seam is here rather than in the
+-- view: the rule these cases hold is the one that protects a reviewer against the names
+-- their own repository chose, and it is cheap to keep true only if it can be asserted like
+-- this. The blocks below assert what the bar *says*; these assert what it is safe to put
+-- on it.
+describe("the winbar assembly", function()
+  it("doubles every % in a literal", function()
+    assert.same("src/%%f.lua", render.bar({ render.literal("src/%f.lua") }))
+  end)
+
+  it("draws what the plugin wrote as it stands", function()
+    assert.same(" · ", render.bar({ render.chrome(" · ") }))
+  end)
+
+  it("joins the segments in the order they arrive", function()
+    assert.same(
+      " ○ ▾ src/50%% done.lua · api",
+      render.bar({
+        render.chrome(" "),
+        render.literal("○ ▾ src/50% done.lua"),
+        render.chrome(" · "),
+        render.literal("api"),
+      })
+    )
+  end)
+
+  it("wraps a chrome segment that carries a highlight group", function()
+    assert.same("%#CodeReviewAdd#+12%*", render.bar({ render.chrome("+12", "CodeReviewAdd") }))
+  end)
+
+  -- The two kinds are the whole point: the same text is markup on one and a name on the
+  -- other, and nothing but the kind says which.
+  it("keeps a marker in chrome and doubles the same text in a literal", function()
+    assert.same("%#CodeReviewAdd#x", render.bar({ render.chrome("%#CodeReviewAdd#x") }))
+    assert.same("%%#CodeReviewAdd#x", render.bar({ render.literal("%#CodeReviewAdd#x") }))
+  end)
+
+  -- A caller cannot put a path on the bar by accident, because a segment that says nothing
+  -- about its kind is not a segment. The message is asserted, not merely the raise: every
+  -- one of these raises while the assembly does not exist at all, and a case satisfied by
+  -- that is measuring nothing.
+  ---@param fn fun()
+  local function refused(fn)
+    local ok, err = pcall(fn)
+    assert.is_false(ok)
+    assert.is_truthy(tostring(err):find("chrome", 1, true), tostring(err))
+  end
+
+  it("refuses a segment that does not say which kind it is", function()
+    refused(function()
+      render.bar({ { text = "src/%f.lua" } })
+    end)
+    refused(function()
+      render.bar({ "src/%f.lua" })
+    end)
+    refused(function()
+      render.bar_width({ { text = "src/%f.lua" } })
+    end)
+  end)
+
+  -- Columns and never bytes, for the reason the padding already records: a bar measured by
+  -- byte length drifts two columns for every glyph and does it on the first path with an
+  -- accent in it. The second assertion is the guard -- with an all-ASCII string the two
+  -- numbers agree and the case measures nothing.
+  it("measures a literal in columns rather than bytes", function()
+    local path = "○ ▾ src/café.lua"
+    assert.same(vim.fn.strdisplaywidth(path), render.bar_width({ render.literal(path) }))
+    assert.is_true(#path > vim.fn.strdisplaywidth(path), "nothing multibyte to measure")
+  end)
+
+  -- What is measured is what is drawn, not what is written: an escaped `%` is two
+  -- characters in the string and one column on the screen.
+  it("counts an escaped % as the one column it draws", function()
+    local segments = { render.literal("50% done") }
+    assert.same(8, render.bar_width(segments))
+    assert.same(9, #render.bar(segments))
+  end)
+
+  -- The mirror of the byte trap, and the one this seam introduces: a highlight marker is
+  -- characters in the string and no columns at all on the screen. Both spellings of one --
+  -- carried by the segment, and written into it -- have to measure the same.
+  it("gives a highlight marker no width at all", function()
+    assert.same(4, render.bar_width({ render.chrome("+12", "CodeReviewAdd"), render.chrome(" ") }))
+    assert.same(4, render.bar_width({ render.chrome("%#CodeReviewAdd#+12%*"), render.chrome(" ") }))
+  end)
+
+  -- The claim no comparison of two strings can make: that what comes out is markup Neovim
+  -- reads rather than a plausible-looking string, and that the ruler above agrees with the
+  -- one Neovim draws by. Every case here would have been written against a wrong encoding
+  -- had one been chosen, and every one of them would have passed; this is the only one that
+  -- reds when the marker and its expectation move together. Asked of the statusline parser
+  -- a winbar goes through, so it needs no window of the review's own. `DiffAdd` because it
+  -- exists on a bare Neovim -- which group the bar asks for is not this slice's business,
+  -- and an undefined one comes back reported as no group at all.
+  it("emits markup Neovim reads, and measures what Neovim would draw", function()
+    local segments = {
+      render.chrome(" "),
+      render.chrome("+12", "DiffAdd"),
+      render.chrome(" "),
+      render.literal("src/50% done.lua"),
+    }
+    local drawn = vim.api.nvim_eval_statusline(render.bar(segments), { highlights = true })
+    assert.same(" +12 src/50% done.lua", drawn.str)
+    assert.same(render.bar_width(segments), drawn.width)
+    local groups = {}
+    for _, run in ipairs(drawn.highlights) do
+      groups[run.group] = true
+    end
+    assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
+  end)
+end)
+
 -- The sticky header: the file the cursor is in, named on the winbar so that reading past
 -- that file's own header row no longer costs a reviewer the file.
 --
@@ -516,6 +630,32 @@ describe("the sticky header on a pane that has to choose", function()
   it("sheds the summary rather than the file", function()
     assert.is_nil(bar():find("Code review", 1, true), bar())
     assert.is_truthy(bar():find(("0/%d reviewed"):format(#V.files), 1, true), bar())
+  end)
+end)
+
+-- The rule the assembly exists for, reached the way a reviewer reaches it. A **target**'s
+-- short name is a name the plugin did not choose, so the bar has to draw it rather than
+-- expand it -- and no fixture is needed to say so, because a picker stub can carry a `%`
+-- where a file name cannot without moving every count in the suite.
+--
+-- The cases above prove the escape; this one proves the view still asks for it. Marking the
+-- summary as text the plugin wrote is a one-word change that nothing else here would notice.
+describe("the sticky header naming something with a % in it", function()
+  local V = view.current()
+  config.get().pick_target = function(cb)
+    cb({ short = "ja%nus" })
+  end
+  -- Wide, so what is asserted is the escape and not what a narrow pane had room for.
+  vim.api.nvim_win_set_width(V.win, 100)
+  view.pick_target()
+
+  local function bar()
+    return vim.wo[V.win].winbar
+  end
+
+  it("doubles the % rather than letting it start a statusline item", function()
+    assert.is_truthy(bar():find("ja%%nus", 1, true), bar())
+    assert.is_nil(bar():find("ja%nus", 1, true), bar())
   end)
 end)
 

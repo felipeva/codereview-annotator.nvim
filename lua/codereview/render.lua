@@ -16,6 +16,12 @@
 ---carries, how a rename is spelled in each layout and which files have a pre-image side are
 ---rules rather than formats, and two copies of them would answer differently on the first
 ---file only one of the two authors had in mind.
+---
+---And, for the same reason and the same surface, how a winbar is *assembled*: `bar` takes
+---an ordered list of typed segments and returns the string a bar is set to, escaping every
+---name the plugin did not choose. That a repository's own file name can never be read as a
+---statusline item is a rule as well, and it is the one this module holds at the highest
+---point it can be held at. What the bar *says* stays with the view.
 local M = {}
 
 ---@class CRAnchor
@@ -303,6 +309,100 @@ function M.file_label(file, opts)
     stat = stat,
     right = notes > 0 and ("%s  [%d note%s]"):format(stat, notes, notes == 1 and "" or "s") or stat,
   }
+end
+
+--- The winbar ------------------------------------------------------------------
+
+-- How a bar is assembled, beside what a file on it is called. A winbar is a statusline, so
+-- what reaches it is markup rather than text, and a bar is therefore built from segments
+-- that each say what they are: chrome, which the plugin wrote and may carry a highlight
+-- group, or a literal, which is a name the plugin did not choose and is escaped.
+--
+-- The view keeps saying *what* the bar says; what is here is *how a bar is assembled
+-- safely*, which is a rule and not a format -- the same reason `file_label` is here.
+
+---@class CRBarSegment
+---@field kind "chrome"|"literal"
+---@field text string
+---@field hl string|nil          Highlight group; chrome only, and nil draws in the bar's own
+
+---Chrome: a piece of the bar the plugin itself wrote.
+---
+---The one kind that is not escaped, which is what lets it carry statusline markup at all --
+---a highlight group being the only markup this bar has any use for. `hl` is how to ask for
+---one, and it ends where the segment does, so a group one segment carries never runs on
+---into the next.
+---@param text string
+---@param hl string|nil
+---@return CRBarSegment
+function M.chrome(text, hl)
+  return { kind = "chrome", text = text, hl = hl }
+end
+
+---A literal: text drawn exactly as it stands, whoever chose it.
+---
+---Every `%` in it is doubled, and **this is the rule the whole seam exists for**. A path is
+---a name the reviewer's repository chose, and a `%f` in one would otherwise be read as a
+---statusline item and expanded into something else -- the window's own file name, in that
+---case, which is not even the file the bar is naming. The same holds for every other name
+---the plugin did not choose: a **scope**'s label, a **target**'s short name, a base
+---revision.
+---
+---A segment has to say which kind it is precisely so this cannot be forgotten. There is no
+---way onto the bar that does not go through one of these two functions, and the one that
+---takes a name is the one that escapes it.
+---@param text string
+---@return CRBarSegment
+function M.literal(text)
+  return { kind = "literal", text = text }
+end
+
+---@param seg CRBarSegment
+---@return "chrome"|"literal"
+local function kind_of(seg)
+  local kind = type(seg) == "table" and seg.kind
+  assert(kind == "chrome" or kind == "literal", "a winbar segment must say whether it is chrome or a literal")
+  return kind
+end
+
+---One winbar, from the segments it is made of.
+---@param segments CRBarSegment[]
+---@return string
+function M.bar(segments)
+  local out = {}
+  for i, seg in ipairs(segments) do
+    if kind_of(seg) == "literal" then
+      out[i] = (seg.text:gsub("%%", "%%%%"))
+    elseif seg.hl then
+      out[i] = ("%%#%s#%s%%*"):format(seg.hl, seg.text)
+    else
+      out[i] = seg.text
+    end
+  end
+  return table.concat(out)
+end
+
+---How many columns those segments take on the screen.
+---
+---The ruler everything that pads or fits a bar measures with, and it measures what is
+---*drawn* rather than what is written. Two things separate the two, and they pull opposite
+---ways: an escaped `%` is two characters and one column, and a highlight marker is several
+---characters and no columns at all. A bar padded by the length of a string holding either
+---one lands short of its pane -- which is the byte-versus-column trap the padding already
+---walked into once, arriving from the other side.
+---@param segments CRBarSegment[]
+---@return integer
+function M.bar_width(segments)
+  local width = 0
+  for _, seg in ipairs(segments) do
+    local text = seg.text
+    if kind_of(seg) == "chrome" and text:find("%", 1, true) then
+      -- `%#Group#` and the `%*` that ends one, whichever way they got here.
+      text = text:gsub("%%#[^#]*#", ""):gsub("%%%*", "")
+    end
+    width = width + vim.fn.strdisplaywidth(text)
+  end
+  return width
 end
 
 ---Build the view.

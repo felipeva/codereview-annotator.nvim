@@ -30,7 +30,7 @@ change there is felt through.
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — module-level, not per-view, so reopening a view scatters nothing | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
-| `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named | pure |
+| `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named, and how a winbar is assembled from typed segments | pure |
 | `state.lua` | Persisted review progress, and the blob comparisons over it — staleness, and touchedness kept in a function of its own | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
