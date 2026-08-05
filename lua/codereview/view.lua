@@ -122,6 +122,13 @@ end
 -- header row, so it takes the left -- and it is written where the summary already was
 -- rather than over it, because a bar that answered *which file* by dropping *which review*
 -- would have moved the problem rather than solved it.
+--
+-- What a bar is *made of* is `render.lua`'s: an ordered list of segments, each saying
+-- whether the plugin wrote it or whether it is a name the plugin did not choose, and
+-- `render.bar` is what turns that list into the string a winbar is set to. Everything here
+-- decides *which* segments there are. `render.bar_width` is the ruler for all of it, and the
+-- only one: it measures what a bar draws, which is neither its byte length nor its
+-- character count.
 
 local SEP = " · "
 -- One blank column at each edge, and at least two between the halves, so the two never
@@ -136,28 +143,35 @@ end
 
 ---Lay one winbar out: `left` against the left margin, `right` against the right edge.
 ---
----Padded with spaces rather than with the statusline's `%=`, because every `%` in this bar
----is escaped on the way out -- a path is a name a reviewer's repository chose, and `%f` in
----one would otherwise be read as a statusline item and expanded into something else. The
----padding is counted in display columns and not in bytes: the summary's separators, the
----file icons and a rename's arrow are all multibyte, so a bar padded by `#` drifts left by
----two columns for every one of them, and does it on the very first path with an accent.
+---Padded with spaces rather than with the statusline's `%=`. The escape that used to rule
+---`%=` out is per segment now, so chrome could carry one -- but it would replace a single
+---subtraction and take the bar's own width away with it, and what the fitting rule below
+---needs is how many columns the path may keep, which is this arithmetic either way.
+---
+---The padding is counted in display columns and never in bytes: the summary's separators,
+---the file icons and a rename's arrow are all multibyte, so a bar padded by `#` drifts left
+---by two columns for every one of them, and does it on the very first path with an accent.
 ---@param width integer Columns the winbar has
----@param left string
----@param right string Empty to leave the bar left-aligned, as it is with nothing to align
----@return string
+---@param left CRBarSegment[]
+---@param right CRBarSegment[] Empty to leave the bar left-aligned, as it is with nothing to align
+---@return CRBarSegment[]
 local function lay_out(width, left, right)
-  if right == "" then
-    return (" "):rep(MARGIN) .. left
+  local out = { render.chrome((" "):rep(MARGIN)) }
+  vim.list_extend(out, left)
+  if #right == 0 then
+    return out
   end
-  local pad = width - 2 * MARGIN - cols(left) - cols(right)
-  return (" "):rep(MARGIN) .. left .. (" "):rep(math.max(GAP, pad)) .. right .. (" "):rep(MARGIN)
+  local pad = width - 2 * MARGIN - render.bar_width(left) - render.bar_width(right)
+  out[#out + 1] = render.chrome((" "):rep(math.max(GAP, pad)))
+  vim.list_extend(out, right)
+  out[#out + 1] = render.chrome((" "):rep(MARGIN))
+  return out
 end
 
 ---@param win integer
----@param bar string
-local function set_winbar(win, bar)
-  vim.wo[win].winbar = bar:gsub("%%", "%%%%")
+---@param segments CRBarSegment[]
+local function set_winbar(win, segments)
+  vim.wo[win].winbar = render.bar(segments)
 end
 
 ---What the review summary says, one segment per `·`.
@@ -201,18 +215,27 @@ local function summary_segments()
   return out
 end
 
----The summary as one string, minus whatever a narrow pane has made it drop.
+---The summary as segments, minus whatever a narrow pane has made it drop.
+---
+---Literals, every one of them. Two carry names the plugin did not choose -- the **scope**'s
+---label and the **target**'s short name -- and the rest cost nothing by being escaped, since
+---a format the plugin wrote holds no `%` left by the time it has been formatted. Escaping
+---one segment too many draws exactly what was asked for; escaping one too few is how a
+---branch called `100%-done` stops being a branch name. The separators are the plugin's own.
 ---@param segments { text: string, spare: boolean|nil }[]
 ---@param dropped table<integer, boolean>|nil
----@return string
+---@return CRBarSegment[]
 local function join(segments, dropped)
-  local kept = {}
+  local out = {}
   for i, seg in ipairs(segments) do
     if not (dropped and dropped[i]) then
-      kept[#kept + 1] = seg.text
+      if #out > 0 then
+        out[#out + 1] = render.chrome(SEP)
+      end
+      out[#out + 1] = render.literal(seg.text)
     end
   end
-  return table.concat(kept, SEP)
+  return out
 end
 
 ---How the render would name the file the cursor is in, or nil when it is in none.
@@ -242,10 +265,18 @@ end
 ---Split into the part that may be cut and the parts that may not: the icon, the chevron and
 ---the stat are a handful of columns each and say what no number of columns of path can, so
 ---when a pane runs out of room the path is what gives them up.
+---
+---Literals, the icons included: a host chooses those, so they are not text the plugin wrote.
+---The path stays a bare string rather than a segment because it is the one part the fitting
+---rule cuts, and `render.keep_tail` takes text.
 ---@param label CRFileLabel
----@return { head: string, path: string, tail: string }
+---@return { head: CRBarSegment[], path: string, tail: CRBarSegment[] }
 local function file_segment(label)
-  return { head = ("%s %s "):format(label.icon, label.chevron), path = label.name, tail = "  " .. label.right }
+  return {
+    head = { render.literal(("%s %s "):format(label.icon, label.chevron)) },
+    path = label.name,
+    tail = { render.literal("  " .. label.right) },
+  }
 end
 
 ---Fit the file and the summary into `room` columns, and say what each is left holding.
@@ -263,9 +294,9 @@ end
 ---it does: a bar that had shed the scope to spell out two more directory names would have
 ---kept the least of what it was holding.
 ---@param room integer Columns, margins already taken off
----@param file { head: string, path: string, tail: string }
+---@param file { head: CRBarSegment[], path: string, tail: CRBarSegment[] }
 ---@param segments { text: string, spare: boolean|nil }[]
----@return string left, string right
+---@return CRBarSegment[] left, CRBarSegment[] right
 local function fit(room, file, segments)
   -- The order they go in: the spares, then the rest from the head.
   local order, spares = {}, {}
@@ -285,7 +316,10 @@ local function fit(room, file, segments)
   local summary, path_room
   local function measure()
     summary = join(segments, dropped)
-    path_room = room - cols(file.head) - cols(file.tail) - (summary ~= "" and GAP + cols(summary) or 0)
+    path_room = room
+      - render.bar_width(file.head)
+      - render.bar_width(file.tail)
+      - (#summary > 0 and GAP + render.bar_width(summary) or 0)
   end
   measure()
 
@@ -306,7 +340,9 @@ local function fit(room, file, segments)
   shed(#spares, cols(file.path))
   shed(#order, floor)
 
-  return file.head .. render.keep_tail(file.path, path_room) .. file.tail, summary
+  local left = vim.list_extend({}, file.head)
+  left[#left + 1] = render.literal(render.keep_tail(file.path, path_room))
+  return vim.list_extend(left, file.tail), summary
 end
 
 ---The after pane's winbar: the file under the cursor, and the review summary beside it.
@@ -323,7 +359,7 @@ local function update_winbar()
     -- No file under the cursor -- an empty review. The summary has the bar to itself,
     -- exactly as it did before there was anything to share it with, rather than a segment
     -- advertising a file that is not there.
-    set_winbar(V.win, lay_out(width, join(segments), ""))
+    set_winbar(V.win, lay_out(width, join(segments), {}))
     return
   end
   local left, right = fit(width - 2 * MARGIN, file_segment(label), segments)
@@ -342,8 +378,9 @@ local function update_before_winbar()
     return
   end
   local rev = V.scope.before
-  -- `:0` is git's name for the index, and a name nobody reads as one.
-  local left = ("Before · %s"):format(rev == ":0" and "index" or rev)
+  -- `:0` is git's name for the index, and a name nobody reads as one. The revision itself is
+  -- a name the repository chose, so it is a literal beside chrome rather than one string.
+  local left = { render.chrome("Before · "), render.literal(rev == ":0" and "index" or rev) }
   local width = vim.api.nvim_win_get_width(V.before_win)
   -- A file that exists only on the after side has no pre-image path to name, exactly as its
   -- header row on this pane has none: the revision keeps the bar to itself and says so by
@@ -353,9 +390,9 @@ local function update_before_winbar()
   -- The revision is what this pane exists to name and is never cut for the path's sake: on
   -- a pane too narrow to hold both, a base revision half spelled out is worse than none of
   -- the path, which the after pane is naming anyway.
-  local room = width - 2 * MARGIN - GAP - cols(left)
+  local room = width - 2 * MARGIN - GAP - render.bar_width(left)
   path = (path ~= "" and room >= 2) and render.keep_tail(path, room) or ""
-  set_winbar(V.before_win, lay_out(width, left, path))
+  set_winbar(V.before_win, lay_out(width, left, path ~= "" and { render.literal(path) } or {}))
 end
 
 ---Write one pane's render into its buffer: the lines, and nothing else.

@@ -339,6 +339,95 @@ describe("line keys", function()
   end)
 end)
 
+-- How a winbar is assembled: typed segments in, the one string a bar is set to out.
+--
+-- No window, no fixture and no repository, which is why the seam is here rather than in the
+-- view: the rule these cases hold is the one that protects a reviewer against the names
+-- their own repository chose, and it is cheap to keep true only if it can be asserted like
+-- this. The blocks below assert what the bar *says*; these assert what it is safe to put
+-- on it.
+describe("the winbar assembly", function()
+  it("doubles every % in a literal", function()
+    assert.same("src/%%f.lua", render.bar({ render.literal("src/%f.lua") }))
+  end)
+
+  it("draws what the plugin wrote as it stands", function()
+    assert.same(" · ", render.bar({ render.chrome(" · ") }))
+  end)
+
+  it("joins the segments in the order they arrive", function()
+    assert.same(
+      " ○ ▾ src/50%% done.lua · api",
+      render.bar({
+        render.chrome(" "),
+        render.literal("○ ▾ src/50% done.lua"),
+        render.chrome(" · "),
+        render.literal("api"),
+      })
+    )
+  end)
+
+  it("wraps a chrome segment that carries a highlight group", function()
+    assert.same("%#CodeReviewAdd#+12%*", render.bar({ render.chrome("+12", "CodeReviewAdd") }))
+  end)
+
+  -- The two kinds are the whole point: the same text is markup on one and a name on the
+  -- other, and nothing but the kind says which.
+  it("keeps a marker in chrome and doubles the same text in a literal", function()
+    assert.same("%#CodeReviewAdd#x", render.bar({ render.chrome("%#CodeReviewAdd#x") }))
+    assert.same("%%#CodeReviewAdd#x", render.bar({ render.literal("%#CodeReviewAdd#x") }))
+  end)
+
+  -- A caller cannot put a path on the bar by accident, because a segment that says nothing
+  -- about its kind is not a segment. The message is asserted, not merely the raise: every
+  -- one of these raises while the assembly does not exist at all, and a case satisfied by
+  -- that is measuring nothing.
+  ---@param fn fun()
+  local function refused(fn)
+    local ok, err = pcall(fn)
+    assert.is_false(ok)
+    assert.is_truthy(tostring(err):find("chrome", 1, true), tostring(err))
+  end
+
+  it("refuses a segment that does not say which kind it is", function()
+    refused(function()
+      render.bar({ { text = "src/%f.lua" } })
+    end)
+    refused(function()
+      render.bar({ "src/%f.lua" })
+    end)
+    refused(function()
+      render.bar_width({ { text = "src/%f.lua" } })
+    end)
+  end)
+
+  -- Columns and never bytes, for the reason the padding already records: a bar measured by
+  -- byte length drifts two columns for every glyph and does it on the first path with an
+  -- accent in it. The second assertion is the guard -- with an all-ASCII string the two
+  -- numbers agree and the case measures nothing.
+  it("measures a literal in columns rather than bytes", function()
+    local path = "○ ▾ src/café.lua"
+    assert.same(vim.fn.strdisplaywidth(path), render.bar_width({ render.literal(path) }))
+    assert.is_true(#path > vim.fn.strdisplaywidth(path), "nothing multibyte to measure")
+  end)
+
+  -- What is measured is what is drawn, not what is written: an escaped `%` is two
+  -- characters in the string and one column on the screen.
+  it("counts an escaped % as the one column it draws", function()
+    local segments = { render.literal("50% done") }
+    assert.same(8, render.bar_width(segments))
+    assert.same(9, #render.bar(segments))
+  end)
+
+  -- The mirror of the byte trap, and the one this seam introduces: a highlight marker is
+  -- characters in the string and no columns at all on the screen. Both spellings of one --
+  -- carried by the segment, and written into it -- have to measure the same.
+  it("gives a highlight marker no width at all", function()
+    assert.same(4, render.bar_width({ render.chrome("+12", "CodeReviewAdd"), render.chrome(" ") }))
+    assert.same(4, render.bar_width({ render.chrome("%#CodeReviewAdd#+12%*"), render.chrome(" ") }))
+  end)
+end)
+
 -- The sticky header: the file the cursor is in, named on the winbar so that reading past
 -- that file's own header row no longer costs a reviewer the file.
 --
