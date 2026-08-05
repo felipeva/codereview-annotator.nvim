@@ -41,7 +41,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
-| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — how a winbar is assembled from typed segments, with no window, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, a name carrying a `%`, and a review with no files |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, and the flag that removes them — how a winbar is assembled from typed segments, with no review, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, a name carrying a `%`, and a review with no files |
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cell proving that bar mutes with its pane |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
@@ -488,6 +488,14 @@ so the out-of-core language path is still checked locally without ever failing C
   written into chrome, and asserts they weigh nothing. Deleting the stripping in
   `render.bar_width` reds one case; measuring the escaped literal instead of the drawn one
   reds two.
+- **A string case cannot tell markup from a plausible string.** Every case in that block was
+  written against the encoding the assembly emits, so a wrong one — `%{Group}` for
+  `%#Group#` — would have taken the expectations with it and left the block green. One case
+  hands the bar to `nvim_eval_statusline` instead and asks Neovim what it drew: the text
+  with the marker gone, the group named in a highlight run, and a width that has to equal
+  `render.bar_width`'s. Move the encoding and its expectation together and it is the only
+  case that reds. It is also the only one in the block that needs a window at all, and any
+  window will do — there is no review behind it.
 - **The kinds on the bar are the view's choice, and only one case pins it.** `render.bar`
   escapes a literal and leaves chrome alone, which the pure cases prove — but *which* kind
   each piece of a bar is asked for is decided in `view.lua`, and no fixture in the suite

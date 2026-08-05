@@ -426,6 +426,31 @@ describe("the winbar assembly", function()
     assert.same(4, render.bar_width({ render.chrome("+12", "CodeReviewAdd"), render.chrome(" ") }))
     assert.same(4, render.bar_width({ render.chrome("%#CodeReviewAdd#+12%*"), render.chrome(" ") }))
   end)
+
+  -- The claim no comparison of two strings can make: that what comes out is markup Neovim
+  -- reads rather than a plausible-looking string, and that the ruler above agrees with the
+  -- one Neovim draws by. Every case here would have been written against a wrong encoding
+  -- had one been chosen, and every one of them would have passed; this is the only one that
+  -- reds when the marker and its expectation move together. Asked of the statusline parser
+  -- a winbar goes through, so it needs no window of the review's own. `DiffAdd` because it
+  -- exists on a bare Neovim -- which group the bar asks for is not this slice's business,
+  -- and an undefined one comes back reported as no group at all.
+  it("emits markup Neovim reads, and measures what Neovim would draw", function()
+    local segments = {
+      render.chrome(" "),
+      render.chrome("+12", "DiffAdd"),
+      render.chrome(" "),
+      render.literal("src/50% done.lua"),
+    }
+    local drawn = vim.api.nvim_eval_statusline(render.bar(segments), { highlights = true })
+    assert.same(" +12 src/50% done.lua", drawn.str)
+    assert.same(render.bar_width(segments), drawn.width)
+    local groups = {}
+    for _, run in ipairs(drawn.highlights) do
+      groups[run.group] = true
+    end
+    assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
+  end)
 end)
 
 -- The sticky header: the file the cursor is in, named on the winbar so that reading past
