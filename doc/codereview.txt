@@ -393,6 +393,30 @@ review behind them looks exactly as you left it.
     muted = { strength = 0.25 }      -- subtler; 1 is all the way to the
                                      -- background, 0 is not at all
 
+The file you are not in                                  *codereview-faded*
+
+Every file in the review except the one the cursor is in is *faded*: the
+colours of its rows pulled toward the background, so the file you are reading
+has a boundary and the file you just left stops competing with it. Crossing
+into another file moves the fade with the cursor. The unit is the file and
+never the hunk, so moving from one hunk to the next inside one file changes
+nothing on screen.
+
+A faded file keeps its header row bright -- the path, the `+N -M` and the note
+count stay readable, because the fade exists to help you find a place rather
+than to hide the map. Its hunk headers fade with its body.
+
+The fade changes which highlight group each mark carries and nothing else, so
+faded code keeps its syntax structure instead of flattening to one tone, and
+the order things are drawn in is exactly what it was. The colours are the
+muting's arithmetic on your own colorscheme, at a strength of its own, and a
+group the plugin cannot know about is left bright -- the same rule as above.
+A cursor in no file fades nothing.
+
+    faded = { enabled = false }      -- every file at full strength
+    faded = { strength = 0.5 }       -- stronger; its own number, and gentler
+                                     -- than `muted.strength` by default
+
 ==============================================================================
 6. ANNOTATIONS                                      *codereview-annotations*
 
@@ -807,6 +831,7 @@ Defaults: >
       spans = true,
       archived = true,
       muted = { enabled = true, strength = 0.5 },
+      faded = { enabled = true, strength = 0.35 },
       panel = { enabled = true, width = 34, position = "left" },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
@@ -835,6 +860,12 @@ nothing drawn, nothing tallied and no `git` spent judging.
 (|codereview-muted|). `strength` is how far a colour is pulled toward the
 background, from 0 to 1. Coarse the same way: off is nothing muted, nothing
 computed and no highlight namespace attached to any window.
+
+`faded` fades every file except the one the cursor is in (|codereview-faded|).
+`strength` is the same number for a different rule, and gentler by default
+because the fade covers every file but one where the muting covers a window.
+Coarse the same way: off is nothing emitted, no colour computed, and the diff
+drawn exactly as it was before this existed.
 
 ==============================================================================
 10. HIGHLIGHTS                                        *codereview-highlights*
@@ -882,15 +913,17 @@ languages you have installed. A background alone composes with the replay, and
 that is what keeps code readable inside an emphasised span. Both are still
 `default = true`, so overriding either works the same way as the rest.
 
-One more family is computed, and it is not yours to set. A **muted** window
-(|codereview-muted|) draws every group through a twin named `CodeReviewMuted.`
-plus the group it blends -- `CodeReviewMuted.CodeReviewAdd`,
-`CodeReviewMuted.@keyword`, and so on. Each holds the group's own colours
-pulled `muted.strength` of the way toward the background, and each is written
-again on every colorscheme change, so a definition of your own is overwritten.
-Set `muted.strength`, or the group the twin is named for, instead. A group the
-active theme gives no colour of its own gets no twin, and a muted window draws
-it at full brightness.
+Two more families are computed, and neither is yours to set. A **muted**
+window (|codereview-muted|) draws every group through a twin named
+`CodeReviewMuted.` plus the group it blends -- `CodeReviewMuted.CodeReviewAdd`,
+`CodeReviewMuted.@keyword`, and so on. A **faded** file (|codereview-faded|)
+carries a twin named `CodeReviewFaded.` plus the same, blended at
+`faded.strength` rather than at `muted.strength`. Each holds the group's own
+colours pulled that far toward the background, and each is written again on
+every colorscheme change, so a definition of your own is overwritten. Set the
+strength, or the group the twin is named for, instead. A group the active
+theme gives no colour of its own gets no twin in either family, and is drawn
+at full brightness.
 
 ==============================================================================
 11. PERSISTENCE                                     *codereview-persistence*

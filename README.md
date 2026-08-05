@@ -230,6 +230,25 @@ you were last in, not the window with the cursor in it.
 `muted = { enabled = false }` turns it off whole; `strength` is one number from 0 to 1
 saying how far toward the background a colour goes.
 
+### The file you are in is the only one at full strength
+
+Every other file in the review is **faded**: the colours of its rows pulled toward the
+background, so the file you are reading has a boundary and the file you just left stops
+competing with it. Cross into another file and the fade follows the cursor. Move from one
+hunk to the next inside one file and nothing changes at all — the unit is the file.
+
+A faded file keeps its header row bright, with its path, its `+N -M` and its note count, so
+the review reads as bright headers over quiet bodies with one file at full strength. Its
+hunk headers fade with its body.
+
+The colours are the muting's, blended from your own colorscheme at a strength of its own,
+and a faded file keeps its syntax structure rather than flattening to one tone: what changes
+is which group each mark carries, never the order they are drawn in. A group your theme
+gives no colour of its own is left bright, exactly as it is in a muted window.
+
+`faded = { enabled = false }` turns it off whole; `strength` is its own number, and it is
+gentler than the muting's by default because this covers every file but one.
+
 ### The file you are in, on the winbar
 
 A file's header row scrolls off the top as soon as you read past the first screenful of it.
@@ -617,6 +636,8 @@ opts = {
                                    -- and tally the untouched ones on the winbar
   muted = { enabled = true,        -- mute every review window that does not have focus
             strength = 0.5 },      -- how far its colours are pulled toward the background
+  faded = { enabled = true,        -- fade every file except the one the cursor is in
+            strength = 0.35 },     -- its own number: this covers every file but one
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌" },
@@ -630,13 +651,15 @@ without the plugin fighting back. The two exceptions are `CodeReviewAddSpan` and
 `CodeReviewDelSpan`, which take `DiffText`'s background and set no foreground — still
 `default = true`, so overriding them works the same way.
 
-A **muted** window draws through a computed twin of each group, named `CodeReviewMuted.`
-plus the group it blends — `CodeReviewMuted.CodeReviewAdd`, `CodeReviewMuted.@keyword`.
-Each holds that group's own colours pulled `muted.strength` of the way toward the
-background, and each is written again on every colorscheme change, so setting one yourself
-is overwritten. Set `muted.strength`, or the group the twin is named for. A group your
-theme gives no colour of its own gets no twin, and a muted window draws it at full
-brightness.
+Two families of groups are computed rather than linked, and they are not yours to set. A
+**muted** window draws through a twin of each group named `CodeReviewMuted.` plus the group
+it blends — `CodeReviewMuted.CodeReviewAdd`, `CodeReviewMuted.@keyword`. A **faded** file's
+rows are drawn in a twin named `CodeReviewFaded.` plus the same, at `faded.strength` instead
+of `muted.strength`. Each holds that group's own colours pulled that far toward the
+background, and each is written again on every colorscheme change, so setting one yourself is
+overwritten. Set the strength, or the group the twin is named for. A group your theme gives
+no colour of its own gets no twin in either family, and is drawn at full brightness — muted
+or faded, that is the same rule.
 
 ## Adapters
 

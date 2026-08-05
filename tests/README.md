@@ -31,6 +31,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch and exit — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/muted_child.lua` | Spawned four times by `muted_spec`, one painted cell each — deliberately not a spec. |
+| `codereview/faded_child.lua` | Spawned three times by `faded_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `codereview/winbar_child.lua` | Spawned three times by `split_spec` to read one cell of a pane's winbar — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
@@ -58,6 +59,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
+| `faded_spec` | Every file but the one the cursor is in: what a review draws when it opens, the crossing, the hunk that changes nothing, the header left bright, both panes, a repaint that moves the rows, an empty review, the two families of blended groups, the switch — the two traps, `syntax = false` and a scroll past the last paint — and the cells three child processes read |
 | `muted_spec` | The review window without focus: which window is bright, the namespace and the `cursorline` that follow focus, a float changing nothing, a rebuilt pane and a re-summoned tree, the group left bright on purpose, the colorscheme change, the switch — and the cells four child processes read |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
@@ -77,8 +79,8 @@ interchangeable, and the assertions know which one they are looking at.
   binary, gitignored, and a file with no trailing newline on either side. Used by
   `diff_spec`, `render_spec`, `syntax_spec`, `annotate_spec`, `payload_spec`, `state_spec`,
   `viewless_spec`, `capture_spec`, `delivery_spec`, `queue_jump_spec`, `queue_float_spec`,
-  `split_spec`, `layout_spec`, `open_diff_spec`, `archive_spec`, `touched_spec` and
-  `interactive_spec`. Its
+  `split_spec`, `layout_spec`, `open_diff_spec`, `archive_spec`, `touched_spec`,
+  `faded_spec` and `interactive_spec`. Its
   dirty working tree is what makes a snapshot worth minting, so `archive_spec` builds a
   second copy and resets it to get a clean one. It already covers everything the split layout has
   to render, including the files that exist on only one side and the additions between
@@ -93,9 +95,9 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
   well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
   asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
-  12k-line repository and a 300-file, 60k-line one per run; `bounded_spec` builds a 6-file
-  one, about 1,800 rendered rows, which is the only fixture in the suite taller than a
-  window and the margin around it. Nothing built from it is committed. It costs about a
+  12k-line repository and a 300-file, 60k-line one per run; `bounded_spec` and `faded_spec`
+  each build a 6-file one, about 1,800 rendered rows, which is the only fixture in the suite
+  taller than a window and the margin around it. Nothing built from it is committed. It costs about a
   third of a second, which is why it is no longer kept out of `make test` — what is slow is
   opening a review on it at the sizes the report uses, not building it.
 
@@ -313,12 +315,35 @@ so the out-of-core language path is still checked locally without ever failing C
   window are written into a pane's buffer, so every extmark assertion elsewhere in the suite
   runs on a fixture small enough to sit inside that band and passes whether or not anything
   is bounded — the same trap as "centring is unobservable in a window taller than its
-  buffer". `bounded_spec` is the one spec that builds `mkbig`, and its first case guards
-  that the render really is taller than one paint can reach. Two of its cases judge against
+  buffer". `bounded_spec` builds `mkbig` for it, and its first case guards that the render
+  really is taller than one paint can reach — as does the last block of `faded_spec`, which
+  needs the same height for the same reason. Two of its cases judge against
   figures the implementation cannot move — how many of the render's marks reached the buffer
   at all, and whether the last file's marks did — because the rest derive their expectations
   from `syntax.viewport`, and a case that asks the bound where the bound is goes quiet when
   the bound goes away.
+- **A fade built on the replay's row map passes every case that runs with highlighting on.**
+  That map holds a span per file, which is what anything asking "where is this file drawn"
+  reaches for first — and it is built only when `syntax` is on, so a rule reading it does
+  nothing at all for a reviewer who turned highlighting off. A file's rows come from the
+  render's `file_rows` instead. `faded_spec` opens one review with `syntax = false` for this
+  reason alone: gating the fade on `V.syntax_rows` reds those two cases and nothing else in
+  the suite.
+- **A fade that renames rows once passes everything except a scroll.** Emission is bounded by
+  the viewport, so the rows on screen at the moment of a crossing are not the rows a reviewer
+  will be looking at a second later. Renaming what can be seen when a paint or a crossing runs
+  satisfies every case made against a fixture that fits on screen; the rows scrolled into
+  afterwards then arrive as the render drew them. `faded_spec`'s last block builds `mkbig`,
+  crosses into the second file, and scrolls to the end of that same file so the margin below
+  the window reaches into the third without the cursor ever leaving the second — the one case
+  that reds when the fade is decided per paint rather than per mark.
+- **A fade keyed to the crossing latch leaves a third file bright.** `V.current_file` starts
+  nil and moves only on a crossing, while a *paint* asks the live question and can park the
+  cursor somewhere the latch never hears about — a layout toggle does it. So "the file left"
+  taken from the latch names a file that was already faded, and the file the rows on screen
+  were really drawn for stays bright. The view records what the emission drew, beside the
+  bands. Both traps above caught this while it was being written, and neither was written
+  for it.
 - **The tree fixture is structural.** `panel_spec` asserts on compaction and per-directory
   tallies, so adding or omitting one file changes what it expects. Regenerate with
   `mktree.sh` rather than hand-editing a fixture repo.

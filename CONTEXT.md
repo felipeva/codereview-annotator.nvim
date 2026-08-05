@@ -32,12 +32,26 @@ _Avoid_: side, column, window
 Said of a review window that does not have focus: its colours pulled toward the background
 through a highlight namespace of its own, so the focused window is the bright one and a
 reviewer never has to press a key to find out where they are. Said of a **pane** or of the
-file tree — never of anything drawn *on* the diff. Not _dimmed_: an archived **entry** is
-already drawn dimmed on the diff, and one word must not do two jobs — the same collision
-that kept _side_ reserved for a diff line's add/del/ctx when the split layout needed a word
-for its windows. The two are also different mechanisms: dimming is a highlight group the
-render chooses per entry, muting is every group at once in one window.
+file tree — never of a file, and never of anything drawn *on* the diff. Not _dimmed_: an
+archived **entry** is already drawn dimmed on the diff, and one word must not do two jobs —
+the same collision that kept _side_ reserved for a diff line's add/del/ctx when the split
+layout needed a word for its windows. Not _faded_ either: that is the file the cursor is not
+in. The three are different mechanisms as well as different statements: dimming is a
+highlight group the render chooses per entry, fading is the group a mark carries, muting is
+every group at once in one window.
 _Avoid_: dimmed, greyed, faded, inactive
+
+**Faded**:
+Said of a file the cursor is not in: the colours of its rows pulled toward the background, so
+the file being read has a visible boundary and the file just left stops competing with it.
+Said of a *file* and never of a window or of an **entry**, and the unit is the file and never
+the **hunk** — a cursor crossing from one hunk to the next inside one file changes nothing on
+screen. A faded file keeps its header row bright and its hunk headers fade with its body.
+Drawn by changing which group a mark carries, never by a foreground laid over the file: a
+foreground above the syntax replay would win where a parser painted and lose where none did.
+Not _muted_, which is a **pane** without focus, and not _dimmed_, which is an archived entry.
+The blend is the muting's, at a strength of its own.
+_Avoid_: muted, dimmed, greyed, inactive, unfocused
 
 **Filler**:
 A blank row emitted in one pane where the other has no counterpart — a pure addition, a

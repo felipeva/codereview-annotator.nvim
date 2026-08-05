@@ -21,6 +21,7 @@ change there is felt through.
 | `delivery.lua` | Where a batch is going, how that is chosen, and the submit that empties the queue only on dispatch | stateful (target, queue) |
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path, in a store of its own | stateful (disk) |
+| `fade.lua` | The **faded** file rule: which rows one file's fade covers, and which group a faded row carries in place of its own | stateful (editor) |
 | `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes | stateful (git) |
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the blended twin of each group a **muted** window draws | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
@@ -41,7 +42,7 @@ change there is felt through.
 
 - **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
-  `archive`, `delivery`, `keymaps`, `syntax`; then `composer`, `hl`, `queue_float`,
+  `archive`, `delivery`, `keymaps`, `syntax`; then `composer`, `hl`, `fade`, `queue_float`,
   `view_layout`; then `view_panel`.
 - **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
