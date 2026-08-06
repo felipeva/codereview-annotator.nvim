@@ -11,7 +11,7 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 1,245 cases in ~5 seconds.
+The whole suite is about 1,430 cases in ~5 seconds.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -49,6 +49,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
 | `bounded_spec` | Emission bounded by the viewport: what a paint writes and what it leaves out, the bound it shares with the harvest, what a scroll adds and what scrolling back does not, both panes at once — on a diff taller than the window, guarded |
+| `repaint_spec` | When a paint runs on a resize and when it must not: either event with nothing resized, in both layouts; a pane that really changed width; one terminal resize, which fires both events, repainting once; an event that arrives before anything moved; a window resized in another tab page; and the file tree summoned and dismissed |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit, and the **preamble**: above the header, the empty one that renders nothing, and the same arguments rendering the same message |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
@@ -383,6 +384,40 @@ so the out-of-core language path is still checked locally without ever failing C
   whatever changed the width has returned — and in a headless spec, which never pumps the
   loop, it does not land at all. Anything that changes a window's width has to repaint for
   itself; the resize autocmd is for the reviewer dragging a border, nothing else.
+- **`VimResized` is not the same, and the difference decides what a resize test can drive.**
+  Setting `columns` or `lines` from a script fires it *synchronously*, so a spec that changes
+  either one with a review open has already run the resize callback by the time its next line
+  runs. `nvim_win_set_width` fires neither event. `repaint_spec` uses both facts: it changes a
+  pane's width outright where it wants to fire an event by hand, and it changes `columns`
+  where it wants the real trigger — measured rather than assumed, because the first version
+  of its terminal-resize case changed `columns` in the `describe` body and then counted the
+  paints of two events that had nothing left to do, which reported *zero* repaints and read
+  as the guard working perfectly.
+- **The file tree cannot change size on its own, so its place in the resize record has no
+  spec.** The record the guard compares holds all three review windows, because
+  `paint_panel` builds the tree from its own window's width — but the tree can never be the
+  only one that moved. Narrowing it hands the columns to a **pane** (measured: the tree at 34
+  → 20 put the before pane at 37 → 51), and its height is the panes' height, since the three
+  share a row. So the record differs on a pane whether or not the tree is in it, and taking
+  the tree out of `dimensions()` reds nothing in the suite. That is a fact about where the
+  windows are and not a case waiting to be written; the same shape as "no fixture is both
+  tall and multilingual" above. Anyone who gives the tree a window arrangement of its own
+  should take this bullet out and assert it.
+- **A repaint test needs a seam a counter cannot fake, and change ticks are it.**
+  `repaint_spec` reads `nvim_buf_get_changedtick` on the two panes and the file tree, because
+  a paint rewrites each of those buffers exactly once. A counter on the view would measure the
+  line it was written beside rather than the work, and would still read as correct if the
+  paint stopped writing anything. Its first block spends three cases pinning that a paint
+  really does move all three ticks, and by exactly one: without them the whole file is a row
+  of assertions that nothing moved, which is also what a seam that stopped measuring looks
+  like. Same trap as "a filter test needs a fixture only that filter can reject".
+- **A resize record holding widths alone passes everything a diff is padded by.** Header
+  padding and the winbar's fitting are the visible half of a pane's size and both are width,
+  so a guard comparing widths only reads as complete. Emission is bounded by the *viewport*,
+  which is a height: a window that grew taller shows rows whose marks were never written, and
+  nothing repaints them until the reviewer scrolls. Dropping the height from `view.lua`'s
+  `dimensions()` must red `repaint_spec`'s `a window that changed only its height` and nothing
+  else in the suite — it left the whole suite green before that block was written.
 - **Moving the cursor from a script does not fire `CursorMoved`.** Neither
   `nvim_win_set_cursor` nor a `normal! j` inside `nvim_win_call` raises it under `nvim -l` —
   measured rather than assumed, the same way `scrollbind` was. So anything claiming to cost

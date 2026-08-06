@@ -65,6 +65,7 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@field syntax_cache table<string, CRCapture[]|false>  `path|side` -> captures; false to skip it
 ---@field syntax_painted table<string, boolean>|nil      Path -> already replayed onto this render
 ---@field syntax_rows table<integer, CRFileRows>|nil     File index -> where its lines are drawn
+---@field dims string|nil                 The size of every review window the last paint was made at
 
 ---@type CRView|nil
 local V = nil
@@ -652,6 +653,29 @@ local function refade(entered)
   end
 end
 
+---The size of every review window, as one value two moments can be compared by.
+---
+---The two **panes** and the **file tree**, each as its width and its height, which is
+---exactly what a paint is a function of: header padding and the winbar are cut to a pane's
+---width, and how far past the window marks are emitted comes from its height. A window that
+---is not there contributes a placeholder rather than nothing, so a layout toggle and a tree
+---that arrives or leaves are changes like any other.
+---
+---A string rather than a table, because the only question ever asked of it is whether it is
+---the one recorded before.
+---@return string
+local function dimensions()
+  local out = {}
+  for _, win in ipairs({ V.win, V.before_win or -1, V.panel_win or -1 }) do
+    if vim.api.nvim_win_is_valid(win) then
+      out[#out + 1] = ("%dx%d"):format(vim.api.nvim_win_get_width(win), vim.api.nvim_win_get_height(win))
+    else
+      out[#out + 1] = "-"
+    end
+  end
+  return table.concat(out, " ")
+end
+
 ---Redraw from the files already in memory. Cheap; no git.
 ---@param keep_file integer|nil File index to park the cursor on afterwards
 function M.paint(keep_file)
@@ -659,6 +683,12 @@ function M.paint(keep_file)
     return
   end
   local cfg = config.get()
+  -- What this paint is drawn for, recorded by the paint itself rather than by the resize
+  -- callback that is the one thing reading it. Every path that changes a review window
+  -- repaints for itself -- the layout toggle, the tree arriving or leaving, a pane rebuilt --
+  -- so recording it here is what leaves the resize event those paths' main loop lands
+  -- afterwards with nothing to do.
+  V.dims = dimensions()
   -- The queue is the source of truth for annotations; the view only ever displays a
   -- projection of it, so there is no second copy to keep in sync.
   V.notes = require("codereview.queue").by_key()
@@ -1741,11 +1771,19 @@ function M.open(spec)
   -- also what gives it back to a pane the layout toggle rebuilt.
   view_layout.attach_pane(V, M, V.buf)
 
-  -- Header padding is width-dependent, so a resize needs a full repaint.
+  -- Header padding is width-dependent, so a resize needs a full repaint -- but only a resize
+  -- that moved a review window.
+  --
+  -- One terminal resize fires `VimResized` *and* `WinResized`, so this callback runs twice
+  -- for one resize, and each run repainted both panes and rebuilt the whole file tree. It
+  -- carries no pattern and no buffer either, so a window resized in another tab page ran it
+  -- as well. Both are answered by the same comparison: the paint records the dimensions it
+  -- drew at, and a callback that finds them unchanged returns. `docs/design-notes.md` holds
+  -- the measurements, and `repaint_spec` owns the rule.
   vim.api.nvim_create_autocmd({ "VimResized", "WinResized" }, {
     group = V.augroup,
     callback = function()
-      if M.current() then
+      if M.current() and dimensions() ~= V.dims then
         M.paint()
       end
     end,
