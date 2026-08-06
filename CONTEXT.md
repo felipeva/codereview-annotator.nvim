@@ -160,6 +160,16 @@ The queue as a single unit of delivery — what one submission sends.
 The rendered text of a batch: the message the receiving agent actually reads.
 _Avoid_: output, body, prompt
 
+**Preamble**:
+The prose a reviewer writes above a **batch**, addressed to the receiving agent, that is not
+an **annotation**. It says what the batch is about as a whole — which part matters most,
+what to ignore, how the pieces relate — and the payload renders it above the header, where
+it is read before the findings. Composed at **submit** time and never held in the **queue**,
+which keeps **entries** and nothing else. A **draft** of one is kept per repository, because
+a preamble is about a batch and not about a file. An **immediate send** carries none
+(ADR-0004), and a copied payload carries none either: only a **dispatch** carries one.
+_Avoid_: prologue, cover note, header, message, prompt
+
 **`@ref`**:
 A file or line reference inside a payload, written relative to the **target**'s working
 directory so the agent can resolve it.

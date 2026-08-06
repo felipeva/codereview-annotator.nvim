@@ -122,6 +122,9 @@ function M.diff(buf, view)
     ["gy"] = { view.copy, "Copy the batch to the clipboard" },
     ["<C-t>"] = { view.pick_target, "Choose the delivery target" },
     ["<C-s>"] = { view.submit, "Submit the batch" },
+    -- `<C-a>` for the reason `a` became the annotation prefix: increment is dead in a
+    -- nomodifiable buffer, so it costs a keystroke and no motion.
+    ["<C-a>"] = { view.submit_with_preamble, "Submit the batch under a preamble" },
     ["q"] = { view.close, "Close the review" },
   })
 

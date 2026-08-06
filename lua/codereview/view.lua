@@ -1341,6 +1341,17 @@ local function review_ctx()
   return { root = V_.root, scope_label = V_.scope.label, files = #V_.files, reviewed = reviewed }
 end
 
+---Close a float that is listing the batch about to be handed over.
+---
+---Shared by both submit keys: a submitted batch must never leave a dialog listing it on
+---screen, and a composer opening over that dialog is no better.
+local function close_queue_float()
+  if V and V.queue_win and vim.api.nvim_win_is_valid(V.queue_win) then
+    vim.api.nvim_win_close(V.queue_win, true)
+    V.queue_win = nil
+  end
+end
+
 ---Submit the batch, and put the windows back the way a sent batch leaves them.
 ---
 ---The rule -- restore, deliver, empty only on a dispatch -- is delivery's, because none of
@@ -1349,10 +1360,7 @@ end
 ---review can say about itself.
 function M.submit()
   -- Submitting empties the queue, so any open queue float is now describing nothing.
-  if V and V.queue_win and vim.api.nvim_win_is_valid(V.queue_win) then
-    vim.api.nvim_win_close(V.queue_win, true)
-    V.queue_win = nil
-  end
+  close_queue_float()
 
   local dispatched = delivery.submit(review_ctx())
   -- A batch that did not go is still queued and still drawn on the diff, so there is
@@ -1365,6 +1373,32 @@ function M.submit()
     judge_archive()
     M.paint()
   end
+end
+
+---Submit the batch under a **preamble**, written in the composer first.
+---
+---`<C-s>` with a composer in front of it and the same submit behind it, so the fast path
+---costs nothing: `<C-s>` still asks no questions. The flow itself is delivery's, for the
+---reason the plain submit's is -- none of it is about a window, and it works with nothing
+---open.
+---
+---What is left here is what submitting already left here, a composer later: the float that
+---was listing the batch, and the diff behind it once something has actually gone. Handed
+---over rather than run in order, because a composer answers on a later tick and an abandoned
+---one never answers at all -- and an abandoned composer is not a submit, so there is nothing
+---to repaint.
+function M.submit_with_preamble()
+  close_queue_float()
+
+  delivery.submit_with_preamble(review_ctx(), function(dispatched)
+    if dispatched then
+      -- Exactly what the plain submit does with a dispatch, and for the same reasons: the
+      -- batch that just went was snapshotted a moment ago, so every entry in it is
+      -- untouched and the winbar should say so now rather than at the next reconcile.
+      judge_archive()
+      M.paint()
+    end
+  end)
 end
 
 ---Copy the batch to the clipboard, exactly as submitting would have rendered it.

@@ -18,9 +18,9 @@ change there is felt through.
 | `capture.lua` | The capture path: the same entry from an ordinary buffer, no review view involved | stateful (queue, buffer) |
 | `composer.lua` | The shipped composer and its `@` reference picker — the default `compose` adapter, not a lesser one | stateful (float) |
 | `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff` | stateful (options) |
-| `delivery.lua` | Where a batch is going, how that is chosen, and the submit that empties the queue only on dispatch | stateful (target, queue) |
+| `delivery.lua` | Where a batch is going, how that is chosen, the **preamble** composed at submit time, and the submit that empties the queue only on dispatch | stateful (target, queue) |
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
-| `drafts.lua` | Note text abandoned in a composer, keyed by absolute path, in a store of its own | stateful (disk) |
+| `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
 | `fade.lua` | The **faded** file rule: which rows one file's fade covers, and which group a faded row carries in place of its own | stateful (editor) |
 | `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes | stateful (git) |
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the blended twin of each group a **muted** window draws | stateful (editor) |
@@ -48,7 +48,7 @@ change there is felt through.
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
 
-## The two cycles
+## The three cycles
 
 `view` and `annotate` require each other. This is known and accepted — not a defect to fix
 in passing. `annotate` needs the focused pane, the current view, the repaint and the anchor
@@ -62,7 +62,15 @@ the `since-batch` scope. Function-local on both sides, as above. The alternative
 the snapshot in from outside, which would put the one scope that needs it into every caller
 of `resolve_scope` — and scope resolution is exactly what must stay one function.
 
-`keymaps`, `queue_float`, `view_layout` and `view_panel` would each be a third. All four run
+`delivery` and `composer` are the third, and the smallest. A **preamble** is composed at
+submit time, so the submit has to reach whichever composer is wired — and the plugin's own
+is the *default implementation* of that adapter rather than a fallback beside it (ADR-0003),
+so "whichever is wired" always includes it. The composer points back for one field: the
+footer it draws names the batch's target, and routing is delivery's. Function-local on both
+sides, as above. The alternative was handing the composer in from every caller, which buys
+nothing and spreads the one rule ADR-0003 exists to keep in one place.
+
+`keymaps`, `queue_float`, `view_layout` and `view_panel` would each be a fourth. All four run
 the view's exported actions, and all four take them as an argument — `view` hands itself in —
 rather than requiring `view` for them. That is deliberate, and it is what leaves `keymaps` a
 function of its arguments and the configured annotation types. `queue_float` reads no view

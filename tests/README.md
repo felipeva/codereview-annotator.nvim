@@ -33,6 +33,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/muted_child.lua` | Spawned four times by `muted_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/faded_child.lua` | Spawned three times by `faded_spec`, one painted cell each — deliberately not a spec. |
 | `codereview/quiet_child.lua` | Spawned eight times by `quiet_spec`, one painted cell each, where two quiet states meet — deliberately not a spec. |
+| `codereview/drafts_child.lua` | Spawned by `drafts_spec` to abandon a half-written note and exit — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `codereview/winbar_child.lua` | Spawned three times by `split_spec` to read one cell of a pane's winbar — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
@@ -48,7 +49,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
 | `bounded_spec` | Emission bounded by the viewport: what a paint writes and what it leaves out, the bound it shares with the harvest, what a scroll adds and what scrolling back does not, both panes at once — on a diff taller than the window, guarded |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
-| `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit |
+| `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit, and the **preamble**: above the header, the empty one that renders nothing, and the same arguments rendering the same message |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
 | `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, and the four things it refuses |
@@ -56,7 +57,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
-| `delivery_spec` | What a send adapter may report — nothing, true, false, a raise — the clipboard default, the one condition that empties the queue, the draft an undispatched immediate send leaves behind, and the deliberate copy that is not a dispatch |
+| `delivery_spec` | What a send adapter may report — nothing, true, false, a raise — the clipboard default, the one condition that empties the queue, the draft an undispatched immediate send leaves behind, and the deliberate copy that is not a dispatch; then the **preamble**: `<C-a>` from the diff and from the float with and without a review, the empty one that submits anyway, the abandoned composer that submits nothing, and what a copy and a batch of one carry instead (nothing) |
 | `capture_spec` | Annotating from an ordinary buffer: scope, types, declining one, blob, composer, diagnostics, restart, one queue, the immediate send |
 | `staleness_spec` | Buffer annotations going stale: judged against disk at any scope, on restore, and in view |
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
@@ -65,7 +66,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
-| `focus_spec` | Queue-float focus across the async picker, submit closing the float |
+| `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
+| `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
 | `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
 | `interactive_spec` | The insert-mode leak, and where a completed or cancelled `@` leaves you, in a real pty-backed Neovim |
@@ -391,6 +393,14 @@ so the out-of-core language path is still checked locally without ever failing C
   answers a tick later, which is the shape a real picker has and the only one that
   reproduces the defect. `composer_spec`'s file picker still answers inline on purpose: it
   is asserting text and cursor, not mode.
+- **A focus assertion made on the tick an annotation restored focus is measuring that
+  restore.** `annotate`'s `collect` schedules a focus restore of its own, and the `vim.wait`
+  a later assertion spends waiting for focus to settle is what pumps it. So a block that
+  queues an annotation and then submits on the same tick passes with the *submit's* restore
+  deleted — measured twice while `focus_spec`'s preamble cases were being written, each cut
+  applied on its own. Draining the loop between the two is what gives the second one teeth,
+  and the case that needs it is the one where the batch was refused: a dispatch repaints,
+  and the repaint puts focus back whether or not anything else does.
 - **`scrollbind` and `cursorbind` follow motions, not the API.** They *do* work in a
   headless Neovim, which was measured rather than assumed: a `normal!` motion, a `<C-e>`
   and fed keys all propagate to the bound window, and `nvim_win_set_cursor` does not.
