@@ -10,6 +10,10 @@
 -- exercised by the batch itself: one inside the repository, one about a file outside any
 -- checkout, one with no file at all.
 --
+-- Dispatched under a **preamble**, because a preamble belongs to the dispatch and not to
+-- either half of it: this is the batch that proves both halves come back carrying the same
+-- one, and that it comes back at all.
+--
 -- Not named `*_spec.lua`, so PlenaryBustedDirectory does not collect it. It is spawned by
 -- archive_spec with XDG_STATE_HOME, FIXTURE and LOOSE_FILE in its environment, and it must
 -- NOT load tests/minimal_init.lua, which would mint a state directory of its own.
@@ -25,8 +29,11 @@ vim.cmd("cd " .. vim.fn.fnameescape(fixture))
 local codereview = require("codereview")
 codereview.setup({
   syntax = false,
-  compose = function(_, on_accept)
-    on_accept(nil, "dispatched by an earlier session")
+  -- Two answers from one adapter. A stub that said the same thing to a note and to a
+  -- preamble would leave "the preamble reached the record" satisfied by an entry's note
+  -- reaching it instead.
+  compose = function(ctx, on_accept)
+    on_accept(nil, ctx.preamble and "read the bare note last" or "dispatched by an earlier session")
   end,
   -- Answers inline, which is all this needs: nothing here is asserting the order a picker
   -- and a composer come in, only that the batch records where it went.
@@ -49,8 +56,12 @@ codereview.annotate("issue")
 
 -- Chosen before submitting, so the batch goes somewhere with a name rather than to the
 -- adapter's own default -- which is what makes "it records the target" an assertion.
-require("codereview.delivery").pick_target()
-codereview.submit()
+local delivery = require("codereview.delivery")
+delivery.pick_target()
+-- Through the submit that composes first, which is the only way a dispatch acquires a
+-- preamble at all. The composer above answers inline, so the batch has gone by the line
+-- below.
+delivery.submit_with_preamble()
 
 -- Printed so a failing archive_spec can show what the dispatching process believed it did.
 print("queued: " .. #queue.all() .. " left after submitting")

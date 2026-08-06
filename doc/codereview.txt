@@ -55,8 +55,9 @@ files without one fall back to flat diff colours.
                                                        *:CodeReviewLastBatch*
 :CodeReviewLastBatch
         Read the last dispatched batch back: its annotations, grouped by type
-        exactly as the queue float and the payload group them, with the target
-        it went to and when it went in the frame. Needs no review view open --
+        exactly as the queue float and the payload group them, under the
+        |codereview-preamble| it went out under where there was one, with the
+        target it went to and when it went in the frame. Needs no review open --
         a batch is not a window. A bare note is listed like anything else,
         though it was kept in a different store. With nothing dispatched yet
         it says so rather than opening onto nothing. Also bound to `gb` in the
@@ -176,7 +177,9 @@ so the queue float's muscle memory gets a sentence rather than |E21| against a
 |nomodifiable| buffer. An annotation is drawn there exactly as the queue float
 draws one -- the reserved gutter, the bar in its type's colour, the code it
 inlined and its note -- so the two read as one family; what is missing is
-every key that would change something.
+every key that would change something. A |codereview-preamble| is drawn above
+them all, as prose rather than as an entry: no gutter and no bar, because it
+is about the batch and not about a place in the code.
 
 Annotation keys are prefixed with `a` rather than bound bare. Bare `b`, `f`,
 `n` and `s` would shadow back-word, find-char and next-search inside the
@@ -626,6 +629,15 @@ all: the payload is byte for byte what <C-s> would have sent. `gy` and
 |:CodeReviewCopy| carry none either, because copying is not submitting, and
 an |codereview-immediate-send| carries none: a batch of one has no batch to
 cover.
+
+A dispatched preamble is part of the record. It is kept with its batch and
+|:CodeReviewLastBatch| shows it, because a float that listed the findings and
+not the covering note would describe a message nobody received. It is shown
+and never edited, for the reason that surface refuses everything else: an
+archived record says something happened. A batch split across the two stores
+carries the same preamble in both halves -- a preamble belongs to the
+dispatch, exactly as the stamp and the target do, and not to either half of
+it. See |codereview-persistence-archive|.
 
 What you already reported                             *codereview-archived*
 
@@ -1117,7 +1129,8 @@ accepted cost of not making those annotations second-class.
 The archive                                 *codereview-persistence-archive*
 
 A batch that is dispatched is kept rather than forgotten. Each record holds
-the annotations as they went, where they went, when, and a snapshot: a commit
+the annotations as they went, the |codereview-preamble| they went out under
+where there was one, where they went, when, and a snapshot: a commit
 object recording the working tree at that moment, minted with `git stash
 create` -- which moves no ref, leaves the index alone and never touches the
 working tree, so nothing about a submit disturbs what you are reviewing. On a
@@ -1146,6 +1159,11 @@ write.
 of annotation is therefore two records, and they are rejoined by the moment
 they were dispatched -- both halves are stamped from one clock reading. That
 is what stops a bare note being the one thing missing from what you read back.
+Both halves carry the same preamble too, for the same reason they carry the
+same stamp and the same target: it belongs to the dispatch, not to either
+half. A record written before batches could carry one simply lacks the field
+and reads back with none, exactly as one written before the archive existed
+lacks the archive.
 
 ==============================================================================
 12. LUA API                                                 *codereview-api*

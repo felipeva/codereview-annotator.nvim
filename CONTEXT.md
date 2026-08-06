@@ -182,7 +182,10 @@ what to ignore, how the pieces relate — and the payload renders it above the h
 it is read before the findings. Composed at **submit** time and never held in the **queue**,
 which keeps **entries** and nothing else. A **draft** of one is kept per repository, because
 a preamble is about a batch and not about a file. An **immediate send** carries none
-(ADR-0004), and a copied payload carries none either: only a **dispatch** carries one.
+(ADR-0004), and a copied payload carries none either: only a **dispatch** carries one — and
+a dispatch keeps it, in the **archive**, because it is part of what was sent. It belongs to
+the dispatch and not to either half of a batch the archive split, so both halves carry it,
+as both carry the same stamp and the same **target**.
 _Avoid_: prologue, cover note, header, message, prompt
 
 **`@ref`**:
@@ -210,7 +213,9 @@ _Avoid_: quick note, one-off, direct send
 
 **Archive**:
 The batches already dispatched from a repository, kept after the queue that held them was
-cleared. Only a **dispatch** writes it, so a payload copied to a register is not in it.
+cleared — the **entries** as they went and the **preamble** they went under. Only a
+**dispatch** writes it, so a payload copied to a register is not in it. Read-only, which is
+a claim about the record and not a feature left unwritten.
 _Avoid_: history, sent queue, outbox
 
 **Snapshot**:

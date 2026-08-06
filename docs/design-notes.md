@@ -323,6 +323,22 @@ dispatches inside the same second read back as one batch. That is beyond any hum
 cadence and well within a loop's, which is why `archive_float_spec` clears both stores
 between blocks rather than trusting the clock.
 
+**A preamble belongs to the dispatch, so both halves of a split batch carry it.** It is not
+about the entries with a repository behind them, nor about the ones without — it is about
+the batch, exactly as the stamp and the target are, and those are already written to both.
+Storing it on one half alone reads as correct and fails in the direction that looks fine: a
+batch whose annotations all had files still shows its covering note, and the moment one is a
+**bare note** the rejoin has to decide which half to believe. Both carry it, and the rejoin
+takes either.
+
+**What is archived is what the payload rendered, through the payload's own rule.** An empty
+composer is a submit that sends no covering note, so the record must hold none — and a
+preamble is trimmed before it is rendered, so an untrimmed one in the archive would be a
+record that differs from the message by whitespace nobody can see. `payload.preamble` is
+that one rule, and it is exported for this second reader rather than copied: trimming in two
+places is how two things that agree today come to differ. A second trim inside `state` is
+the regression, and it is invisible until the day the two disagree.
+
 **The projection onto the diff is memoised on a write count, not rebuilt per repaint.** An
 archived entry is drawn from a table keyed by anchor, exactly as a queued one is — but the
 queue is in memory and an archive is a file, and a repaint runs on every resize, expansion,

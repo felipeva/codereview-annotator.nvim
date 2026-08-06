@@ -23,11 +23,18 @@ local fixture = h.cd_fixture("mkfixture")
 ---the one condition that both empties the queue and records the batch.
 local sent = {}
 
+---What the composer answers with when it is asked for a **preamble** rather than for a note.
+---Set by whichever block is about to dispatch under one.
+---
+---Two answers from one adapter, because a stub that said the same thing to both would leave
+---"the float shows the preamble" satisfied by a row holding an entry's note.
+local preamble_text = ""
+
 local codereview = require("codereview")
 codereview.setup({
   syntax = false,
-  compose = function(_, on_accept)
-    on_accept(nil, "a note")
+  compose = function(ctx, on_accept)
+    on_accept(nil, ctx.preamble and preamble_text or "a note")
   end,
   pick_target = function(cb)
     cb({ short = "agent", cwd = fixture })
@@ -95,6 +102,20 @@ local function dispatch()
   restore()
 end
 
+---Dispatch whatever is queued under a **preamble**, which is the only way a batch acquires
+---one: it is composed at submit time and never sits in the queue.
+---@param text string What the composer answers with
+local function dispatch_under(text)
+  preamble_text = text
+  local _, restore = h.capture_notify()
+  delivery.submit_with_preamble()
+  restore()
+  -- Drained here rather than left to whatever pumps the loop next. The submit puts focus
+  -- back on a later tick, and a restore that landed after the float had opened would take
+  -- focus off it -- and the keys a block below feeds would go somewhere else entirely.
+  vim.wait(50)
+end
+
 ---@return integer win, integer buf
 local function open_float()
   codereview.last_batch()
@@ -115,6 +136,30 @@ end
 ---@return string
 local function note_row(text)
   return GUTTER .. BAR .. "   " .. text
+end
+
+---The row a line is drawn on, or nil when nothing in the float reads exactly that.
+---@param buf integer
+---@param want string
+---@return integer|nil
+local function row_of(buf, want)
+  for row, text in ipairs(lines(buf)) do
+    if text == want then
+      return row
+    end
+  end
+end
+
+---The row the batch itself starts on: the first group heading the listing writes.
+---@param buf integer
+---@return integer
+local function first_heading(buf)
+  for row, text in ipairs(lines(buf)) do
+    if text:find("^## ") then
+      return row
+    end
+  end
+  error("the float lists no group at all:\n" .. table.concat(lines(buf), "\n"))
 end
 
 ---Every extmark starting on a row, as { col, end_col, hl }.
@@ -394,6 +439,227 @@ describe("a batch holding a bare note as well as a file", function()
     assert.is_truthy(vim.tbl_contains(text, "## Untyped"), table.concat(text, "\n"))
     assert.same("CodeReviewBug", bar_group(buf, extent(buf, 1)))
     assert.same("CodeReviewNote", bar_group(buf, extent(buf, 3)))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+--- The preamble the batch went under --------------------------------------------
+
+-- A **preamble** is part of what was sent, so it is part of what is read back: a float that
+-- showed the findings and not the covering note would be describing a message nobody
+-- received. Drawn where the payload drew it -- above the batch, read before the findings --
+-- and drawn as prose, because it is not an **entry** and carries none of what lists one.
+describe("a batch dispatched under a preamble", function()
+  fresh()
+  queued({ note = "the batch that went" })
+  dispatch_under("read the deleted-line rule first")
+
+  local win, buf = open_float()
+  local text = lines(buf)
+  local row = row_of(buf, "read the deleted-line rule first")
+
+  it("kept it with the batch", function()
+    assert.same("read the deleted-line rule first", state.archive(root)[1].preamble)
+  end)
+
+  it("shows it", function()
+    assert.is_truthy(row, table.concat(text, "\n"))
+  end)
+
+  it("draws it above the batch, where the agent read it", function()
+    assert.is_true(assert(row) < first_heading(buf), table.concat(text, "\n"))
+  end)
+
+  -- The same blank row the payload writes between the two. Without it the covering note runs
+  -- straight into the first group heading, and what covers the batch reads as part of it.
+  it("separates it from the batch, as the payload separated it", function()
+    assert.same("", text[assert(row) + 1])
+    assert.same(row + 2, first_heading(buf))
+  end)
+
+  -- The gutter and the bar are what say "entry" on this surface. A preamble is about the
+  -- batch and not about a place in the code, and it is drawn as what it is.
+  it("draws it as prose rather than as an entry", function()
+    assert.is_nil(bar_group(buf, assert(row)), text[row])
+  end)
+
+  it("lists the batch's entries exactly as it lists any other batch's", function()
+    assert.is_truthy(vim.tbl_contains(text, note_row("the batch that went")), table.concat(text, "\n"))
+    assert.same("CodeReviewBug", bar_group(buf, extent(buf, 1)))
+  end)
+
+  it("counts the annotations, which the preamble is not one of", function()
+    assert.is_truthy(chrome(win, "title"):find("1 annotation ", 1, true), chrome(win, "title"))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+-- The read-only claim covers the preamble in full, for the reason it covers everything else
+-- here: an archived record says something happened, and a surface that let you revise it
+-- would be claiming the plugin can revise what an agent already received.
+describe("the preamble on a surface that refuses to edit", function()
+  fresh()
+  queued({ note = "already gone" })
+  dispatch_under("as it was dispatched")
+
+  local win, buf = open_float()
+  local row = assert(row_of(buf, "as it was dispatched"), table.concat(lines(buf), "\n"))
+  vim.api.nvim_win_set_cursor(win, { row, 0 })
+
+  it("holds a buffer nothing can be typed into", function()
+    assert.is_false(vim.bo[buf].modifiable)
+  end)
+
+  -- With the cursor on the preamble itself, which is where a reviewer who wants to change it
+  -- would put it. The notification is asserted as well as the record: `x` on a `nomodifiable`
+  -- buffer changes nothing either, and would leave this green while saying `E21`.
+  it("says why, rather than editing anything, on the key that drops from the queue float", function()
+    local msgs, restore = h.capture_notify()
+    h.feed("x")
+    restore()
+    assert.is_true(h.notified(msgs, "annotate again"), vim.inspect(msgs))
+    assert.same("as it was dispatched", lines(buf)[row])
+    assert.same("as it was dispatched", state.archive(root)[1].preamble)
+  end)
+
+  -- The whole of what this surface binds, asserted as a set rather than one key at a time:
+  -- a key added to rewrite a preamble is exactly what this case exists to red.
+  it("binds nothing that could rewrite it", function()
+    local expected = {}
+    for _, key in ipairs({ "x", "<C-s>", "q", "<Esc>" }) do
+      expected[vim.keycode(key)] = true
+    end
+    assert.same(expected, bound(buf))
+  end)
+
+  h.feed("q")
+end)
+
+-- A preamble belongs to the **dispatch** and not to either half of it, so both halves carry
+-- the same one -- exactly as they already carry the same stamp and the same **target**. Read
+-- back, the rejoined batch has one covering note and not two.
+describe("a preamble on a batch the two stores split", function()
+  fresh()
+  bare_note("a thought with no file behind it", "bug")
+  queued({ note = "and a file with one" })
+  dispatch_under("both halves are one batch")
+
+  local win, buf = open_float()
+  local text = lines(buf)
+
+  it("is a batch the two stores really did split", function()
+    assert.same(1, #state.archive(root)[1].entries)
+    assert.same(1, #state.global_archive()[1].entries)
+  end)
+
+  it("carries the same preamble in both halves", function()
+    assert.same("both halves are one batch", state.archive(root)[1].preamble)
+    assert.same("both halves are one batch", state.global_archive()[1].preamble)
+  end)
+
+  it("shows it once, over the batch the two were rejoined into", function()
+    local seen = 0
+    for _, line in ipairs(text) do
+      if line == "both halves are one batch" then
+        seen = seen + 1
+      end
+    end
+    assert.same(1, seen, table.concat(text, "\n"))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+-- The fast path costs this surface nothing either. A batch that went with no covering note
+-- has none to read back, and the float draws what it drew before a batch could carry one.
+describe("a batch dispatched with no preamble", function()
+  fresh()
+  queued({ note = "no covering note" })
+  dispatch()
+
+  local win, buf = open_float()
+
+  it("records none", function()
+    assert.is_nil(state.archive(root)[1].preamble)
+  end)
+
+  it("opens on the batch itself, with nothing above it", function()
+    assert.same(1, first_heading(buf))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+-- The submit key means submit, so an empty composer dispatches anyway -- and an empty
+-- preamble renders nothing into the payload. The record says the same thing: nothing was
+-- sent above the batch, so there is nothing above it to read back.
+describe("a batch dispatched under an empty preamble", function()
+  fresh()
+  queued({ note = "an empty composer" })
+  dispatch_under("  \n  ")
+
+  local win, buf = open_float()
+
+  it("was dispatched", function()
+    assert.same(0, queue.count())
+    assert.same(1, #state.archive(root))
+  end)
+
+  it("records none", function()
+    assert.is_nil(state.archive(root)[1].preamble)
+  end)
+
+  it("draws as a batch that was never offered one", function()
+    assert.same(1, first_heading(buf))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+-- The window does not wrap -- a row folded back to column zero would leave the bar behind and
+-- an entry would appear to end -- so every row this float draws, it wraps itself. A preamble
+-- is prose a reviewer typed and is under no obligation to be narrow.
+describe("a preamble wider than the float", function()
+  fresh()
+  queued({ note = "a note" })
+  -- No spaces, so the wrap has nowhere to break but mid-word, and each of these occupies two
+  -- display columns -- which is where cutting by byte or by character count goes wrong.
+  local cjk = ("字"):rep(120)
+  dispatch_under(cjk)
+
+  local win, buf = open_float()
+  local width = vim.api.nvim_win_get_width(win)
+  local text = lines(buf)
+  local body = {}
+  for row = 1, first_heading(buf) - 1 do
+    if text[row] ~= "" then
+      body[#body + 1] = text[row]
+    end
+  end
+
+  it("wrapped it over several rows", function()
+    assert.is_true(#body > 1, table.concat(body, "\n"))
+  end)
+
+  it("keeps every row inside the float", function()
+    for row = 1, #text do
+      assert.is_true(
+        vim.fn.strdisplaywidth(text[row]) <= width,
+        ("row %d is %d columns wide in a %d-column float"):format(row, vim.fn.strdisplaywidth(text[row]), width)
+      )
+    end
+  end)
+
+  it("wrapped by display width rather than by character count", function()
+    for _, row in ipairs(body) do
+      assert.is_true(vim.fn.strdisplaywidth(row) > vim.fn.strchars(row), row)
+    end
+  end)
+
+  it("breaks between characters, not inside one", function()
+    assert.same(cjk, table.concat(body))
   end)
 
   vim.api.nvim_win_close(win, true)

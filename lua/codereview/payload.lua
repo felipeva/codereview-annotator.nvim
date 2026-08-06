@@ -127,6 +127,24 @@ local function describe(entry, base)
   return ("%s:%s%s"):format(where, range_text(entry), suffix), entry.lines
 end
 
+---The **preamble** as it is rendered, or nil when it renders nothing.
+---
+---Trimmed, so that the blank line under it is the one the renderer writes and not one the
+---reviewer happened to leave at the end of a composer. Nothing to say is nothing rendered:
+---an empty preamble leaves the message byte for byte what it was before preambles existed,
+---which is what makes the whole feature cost the fast path nothing.
+---
+---Here rather than inside `render` because there are two readers now. The **archive** keeps
+---what was *sent*, so the record and the message have to agree about whether a batch went
+---under a covering note at all, and about the text of it -- and trimming in two places is
+---exactly how two things that agree today come to differ.
+---@param preamble string|nil
+---@return string|nil
+function M.preamble(preamble)
+  local text = vim.trim(preamble or "")
+  return text ~= "" and text or nil
+end
+
 ---Render the whole queue as one message.
 ---@param items CRAnnotation[]
 ---@param base string Directory `@refs` should resolve against
@@ -143,13 +161,8 @@ function M.render(items, base, opts)
 
   -- Above the header rather than under it, because it is read first: the agent is told what
   -- the batch is about before it is told what is in it.
-  --
-  -- Trimmed, so that the blank line below it is the one this renderer writes and not one the
-  -- reviewer happened to leave at the end of a composer. Nothing to say is nothing rendered:
-  -- an empty preamble leaves the message byte for byte what it was before preambles existed,
-  -- which is what makes the whole feature cost the fast path nothing.
-  local preamble = vim.trim(opts.preamble or "")
-  if preamble ~= "" then
+  local preamble = M.preamble(opts.preamble)
+  if preamble then
     out[#out + 1] = preamble
     out[#out + 1] = ""
   end
