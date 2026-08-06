@@ -476,6 +476,17 @@ file's unit is a file inside a pane, which no namespace can express, so the fade
 which group each *mark* carries — the blended twin of the group the row would have carried
 anyway, emitted in its place.
 
+**A paint never calls `mute`, so a repaint driven by anything else leaves the arrangement
+alone.** The muting is reasserted from the `WinEnter`/`WinLeave` pair and from nowhere else;
+what a paint reaches is `mute_extend`, which adds links to the namespace and touches no window
+option and attaches no namespace to anything. That is why `gA` — `toggle_archived` →
+`judge_archive` → `paint`, a path with no idea the muting exists — leaves both the namespace
+and the **counterpart row** exactly as they were, in both directions of the toggle. Measured,
+because it is a claim about what a *different* subsystem's repaint does not do, and neither
+the archive key nor the muting owns it: `muted_spec` presses the key with an archived entry
+really on the diff, and injecting a namespace reset or a `cursorline` clear onto that path is
+what gives the case its teeth.
+
 **A muted pane still lights a row, and the namespace is what makes it another colour.** The
 panes are cursorbound, so Neovim already lights the row opposite the one being read; what was
 missing was a colour of its own for it. `cursorline` therefore stays set in every pane, and

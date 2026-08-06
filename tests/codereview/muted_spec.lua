@@ -447,6 +447,70 @@ describe("a tree dismissed and summoned again", function()
   end)
 end)
 
+--- A repaint the muting does not drive ---------------------------------------------
+
+-- Every case above reaches the arrangement through a focus change, and a **paint never calls
+-- `mute`**: the muting is reasserted from the `WinEnter`/`WinLeave` pair and from nowhere
+-- else. `gA` repaints through `toggle_archived` -> `judge_archive` -> `paint`, which touches
+-- no window option and attaches no namespace -- so the counterpart row surviving it is a
+-- claim about what a repaint leaves alone, and nothing else in the suite makes it.
+--
+-- Driven through the key rather than through `view.toggle_archived`, for the reason focus is
+-- moved with `<C-w>h` above: what is pinned down is the path a reviewer's keystroke really
+-- takes, and the tree binds this key as well as the diff does.
+describe("archived entries toggled off the diff and back", function()
+  local V = assert(view.current(), "no review view open")
+  vim.api.nvim_set_current_win(V.win)
+  local was, was_lit = arrangement(), lit_rows()
+  local twin = muted_hl("CursorLine").bg
+
+  -- The guard every assertion below is worth nothing without: with nothing archived, `gA`
+  -- repaints a render identical to the one before it, and "the arrangement did not change"
+  -- then holds over a repaint that changed nothing at all. The batch the float block
+  -- dispatched is what makes this a real one.
+  it("has an archived entry on the diff to take away", function()
+    assert.is_truthy(next(V.archived), "nothing is archived, so the toggle draws the same diff twice")
+  end)
+
+  it("starts from a counterpart row in the muted pane", function()
+    assert.same({ after = "bright", before = "muted", tree = "bright" }, was)
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, was_lit)
+  end)
+
+  h.feed("gA")
+
+  it("really did repaint a diff without them", function()
+    assert.same({}, V.archived)
+  end)
+
+  it("leaves every review window drawing through what it drew through", function()
+    assert.same(was, arrangement())
+  end)
+
+  it("leaves the counterpart row lit, in its own group, in the muted pane", function()
+    assert.same(was_lit, lit_rows())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
+  end)
+
+  -- The one thing the two readings above cannot see. They name a group; a repaint that had
+  -- written the twins again against nothing would leave the name reaching a different colour.
+  it("leaves the colour that group holds alone", function()
+    assert.same(twin, muted_hl("CursorLine").bg)
+  end)
+
+  h.feed("gA")
+
+  it("puts the archived entries back", function()
+    assert.is_truthy(next(V.archived), "the second press did not restore them")
+  end)
+
+  it("leaves all three the same through the repaint back", function()
+    assert.same(was, arrangement())
+    assert.same({ after = "focused", before = "counterpart", tree = "focused" }, lit_rows())
+    assert.same(twin, muted_hl("CursorLine").bg)
+  end)
+end)
+
 --- What the namespace holds -------------------------------------------------------
 
 describe("a group the plugin cannot know about", function()
