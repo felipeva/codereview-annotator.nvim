@@ -355,6 +355,37 @@ describe("the configuration flag", function()
   end)
 end)
 
+-- The key that overrides that flag for the session inherits its coarseness whole: the
+-- display never tallies what it does not draw, and it spends no git deciding a number it
+-- will not print. Asserted here rather than in `render_spec`, which owns what the diff
+-- draws: this half is the sticky header's.
+describe("the key beside it", function()
+  local config = require("codereview.config")
+  local V = assert(view.current())
+
+  vim.api.nvim_set_current_win(V.win)
+  h.feed("gA")
+
+  it("takes the tally with the entries", function()
+    assert.is_nil(vim.wo[V.win].winbar:find("untouched", 1, true), vim.wo[V.win].winbar)
+  end)
+
+  it("judges nothing, so nothing is spent deciding", function()
+    assert.same({}, V.touched)
+    assert.is_nil(V.untouched)
+  end)
+
+  it("leaves the configured value where the host set it", function()
+    assert.is_true(config.get().archived)
+  end)
+
+  h.feed("gA")
+
+  it("brings both back together, without re-reading the diff", function()
+    assert.is_truthy(vim.wo[V.win].winbar:find("0 untouched", 1, true), vim.wo[V.win].winbar)
+  end)
+end)
+
 -- Which blob touchedness is judged against, and the only fixture that can tell.
 --
 -- Everything above is clean at HEAD when its batch goes, so the blob the entry was

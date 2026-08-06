@@ -603,7 +603,7 @@ function M.paint(keep_file)
   -- the answer changes on a dispatch this view need not have made -- an **immediate send**
   -- archives a batch of one without emptying anything -- and the read behind it is a
   -- comparison until something has written.
-  V.archived = cfg.archived and require("codereview.archive").by_key(V.root) or {}
+  V.archived = config.archived() and require("codereview.archive").by_key(V.root) or {}
   -- What was judged against an archive that has since been overtaken describes something
   -- else now: an **immediate send** archives a batch of one with no repaint of its own, so
   -- the entries below may belong to a batch nothing has judged. Dropped rather than
@@ -1083,7 +1083,7 @@ local function judge_archive()
   if not V then
     return
   end
-  if not config.get().archived then
+  if not config.archived() then
     -- One switch turns the archive off in the review view outright: nothing drawn, nothing
     -- tallied, and no git spent deciding either.
     V.touched, V.untouched, V.judged = {}, nil, nil
@@ -1529,6 +1529,16 @@ function M.review_queue()
   queue_float.open(M)
 end
 
+---Read the last dispatched **batch** back, from inside a review.
+---
+---The surface is `archive`'s, and it consults no view: a batch has already gone, so nothing
+---about which window is current could change which one went last. What stays here is the
+---name `keymaps.lua` binds to `gb` in both the diff and the file tree, so the key table does
+---not learn where the body lives -- exactly as `gp` and `gl` are named here.
+function M.last_batch()
+  require("codereview.archive").open()
+end
+
 function M.close()
   if V and vim.api.nvim_tabpage_is_valid(V.tab) then
     -- Closing the tab takes both windows and both scratch buffers with it.
@@ -1555,6 +1565,30 @@ end
 
 function M.toggle_layout()
   view_layout.toggle_layout(V, M)
+end
+
+--- Archived entries -------------------------------------------------------------
+
+-- The switch and the override in front of it are `config`'s, because the choice outlives
+-- this view: every review opened afterwards has to agree with it. What is left here is the
+-- name `keymaps.lua` binds to `gA` in the diff and in the tree, and the repaint that makes
+-- the answer immediate.
+
+---Turn **archived** entries on or off for the rest of the Neovim session.
+---
+---Off is off entirely, which is the switch's own coarseness rather than a middle state
+---invented here: nothing drawn, nothing tallied and no git spent judging, so the
+---`untouched` segment leaves the sticky header with the entries.
+---
+---Judged here rather than left to the paint, which also runs on every resize -- and
+---repainted rather than left to the next reason to repaint, because a reviewer who presses
+---a key is asking about the diff in front of them. Both calls do nothing with no review
+---open, which is a state this key cannot be pressed in but the exported action can be
+---called in: the override is still taken, and the next review opened agrees with it.
+function M.toggle_archived()
+  config.toggle_archived()
+  judge_archive()
+  M.paint()
 end
 
 --- Opening --------------------------------------------------------------------

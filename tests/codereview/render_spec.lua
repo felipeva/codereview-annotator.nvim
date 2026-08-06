@@ -686,3 +686,142 @@ describe("the sticky header on a review with no files", function()
     assert.is_nil(bar():find(icons.expanded, 1, true), bar())
   end)
 end)
+
+--- The key beside the flag -----------------------------------------------------
+
+-- `gA` overrides the flag above for the rest of this Neovim, in both directions.
+--
+-- Last in this file, and deliberately. The override is module state, not view state, so it
+-- outlives every review opened here, and each case below opens a review of its own -- which
+-- makes a tally the winbar had not carried before. Nothing above may inherit either.
+--
+-- The order inside is the order `layout_spec`'s restart cases run in, for the same reason:
+-- "unset means the configured value" is only observable while this process has not yet
+-- pressed the key.
+
+---Normal-mode mappings bound to a buffer, as a set.
+---
+---Through `vim.keycode` on both sides: the API reports a key in its own notation rather
+---than the one it was bound with, so comparing the strings as written can silently never
+---match.
+---@param buf integer
+---@return table<string, boolean>
+local function bound(buf)
+  local lhs = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+    lhs[vim.keycode(m.lhs)] = true
+  end
+  return lhs
+end
+
+describe("a session that turned archived entries off and exited", function()
+  -- Shares this process's throwaway XDG_STATE_HOME and nothing else, and runs with
+  -- `--clean` so no user config and no minimal_init can hand it a different one.
+  local child = vim
+    .system({
+      vim.v.progpath,
+      "--clean",
+      "-l",
+      vim.fs.joinpath(h.root, "tests", "codereview", "archived_child.lua"),
+    }, {
+      cwd = fixture,
+      text = true,
+      env = { XDG_STATE_HOME = vim.env.XDG_STATE_HOME, FIXTURE = fixture },
+    })
+    :wait(60000)
+
+  local function stored()
+    return table.concat(vim.fn.readfile(state.path(root)), "\n")
+  end
+
+  it("exits cleanly", function()
+    assert.same(0, child.code, (child.stderr or "") .. (child.stdout or ""))
+  end)
+
+  -- Without this the case below is vacuous: "the override did not come back" would be
+  -- satisfied by there being no channel between the two sessions at all.
+  it("leaves the batch it archived in the store both sessions share", function()
+    assert.same(1, vim.fn.filereadable(state.path(root)), "no state at " .. state.path(root))
+    assert.is_truthy(stored():find("from the session that turned them off", 1, true), stored())
+  end)
+
+  it("writes nothing about the switch into it", function()
+    assert.is_nil(stored():find("archived", 1, true), stored())
+  end)
+
+  -- Configuration is what decides at the start of every session, so a display preference
+  -- chosen in one cannot quietly become durable state the reviewer forgot they set.
+  it("starts this session from the configured value instead", function()
+    assert.is_true(config.get().archived)
+    assert.is_true(config.archived())
+  end)
+end)
+
+describe("the key beside the flag", function()
+  -- Configured off first, while this process has not pressed the key: unset means the
+  -- configured value, and this is the only moment that can be seen meaning it.
+  config.get().archived = false
+  view.open("branch")
+  local V = assert(view.current(), "no review view opened")
+
+  it("opens drawing nothing archived, because configuration says so", function()
+    assert.same({}, V.archived)
+    assert.same(0, #h.virt_marks(V))
+  end)
+
+  it("is bound in the diff and in the tree", function()
+    assert.is_true(bound(V.buf)[vim.keycode("gA")] == true, "gA is not bound in the diff")
+    assert.is_true(bound(assert(V.panel_buf))[vim.keycode("gA")] == true, "gA is not bound in the tree")
+  end)
+
+  -- The direction a configuration flag alone cannot go: the override runs both ways.
+  it("turns them on when configuration has them off", function()
+    vim.api.nvim_set_current_win(V.win)
+    h.feed("gA")
+    assert.is_true(vim.tbl_count(V.archived) > 0, "nothing archived is projected")
+    assert.is_true(#h.virt_marks(V) > 0, "nothing was drawn beneath the code")
+  end)
+
+  it("leaves the configured value where the host set it", function()
+    assert.is_false(config.get().archived)
+  end)
+
+  -- Back to the shipped default, with the override now standing in front of it.
+  config.get().archived = true
+  local drawn = vim.deepcopy(V.render.marks)
+
+  it("takes them off the diff again", function()
+    vim.api.nvim_set_current_win(V.win)
+    h.feed("gA")
+    assert.same({}, V.archived)
+    assert.same(0, #h.virt_marks(V))
+  end)
+
+  -- Mark for mark, not merely "nothing archived is drawn": the repaint is immediate, and
+  -- what comes back has to be the render that was there before the key was pressed.
+  it("brings them back, and repaints the review either way", function()
+    h.feed("gA")
+    assert.same(drawn, V.render.marks)
+    assert.is_true(#h.virt_marks(V) > 0, "nothing came back")
+  end)
+
+  it("works from the file tree as well", function()
+    local tree = assert(V.panel_win, "no file tree")
+    vim.api.nvim_set_current_win(tree)
+    h.feed("gA")
+    assert.same({}, V.archived)
+    h.feed("gA")
+    assert.same(drawn, V.render.marks)
+  end)
+
+  -- Module state, not view state: it is pressed once rather than once per review.
+  it("agrees with the review opened after it", function()
+    vim.api.nvim_set_current_win(V.win)
+    h.feed("gA")
+    view.open("branch")
+    local W = assert(view.current(), "no review view opened")
+    assert.are_not.same(V.buf, W.buf, "the same review came back")
+    assert.same({}, W.archived)
+    assert.same(0, #h.virt_marks(W))
+  end)
+end)

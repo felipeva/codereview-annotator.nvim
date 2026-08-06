@@ -458,9 +458,11 @@ an answer anywhere but the agent's transcript. `:CodeReviewLastBatch` gives it o
 annotations of the batch that went last, grouped by type exactly as the queue float and the
 payload group them, with the target it went to and when it went in the frame.
 
-It needs no review open — a batch is not a window, and what you asked for is worth checking
-from anywhere. A bare note is listed like anything else, even though it was kept in a
-different store than the annotations with a file behind them.
+`gb` opens that same float from inside a review, in the diff and in the tree, so which
+window you are in never decides whether the key exists. The command needs no review open —
+a batch is not a window, and what you asked for is worth checking from anywhere. A bare note
+is listed like anything else, even though it was kept in a different store than the
+annotations with a file behind them.
 
 It is **read-only**, and that is a statement about the record rather than a feature left
 out. An archived entry says something happened; a surface that let you drop, edit or
@@ -485,6 +487,19 @@ Their two highlight groups are their own — `CodeReviewArchived` for the marker
 `CodeReviewArchivedNote` for the prose — and are `default = true` links like everything else
 here, so a colorscheme can say how dim "already sent" looks. `archived = false` turns them
 off wholesale, and the diff then renders exactly as it did before the archive existed.
+
+**`gA` reaches that switch from inside a review**, in the diff and in the tree. On a fresh
+review over code you already annotated they are noise — you are looking for what is wrong
+now, and the diff is covered in what was already said — so one key takes them off, and the
+same key brings them back. It repaints at once and runs in both directions: with
+`archived = false` configured, `gA` turns them on.
+
+It overrides the configured value instead of writing it, so your `setup()` call goes on
+saying what you wrote. The override holds for every review you open afterwards — you press
+the key once, not once per review — and it dies with the Neovim process, so a display
+preference never becomes durable state you forgot you set. Off is off entirely, exactly as
+the flag is: the `untouched` tally leaves the winbar with the entries, and no git is spent
+judging them.
 
 ### Where the agent has and has not been
 
@@ -518,8 +533,8 @@ That the scope decides who is judged is why the tally reads `0 untouched` inside
 touched by definition, and the ones you are looking for are the ones it is not showing.
 `branch` and `worktree` are where the number earns its keep.
 
-`CodeReviewTouched` and `CodeReviewUntouched` are the groups, and `archived = false` turns
-the tally off along with everything else.
+`CodeReviewTouched` and `CodeReviewUntouched` are the groups, and `archived = false` — or
+`gA` while you are reviewing — turns the tally off along with everything else.
 
 ### The payload
 
@@ -571,6 +586,8 @@ worth a look before we ship this
 | `gr` | Re-read the diff from git |
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
+| `gb` | Read the last dispatched batch back |
+| `gA` | Show or hide archived entries, for the rest of the session |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
 | `Q` | Review the queue |
@@ -616,6 +633,8 @@ is to stop looking at them, so the useful motion is "the next thing I have not d
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree, landing back in the diff |
 | `gl` | Switch between the unified and split layouts |
+| `gb` | Read the last dispatched batch back |
+| `gA` | Show or hide archived entries, for the rest of the session |
 | `q` | Close |
 
 Jumping to a file that was collapsed because it is reviewed expands it: you asked to look
@@ -644,9 +663,9 @@ listing is still there.
 
 ### In the last-batch float
 
-`:CodeReviewLastBatch` lists an annotation the same way — the reserved gutter, the bar in
-its type's colour, the code it inlined and its note — so the two read as one family. What
-is missing is every key that would change something.
+`gb`, or `:CodeReviewLastBatch` from anywhere, lists an annotation the same way — the
+reserved gutter, the bar in its type's colour, the code it inlined and its note — so the two
+read as one family. What is missing is every key that would change something.
 
 | Key | Action |
 | --- | --- |
@@ -668,7 +687,8 @@ opts = {
   layout = "unified",              -- "unified" or "split"; validated at setup
   spans = true,                    -- emphasise what changed inside a changed line
   archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
-                                   -- and tally the untouched ones on the winbar
+                                   -- and tally the untouched ones on the winbar; `gA`
+                                   -- overrides this for the rest of the session
   muted = { enabled = true,        -- mute the pane that does not have focus; never the tree
             strength = 0.5 },      -- how far its colours are pulled toward the background
   faded = { enabled = true,        -- fade every file except the one the cursor is in

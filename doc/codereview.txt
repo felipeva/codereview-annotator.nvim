@@ -59,7 +59,8 @@ files without one fall back to flat diff colours.
         it went to and when it went in the frame. Needs no review view open --
         a batch is not a window. A bare note is listed like anything else,
         though it was kept in a different store. With nothing dispatched yet
-        it says so rather than opening onto nothing.
+        it says so rather than opening onto nothing. Also bound to `gb` in the
+        diff and in the file tree, which opens this same float.
 
         Read-only, and that is a claim about the record: an archived entry
         says something happened, and a surface that let you drop, edit or
@@ -95,6 +96,9 @@ Buffer-local, inside the review view:
     gr               Re-read the diff from git
     gp               Show or hide the file tree
     gl               Switch between the unified and split layouts
+    gb               Read the last dispatched batch back
+    gA               Show or hide archived entries, for the rest of the
+                     session -- see |codereview-archived|
     <CR>             Open the real file here, in a new tab
     gd               Read this file in the host's own diff tool --
                      bound only with |codereview-opt-open_diff| wired
@@ -137,6 +141,9 @@ In the file tree:                                         *codereview-tree*
     <Tab>            Back to the diff
     gp               Dismiss the tree, landing back in the diff
     gl               Switch between the unified and split layouts
+    gb               Read the last dispatched batch back
+    gA               Show or hide archived entries, for the rest of the
+                     session -- see |codereview-archived|
     q                Close the review
 
 The tree collapses single-child directory chains, so a monorepo shows
@@ -163,8 +170,8 @@ view open, and a file may lie outside the current scope. Each says which, and
 leaves the float open -- the remedies are nothing, open a review, and change
 scope.
 
-In the last-batch float (|:CodeReviewLastBatch|): q and <Esc> close, and that
-is the whole of it. `x` and <C-s> are bound only to say why they do nothing,
+In the last-batch float (`gb`, or |:CodeReviewLastBatch| from anywhere): q and
+<Esc> close, and that is the whole of it. `x` and <C-s> are bound only to say why they do nothing,
 so the queue float's muscle memory gets a sentence rather than |E21| against a
 |nomodifiable| buffer. An annotation is drawn there exactly as the queue float
 draws one -- the reserved gutter, the bar in its type's colour, the code it
@@ -595,6 +602,15 @@ one, for the same reason |:CodeReviewLastBatch| is read-only. `archived =
 false` turns the whole of this off, and the diff then renders exactly as it
 did before the archive existed.
 
+`gA`, in the diff and in the file tree, reaches the same switch from inside a
+review. It repaints at once, it runs in both directions -- with `archived =
+false` configured it turns them on -- and it overrides the configured value
+rather than writing it, so `setup()` goes on saying what you wrote. The
+override holds for every review opened afterwards and dies with the Neovim
+process: a display preference never becomes durable state you forgot you set.
+Off is off entirely, so the `untouched` tally (|codereview-touched|) leaves
+the winbar with the entries and no `git` is spent judging them.
+
 Touched and untouched                                  *codereview-touched*
 
 Each entry of the *last* batch says whether its file has changed since that
@@ -911,8 +927,9 @@ read rather than every time the view is drawn.
 
 `archived` draws already-dispatched entries on the diff and tallies the
 untouched ones on the winbar (|codereview-archived|, |codereview-touched|).
-It is on by default and coarse on purpose: off is the whole history off --
-nothing drawn, nothing tallied and no `git` spent judging.
+It is on by default and coarse on purpose: off is the whole archive off --
+nothing drawn, nothing tallied and no `git` spent judging. `gA` overrides it
+for the rest of the session, in both directions, and writes nothing here.
 
 `muted` mutes the pane that does not have focus (|codereview-muted|); the
 file tree is never muted. `strength` is how far a colour is pulled toward the

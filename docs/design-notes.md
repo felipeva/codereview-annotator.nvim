@@ -379,6 +379,26 @@ and the view's own submit, and the number is read off the view. The view also re
 repaint of its own, so a paint that finds the count moved drops the verdicts and the segment
 with them, rather than reporting a number about a batch that has been overtaken.
 
+**The switch a key overrides is read through an accessor, and the key writes no
+configuration.** `gA` is a runtime override of `archived`. It sits beside the configured
+value in `config`, is unset until the key is pressed, and unset means the configured value.
+Writing that value instead would leave a host's own `setup()` call describing something that
+is no longer true, and it would make a keystroke indistinguishable from a decision the host
+made. It is module state rather than view state because the choice has to outlive a review —
+a reviewer presses the key once, not once per review — and it is deliberately not persisted,
+for the reason the chosen **layout** is not: a display preference must never become durable
+state a reviewer has forgotten they set. What this costs is that every reader of the flag has
+to go through `config.archived()`. A `config.get().archived` left behind anywhere is a
+surface the key silently does not reach.
+
+**Toggling it has to judge before it paints, and a paint alone will not drop the tally.**
+The `untouched` segment is read off the view rather than computed by the winbar, and a paint
+only drops it when the archive has been *written* since the last verdict — which turning the
+switch off is not. So a toggle that merely repaints leaves the number on the bar while
+nothing it counts is on the diff, which is the one state this feature's coarseness exists to
+refuse. `view.toggle_archived` runs the judgement itself, and that is also where the two
+`git` invocations behind the number are skipped when the answer is "nothing drawn".
+
 **`git stash create` mints a commit and does nothing else.** No ref moves, the index is not
 touched and the working tree is not reverted, which is the only reason it is safe to run
 behind a submit. Two consequences worth knowing before reading a snapshot back: a clean
