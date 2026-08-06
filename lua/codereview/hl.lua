@@ -15,10 +15,11 @@
 ---unfocused pane.
 ---
 ---**The blended colours are groups of this module, not colours in a window.** A group that
----a **muted** window draws, or that a **faded** file's row carries, gets a twin here, named
----for the group it blends. The window that mutes links to that twin instead of holding a
----colour of its own, and the fade emits it in place of the group the row would carry, so the
----same arithmetic answers both. See `M.blended` below.
+---a **muted** window draws, that a **faded** file's row carries, or that a muted pane lights
+---its **counterpart row** in, gets a twin here, named for the group it blends. The window
+---that mutes links to that twin instead of holding a colour of its own, and the fade emits it
+---in place of the group the row would carry, so one piece of arithmetic answers all three.
+---See `M.blended` below.
 local M = {}
 
 local LINKS = {
@@ -138,7 +139,7 @@ end
 
 --- The blended colours ----------------------------------------------------------
 
----@alias CRBlendFamily "muted"|"faded"
+---@alias CRBlendFamily "muted"|"faded"|"counterpart"
 
 ---The families of blended groups: what each one's members are named, and how far each pulls.
 ---
@@ -146,13 +147,19 @@ end
 ---and its family alone, and no table maps one to the other. The dot keeps the two parts
 ---apart: a treesitter capture group carries `@` and dots of its own, and
 ---`CodeReviewMuted.@keyword` can only be the twin of `@keyword`. No group this plugin
----defines starts with either prefix, so a twin shadows none of them.
+---defines starts with any of the prefixes, so a twin shadows none of them.
 ---
----**Two families, one blend.** A **muted** window and a **faded** file pull the same colours
----toward the same background, and each has its own strength because the two cover very
----different amounts of the screen: the window rule answers for the panes a reviewer is not
----in, the fade for every file but one. A second copy of the arithmetic is how the two would
----drift apart in colour, which is what one family with a strength of its own avoids.
+---**Three families, one blend.** A **muted** window, a **faded** file and the **counterpart
+---row** a muted pane lights all pull the theme's own colours toward the same background, and
+---each has a strength of its own because each covers a very different amount of the screen:
+---the window rule answers for the panes a reviewer is not in, the fade for every file but
+---one, the counterpart row for a single row inside a window the muting already has. A second
+---copy of the arithmetic is how any two of them would drift apart in colour, which is what
+---one family with a strength of its own avoids.
+---
+---**One member is enough to justify a family.** `counterpart` holds only `CursorLine`. The
+---alternative is that second copy of the blend, written where the row is lit -- which is
+---exactly the shape the two families above were built to refuse.
 ---
 ---`option` names the table in the configuration each family takes its strength from, so a
 ---family knows where its number comes from and nothing else has to.
@@ -160,6 +167,7 @@ end
 local FAMILIES = {
   muted = { prefix = "CodeReviewMuted.", option = "muted" },
   faded = { prefix = "CodeReviewFaded.", option = "faded" },
+  counterpart = { prefix = "CodeReviewCounterpart.", option = "counterpart" },
 }
 
 ---The twin of every group that has one, per family, keyed by the group it blends.

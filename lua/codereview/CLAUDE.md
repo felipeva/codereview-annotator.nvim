@@ -23,7 +23,7 @@ change there is felt through.
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
 | `fade.lua` | The **faded** file rule: which rows one file's fade covers, and which group a faded row carries in place of its own | stateful (editor) |
 | `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes | stateful (git) |
-| `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the blended twin of each group a **muted** window draws | stateful (editor) |
+| `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
 | `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies | pure |
@@ -35,7 +35,7 @@ change there is felt through.
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
 | `view.lua` | The review view: the `CRView` it owns, the paint, navigation, delivery, opening and closing | stateful (windows) |
-| `view_layout.lua` | Where the review's windows are: the panes, the before pane, the toggle between the unified and split layouts, and which of them is muted | stateful (windows) |
+| `view_layout.lua` | Where the review's windows are: the panes, the before pane, the toggle between the unified and split layouts, which of them is muted, and which group each lights its row in | stateful (windows) |
 | `view_panel.lua` | The file tree's stateful half: its window and buffer, the repaint that follows the diff cursor, and the actions its keys run | stateful (windows) |
 
 ## How they stack

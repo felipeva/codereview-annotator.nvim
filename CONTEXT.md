@@ -31,7 +31,9 @@ _Avoid_: side, column, window
 **Muted**:
 Said of a **pane** that does not have focus: its colours pulled toward the background through
 a highlight namespace of its own, so the pane with focus is the bright one and a reviewer
-never has to press a key to find out where they are. Said of a pane and never of the file
+never has to press a key to find out where they are. A muted pane still lights the row its
+cursor is on — see **counterpart row**, the one colour in it that the muting does not answer
+for. Said of a pane and never of the file
 tree: the tree is never muted, it draws in the active colorscheme's own colours under every
 focus, and focus landing in it mutes the panes instead. Never said of a file, and never of
 anything drawn *on* the diff. Not _dimmed_: an archived **entry** is already drawn dimmed on
@@ -59,6 +61,19 @@ A blank row emitted in one pane where the other has no counterpart — a pure ad
 pure deletion, a file that exists on only one side — so the two stay row-aligned. Distinct
 from a **pad**, the blank row after a hunk, which both panes draw.
 _Avoid_: padding, spacer
+
+**Counterpart row**:
+The row in a **muted** pane opposite the one the cursor is on, lit with a group of its own so
+it reads as secondary to the focused pane's. The panes are cursorbound, so which row it is
+stays Neovim's business and only which colour it is lit in is the plugin's — nothing is
+emitted onto the diff for it and no mark is added. Where the opposite row is a **filler**,
+the lit blank row is what says *nothing existed here before*, which is the case it exists
+for. Said of a row in a pane and never of the file tree's lit row: the tree is not
+cursorbound, so its row names the file being read rather than sitting opposite anything. Not
+_twin_: a blended highlight group is already the twin of the group it blends, and one word
+must not do two jobs — the same collision that kept _side_ reserved for a diff line's
+add/del/ctx.
+_Avoid_: mirror, twin, shadow, ghost
 
 **Sticky header**:
 The current file named on a **pane**'s winbar, so the file survives reading past its own
