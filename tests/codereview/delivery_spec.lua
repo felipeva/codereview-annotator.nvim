@@ -641,11 +641,19 @@ describe("a batch submitted with a preamble", function()
     assert.is_true(h.notified(msgs, "Submitted 1 annotation"), vim.inspect(msgs))
   end)
 
-  -- The queue keeps entries and nothing else. A preamble is composed at submit time, so
-  -- there is nothing about it for the queue's document to have written down.
-  it("writes no preamble into the persisted queue", function()
-    local doc = table.concat(vim.fn.readfile(state.path(root)), "\n")
-    assert.is_nil(doc:find("read the second one first", 1, true), doc)
+  -- The queue keeps **entries** and nothing else, and a preamble is not one: it is composed
+  -- at submit time and joins them nowhere. Read out of the decoded document rather than out
+  -- of the file's text, because the **archive** in that same file keeps the preamble on
+  -- purpose -- what must carry it nowhere is an entry, queued or archived alike.
+  it("writes the preamble into no entry, queued or archived", function()
+    local doc = vim.json.decode(table.concat(vim.fn.readfile(state.path(root)), "\n"))
+    local entries = vim.deepcopy(doc.queue or {})
+    for _, batch in ipairs(doc.archive or {}) do
+      vim.list_extend(entries, batch.entries or {})
+    end
+    -- Or the case is satisfied by a document with no entry in it to have been written into.
+    assert.is_true(#entries > 0, "nothing reached the document, so this measures nothing")
+    assert.is_nil(vim.json.encode(entries):find("read the second one first", 1, true), vim.inspect(entries))
   end)
 end)
 

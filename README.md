@@ -457,12 +457,18 @@ what `<C-s>` would have sent. `gy` copies no preamble either, because copying is
 submitting, and an annotation [sent on its own](#send-one-annotation-now) carries none: a
 batch of one has no batch to cover.
 
+A preamble that went is part of the record. It is kept with its batch and
+[read back with it](#read-the-last-batch-back-after-it-goes) — a float listing the findings
+and not the covering note would be describing a message nobody received. Shown there and
+never edited, for the reason that float refuses everything else.
+
 ### Read the last batch back after it goes
 
 A submit clears the queue, which is the moment "what did I actually ask for?" stops having
 an answer anywhere but the agent's transcript. `:CodeReviewLastBatch` gives it one: the
 annotations of the batch that went last, grouped by type exactly as the queue float and the
-payload group them, with the target it went to and when it went in the frame.
+payload group them, under the [preamble](#a-batch-can-carry-a-preamble) it went out under
+where there was one, with the target it went to and when it went in the frame.
 
 `gb` opens that same float from inside a review, in the diff and in the tree, so which
 window you are in never decides whether the key exists. The command needs no review open —
@@ -671,7 +677,9 @@ listing is still there.
 
 `gb`, or `:CodeReviewLastBatch` from anywhere, lists an annotation the same way — the
 reserved gutter, the bar in its type's colour, the code it inlined and its note — so the two
-read as one family. What is missing is every key that would change something.
+read as one family. A [preamble](#a-batch-can-carry-a-preamble) is drawn above them all, as
+prose rather than as an entry: no gutter and no bar, because it is about the batch and not
+about a place in the code. What is missing is every key that would change something.
 
 | Key | Action |
 | --- | --- |
@@ -867,7 +875,8 @@ making those annotations second-class.
 <summary>What a dispatched batch leaves behind</summary>
 
 A batch that is **dispatched** is kept rather than forgotten: the annotations as they went,
-where they went, when, and a **snapshot** of the working tree at that moment — a commit
+the **preamble** they went out under where there was one, where they went, when, and a
+**snapshot** of the working tree at that moment — a commit
 object minted with `git stash create`, which moves no ref, leaves the index alone and never
 touches your files. On a clean tree there is nothing to record that `HEAD` does not already
 say, and `HEAD` is what is stored.
@@ -880,7 +889,11 @@ agent received. An immediate send is a batch of one and is kept as one. The most
 
 `:CodeReviewLastBatch` reads the newest one back. A batch holding both kinds of annotation
 is written to both stores and rejoined by the moment it was dispatched, which is what stops
-a bare note being the one thing missing from what you read back.
+a bare note being the one thing missing from what you read back. Both halves carry the same
+preamble, for the reason they carry the same stamp and the same target: it belongs to the
+dispatch and not to either half of it. A record written before batches could carry one
+lacks the field and reads back with none, exactly as one written before the archive existed
+lacks the archive.
 
 </details>
 

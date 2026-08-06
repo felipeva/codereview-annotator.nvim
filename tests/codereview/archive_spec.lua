@@ -114,6 +114,12 @@ describe("what a restart finds", function()
     assert.same("agent", archive[1].target)
   end)
 
+  -- Part of what was sent, so part of what is kept. A record that held the findings and not
+  -- the covering note would describe a message nobody received.
+  it("keeps the preamble the batch went under", function()
+    assert.same("read the bare note last", archive[1].preamble)
+  end)
+
   it("records when it went", function()
     -- Loose, because the assertion is that a real time was stamped rather than that a
     -- clock reads a particular value.
@@ -141,6 +147,29 @@ describe("what a restart finds", function()
   -- whichever checkout happened to be current would describe nothing these are about.
   it("gives that batch no snapshot", function()
     assert.is_nil(loose[1].snapshot)
+  end)
+
+  -- A preamble is about the **dispatch** and not about either half of it, so it is written
+  -- to both -- exactly as the stamp and the target already are, and for the same reason:
+  -- neither half is the thing it was written about.
+  it("gives that batch the same preamble, since one dispatch went under one", function()
+    assert.same("read the bare note last", loose[1].preamble)
+    assert.same(archive[1].preamble, loose[1].preamble)
+  end)
+end)
+
+-- What a reviewer reads back is the batch, not either document that holds half of it. The
+-- rejoin builds a record of its own out of the two, so the preamble has to survive being
+-- rebuilt as well as being written.
+describe("the two halves read back as one dispatch", function()
+  local batch = assert(require("codereview.archive").last(root), "nothing was read back")
+
+  it("is the whole batch, both stores rejoined", function()
+    assert.same(3, #batch.entries, vim.inspect(batch.entries))
+  end)
+
+  it("carries the one preamble the dispatch went under", function()
+    assert.same("read the bare note last", batch.preamble)
   end)
 end)
 
@@ -319,6 +348,12 @@ describe("a batch dispatched from a clean working tree", function()
   it("falls back to HEAD, since there is nothing else to record", function()
     assert.same(h.git_lines(clean, { "rev-parse", "HEAD" })[1], state.archive(clean_root)[1].snapshot)
   end)
+
+  -- Submitted with `<C-s>`, which asks for nothing: there was no covering note to send, so
+  -- there is none to keep. The fast path costs the record exactly what it costs the payload.
+  it("records no preamble, because none was composed", function()
+    assert.is_nil(state.archive(clean_root)[1].preamble)
+  end)
 end)
 
 -- Nothing here ever reconciles a batch against a diff, so no later moment could decide one
@@ -382,5 +417,43 @@ describe("a document written before the archive existed", function()
 
   it("gains an empty archive rather than nothing at all", function()
     assert.same({}, loaded.archive)
+  end)
+end)
+
+-- The same shape one key further in. A batch dispatched before a batch could carry a
+-- **preamble** simply lacks the field, exactly as a document written before the archive
+-- existed lacks that one -- and nothing else about the record means anything different for
+-- want of it. Written by hand rather than dispatched, because this process cannot dispatch a
+-- batch the way a build without preambles did.
+describe("a batch archived before preambles existed", function()
+  vim.fn.writefile({
+    vim.json.encode({
+      version = 1,
+      scopes = {},
+      queue = {},
+      archive = {
+        {
+          -- Fixed rather than `os.time()`, so nothing here depends on which of the two
+          -- stores holds the newer record.
+          at = 1700000000,
+          target = "agent",
+          snapshot = "0123456789abcdef",
+          entries = {
+            { id = 9, type = "bug", kind = "file", path = "src/main.lua", key = "k", note = "sent long ago" },
+          },
+        },
+      },
+    }),
+  }, state.path(root))
+  local batch = assert(state.last_batch(root), "the batch written by hand was not read back")
+
+  it("reads back with everything it was written with", function()
+    assert.same("agent", batch.target)
+    assert.same(1, #batch.entries)
+    assert.same("sent long ago", batch.entries[1].note)
+  end)
+
+  it("reads back carrying no preamble, rather than not reading back", function()
+    assert.is_nil(batch.preamble)
   end)
 end)

@@ -2,7 +2,8 @@
 ---
 ---What a reviewer asked for should be a fact the plugin holds, not something to scroll an
 ---agent's transcript for. This is where that fact is read: the **entries** of the newest
----archived **batch**, the **target** it went to, and when it went.
+---archived **batch**, the **preamble** it went out under, the **target** it went to, and
+---when it went.
 ---
 ---**Read-only, and that is a claim about the record rather than a feature left unwritten.**
 ---An archived entry says something happened. A surface that let you drop, edit or resubmit
@@ -66,7 +67,16 @@ function M.last(root)
     table.sort(entries, function(a, b)
       return (a.id or 0) < (b.id or 0)
     end)
-    return { at = owned.at, target = owned.target, snapshot = owned.snapshot, entries = entries }
+    return {
+      at = owned.at,
+      target = owned.target,
+      snapshot = owned.snapshot,
+      -- Either half would answer. A **preamble** is about the dispatch and not about either
+      -- half of it, so both were written the same one, exactly as both were stamped from one
+      -- `os.time()` and sent to one target.
+      preamble = owned.preamble,
+      entries = entries,
+    }
   end
 
   if not owned or (loose and loose.at > owned.at) then
@@ -177,7 +187,8 @@ end
 ---Its highlight columns are byte offsets, not display columns: the bar glyph is multibyte,
 ---and so is anything a host configures in its place.
 ---@param entries CRAnnotation[]
----@param opts { types: CRType[], bar: string, width: integer }
+---@param opts { types: CRType[], bar: string, width: integer, preamble?: string }
+---       `preamble` is the prose the batch went out under, absent where it went under none.
 ---@return { lines: string[], marks: table[] }
 local function build(entries, opts)
   local lines, marks = {}, {}
@@ -201,6 +212,22 @@ local function build(entries, opts)
     lines[#lines + 1] = text
     mark(#lines, bar_col, { end_col = bar_end, hl_group = group })
     return #lines
+  end
+
+  -- Above the batch, where the payload put it and where the agent read it first. Drawn as
+  -- prose and not as an entry: no gutter, no bar and no number, because the gutter and the
+  -- bar are what say *entry* on this surface and a preamble is about the batch instead.
+  --
+  -- Wrapped to the whole width, since nothing is indented in front of it, and wrapped here
+  -- rather than left to the window for the reason every other row is: the window does not
+  -- wrap, and a row folded back to column zero would land under no bar at all.
+  if opts.preamble then
+    for _, text in ipairs(render.wrap(opts.preamble, opts.width)) do
+      lines[#lines + 1] = text
+    end
+    -- The same blank row the payload writes between the preamble and the header, and the
+    -- only thing separating what covers the batch from the batch itself.
+    lines[#lines + 1] = ""
   end
 
   local index = 0
@@ -352,6 +379,10 @@ function M.open()
     -- a host has configured a glyph of its own.
     bar = cfg.icons.change_bar,
     width = vim.api.nvim_win_get_width(win),
+    -- Shown and never edited, which is the read-only claim covering the last thing this
+    -- surface draws exactly as it covers the first: an archived batch went out under this
+    -- prose, and nothing here can revise what an agent already received.
+    preamble = batch.preamble,
   })
 
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, painted.lines)
