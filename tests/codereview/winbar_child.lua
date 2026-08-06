@@ -19,8 +19,14 @@
 -- channels are all even, so a half-strength blend toward a black background has no rounding
 -- in it.
 --
+-- `CELL` chooses which cell that is: the path, which carries no group of the plugin's own
+-- and is the reading the muting is proven with, or the file's added count, which carries
+-- one and is the reading the *colour* is proven with. Neither can stand in for the other:
+-- the path says the bar recedes with its pane, and the count says a group of the plugin's
+-- reaches the screen at all.
+--
 -- Not named `*_spec.lua`, so PlenaryBustedDirectory does not collect it. Spawned by
--- `split_spec` with FIXTURE, FOCUS and MUTED in its environment, and it must NOT load
+-- `split_spec` with FIXTURE, FOCUS, MUTED and CELL in its environment, and it must NOT load
 -- tests/minimal_init.lua, which would mint a state directory of its own.
 vim.opt.runtimepath:prepend(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h"))
 vim.o.termguicolors = true
@@ -35,6 +41,11 @@ vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 -- it came from as well as how bright it was.
 vim.api.nvim_set_hl(0, "WinBar", { fg = 0xeeee00, bg = 0x006600 })
 vim.api.nvim_set_hl(0, "WinBarNC", { fg = 0xee0000, bg = 0x004400 })
+-- What `CodeReviewStatAdd` links into, given a colour of its own that is neither of the
+-- two above -- so a cell drawn in it cannot be confused with a cell that took the bar's own
+-- foreground. A `%#Group#` sets the foreground and leaves the bar's background showing
+-- through, which is why only the foreground here differs from `WinBar`'s.
+vim.api.nvim_set_hl(0, "Added", { fg = 0x00cc66 })
 
 require("codereview").setup({
   layout = "split",
@@ -67,11 +78,19 @@ vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
 -- FOCUS=before is the muted reading and FOCUS=after the bright one.
 vim.api.nvim_set_current_win(vim.env.FOCUS == "before" and V.before_win or V.win)
 
--- Where the path starts on that bar, in display columns rather than bytes: the icon and the
--- chevron in front of it are both multibyte, so a byte offset lands two cells early.
-local bar = vim.wo[V.win].winbar
-local at = assert(bar:find(PATH, 1, true), "the winbar does not name " .. PATH .. ": " .. bar)
-local offset = vim.fn.strdisplaywidth(bar:sub(1, at - 1))
+-- Where that segment starts on the bar, in display columns of what the bar *draws*.
+--
+-- Taken from `nvim_eval_statusline` rather than from the option's own string, and both
+-- halves of that matter. Columns rather than bytes, because the icon and the chevron in
+-- front of the path are multibyte and a byte offset lands two cells early. Drawn rather than
+-- written, because the bar carries highlight markers -- characters in the string and no
+-- columns at all on the screen -- so a reading measured off the option drifts right by the
+-- width of every marker in front of it. Same trap, arriving from the two opposite sides.
+local file = V.files[index]
+local needle = vim.env.CELL == "stat" and ("+%d -%d"):format(file.added, file.removed) or PATH
+local drawn = vim.api.nvim_eval_statusline(vim.wo[V.win].winbar, { winid = V.win, use_winbar = true })
+local at = assert(drawn.str:find(needle, 1, true), ("the winbar does not carry %q: %s"):format(needle, drawn.str))
+local offset = vim.fn.strdisplaywidth(drawn.str:sub(1, at - 1))
 
 -- A window's own position is its winbar's row, its text beginning one row below.
 local top, left = unpack(vim.api.nvim_win_get_position(V.win))

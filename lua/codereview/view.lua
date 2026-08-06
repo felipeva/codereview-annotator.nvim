@@ -126,9 +126,16 @@ end
 -- What a bar is *made of* is `render.lua`'s: an ordered list of segments, each saying
 -- whether the plugin wrote it or whether it is a name the plugin did not choose, and
 -- `render.bar` is what turns that list into the string a winbar is set to. Everything here
--- decides *which* segments there are. `render.bar_width` is the ruler for all of it, and the
--- only one: it measures what a bar draws, which is neither its byte length nor its
--- character count.
+-- decides *which* segments there are, what each one says and which group it carries.
+-- `render.bar_width` is the ruler for all of it, and the only one: it measures what a bar
+-- draws, which is neither its byte length nor its character count -- and a highlight marker
+-- is several characters of it and no columns at all.
+--
+-- The groups are `hl.lua`'s, linked by default into whatever colorscheme is active, so a
+-- theme change is the theme's problem and a **muted** pane's bar recedes with the pane
+-- through the twins that set already has. The path carries none of them: the bar's own group
+-- is the brightest thing on a winbar, and leaving the path in it is what makes it the
+-- brightest thing on the left.
 
 local SEP = " · "
 -- One blank column at each edge, and at least two between the halves, so the two never
@@ -177,16 +184,44 @@ local function set_winbar(win, segments)
   vim.wo[win].winbar = render.bar(segments)
 end
 
----What the review summary says, one segment per `·`.
+---The `+N -M` a stat is, with its two halves coloured apart.
+---
+---Taken as the string the stat already is rather than as two numbers, so that the file's own
+---counts and the review's totals are spelled by one format and coloured by one rule. A
+---`binary` file has no counts in it and takes no colour.
+---@param stat string
+---@return CRBarSegment[]
+local function stat_segments(stat)
+  local plus, minus = stat:match("^(%+%d+) (%-%d+)$")
+  if not plus then
+    return { render.chrome(stat) }
+  end
+  return {
+    render.chrome(plus, "CodeReviewStatAdd"),
+    render.chrome(" "),
+    render.chrome(minus, "CodeReviewStatDel"),
+  }
+end
+
+---What the review summary says, one entry per `·`.
 ---
 ---A list rather than a string because a pane too narrow for both halves is one the summary
----gives way on, and which segment goes is the only thing here that is not a format.
----`spare` marks the ones the sticky header beside them now says twice: the plugin's own
----name, against a bar that names a file with a review chevron on it; the review's line
----totals, against the file's own `+N -M` two columns to the left; the queue's note count,
----against the file's own. What is not spare is what nothing else on screen says.
----@return { text: string, spare: boolean|nil }[]
+---gives way on, and which entry goes is the only thing here that is not a format. `spare`
+---marks the ones the sticky header beside them says twice: the review's line totals, against
+---the file's own `+N -M` two columns to the left; the queue's note count, against the file's
+---own. What is not spare is what nothing else on screen says.
+---
+---The review's own name is not here at all. It was the first thing a narrow pane dropped,
+---and a bar inside a review does not need to say it is one -- which is about thirty columns
+---handed back to the path.
+---
+---Each entry is already segments, because a count is coloured and the `·` beside it is not,
+---and because the counts carry glyphs a host chose: those are literals for the reason the
+---file's icon is one. Three counts, three glyphs, so that three numbers side by side cannot
+---be read as one another.
+---@return { parts: CRBarSegment[], spare: boolean|nil }[]
 local function summary_segments()
+  local icons = config.get().icons
   local reviewed = 0
   for _ in pairs(V.reviewed) do
     reviewed = reviewed + 1
@@ -197,35 +232,42 @@ local function summary_segments()
     notes = notes + #items
   end
   local out = {
-    { text = "Code review", spare = true },
-    { text = V.scope.label },
-    { text = ("%d/%d reviewed"):format(reviewed, #V.files) },
-    { text = ("+%d -%d"):format(added, removed), spare = true },
+    { parts = { render.literal(V.scope.label) } },
+    { parts = { render.literal(("%s%d/%d"):format(icons.reviewed, reviewed, #V.files)) } },
+    { parts = stat_segments(("+%d -%d"):format(added, removed)), spare = true },
   }
   if notes > 0 then
-    out[#out + 1] = { text = ("%d note%s"):format(notes, notes == 1 and "" or "s"), spare = true }
+    out[#out + 1] = {
+      parts = { render.literal(("%s%d"):format(icons.annotated, notes), "CodeReviewNoteCount") },
+      spare = true,
+    }
   end
   -- Read rather than computed: this runs on every paint, and a paint runs on every resize.
   -- The git behind the number is paid where the archive is judged, which is where the diff
   -- is read -- see `judge_archive`.
   if V.untouched then
-    out[#out + 1] = { text = ("%d untouched"):format(V.untouched) }
+    out[#out + 1] = {
+      parts = { render.literal(("%s%d"):format(icons.untouched, V.untouched), "CodeReviewUntouched") },
+    }
   end
   local to = delivery.target()
   if to and to.short then
-    out[#out + 1] = { text = ("→ %s"):format(to.short) }
+    -- One literal, arrow and all: the arrow is the plugin's and costs nothing by being
+    -- escaped, and a marker pair around each half would say the same thing twice.
+    out[#out + 1] = { parts = { render.literal(("→ %s"):format(to.short), "CodeReviewBarTarget") } }
   end
   return out
 end
 
 ---The summary as segments, minus whatever a narrow pane has made it drop.
 ---
----Literals, every one of them. Two carry names the plugin did not choose -- the **scope**'s
----label and the **target**'s short name -- and the rest cost nothing by being escaped, since
----a format the plugin wrote holds no `%` left by the time it has been formatted. Escaping
----one segment too many draws exactly what was asked for; escaping one too few is how a
----branch called `100%-done` stops being a branch name. The separators are the plugin's own.
----@param segments { text: string, spare: boolean|nil }[]
+---Names are literals, and that is where the escaping lives: the **scope**'s label, the
+---**target**'s short name and every configured glyph are things the plugin did not choose.
+---What the plugin formatted itself holds no `%` left by the time it has been formatted, so
+---escaping one segment too many draws exactly what was asked for; escaping one too few is
+---how a branch called `100%-done` stops being a branch name. The separators are the plugin's
+---own, and quieter than the facts they separate.
+---@param segments { parts: CRBarSegment[], spare: boolean|nil }[]
 ---@param dropped table<integer, boolean>|nil
 ---@return CRBarSegment[]
 local function join(segments, dropped)
@@ -233,9 +275,9 @@ local function join(segments, dropped)
   for i, seg in ipairs(segments) do
     if not (dropped and dropped[i]) then
       if #out > 0 then
-        out[#out + 1] = render.chrome(SEP)
+        out[#out + 1] = render.chrome(SEP, "CodeReviewBarSep")
       end
-      out[#out + 1] = render.literal(seg.text)
+      vim.list_extend(out, seg.parts)
     end
   end
   return out
@@ -272,13 +314,29 @@ end
 ---Literals, the icons included: a host chooses those, so they are not text the plugin wrote.
 ---The path stays a bare string rather than a segment because it is the one part the fitting
 ---rule cuts, and `render.keep_tail` takes text.
+---
+---Coloured as the in-buffer file header colours the same facts, and for the same reason one
+---function names the file for both: the counts apart, the note count in the group the notes
+---themselves carry, the icon and the chevron quiet. The path takes no group at all, which
+---leaves it drawing in the bar's own -- the brightest thing on the left, and the thing the
+---reviewer scrolled there to keep.
 ---@param label CRFileLabel
 ---@return { head: CRBarSegment[], path: string, tail: CRBarSegment[] }
 local function file_segment(label)
+  local tail = { render.chrome("  ") }
+  vim.list_extend(tail, stat_segments(label.stat))
+  -- Whatever the label puts after the stat, which is the note count when there is one. Taken
+  -- off the label rather than spelled again here: how a file's right-hand side reads is
+  -- `render.file_label`'s answer, and a second spelling of it would drift from the in-buffer
+  -- header the first time either moved.
+  local rest = label.right:sub(#label.stat + 1)
+  if rest ~= "" then
+    tail[#tail + 1] = render.chrome(rest, "CodeReviewNoteCount")
+  end
   return {
-    head = { render.literal(("%s %s "):format(label.icon, label.chevron)) },
+    head = { render.literal(("%s %s "):format(label.icon, label.chevron), "CodeReviewBarIcon") },
     path = label.name,
-    tail = { render.literal("  " .. label.right) },
+    tail = tail,
   }
 end
 
@@ -298,7 +356,7 @@ end
 ---kept the least of what it was holding.
 ---@param room integer Columns, margins already taken off
 ---@param file { head: CRBarSegment[], path: string, tail: CRBarSegment[] }
----@param segments { text: string, spare: boolean|nil }[]
+---@param segments { parts: CRBarSegment[], spare: boolean|nil }[]
 ---@return CRBarSegment[] left, CRBarSegment[] right
 local function fit(room, file, segments)
   -- The order they go in: the spares, then the rest from the head.
@@ -382,8 +440,14 @@ local function update_before_winbar()
   end
   local rev = V.scope.before
   -- `:0` is git's name for the index, and a name nobody reads as one. The revision itself is
-  -- a name the repository chose, so it is a literal beside chrome rather than one string.
-  local left = { render.chrome("Before · "), render.literal(rev == ":0" and "index" or rev) }
+  -- a name the repository chose, so it is a literal beside chrome rather than one string --
+  -- and it is accented, because it is what this pane exists to name. The same separator, and
+  -- the same quiet group on it, as the summary on the other pane.
+  local left = {
+    render.chrome("Before"),
+    render.chrome(SEP, "CodeReviewBarSep"),
+    render.literal(rev == ":0" and "index" or rev, "CodeReviewBarRev"),
+  }
   local width = vim.api.nvim_win_get_width(V.before_win)
   -- A file that exists only on the after side has no pre-image path to name, exactly as its
   -- header row on this pane has none: the revision keeps the bar to itself and says so by

@@ -36,15 +36,15 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/quiet_child.lua` | Spawned eight times by `quiet_spec`, one painted cell each, where two quiet states meet — deliberately not a spec. |
 | `codereview/drafts_child.lua` | Spawned by `drafts_spec` to abandon a half-written note and exit — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
-| `codereview/winbar_child.lua` | Spawned three times by `split_spec` to read one cell of a pane's winbar — deliberately not a spec. |
+| `codereview/winbar_child.lua` | Spawned four times by `split_spec` to read one cell of a pane's winbar — three inside the path for the muting, one on the file's added count for the colour — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
 | Spec | Covers |
 | --- | --- |
 | `types_spec` | Configuring annotation types: defaulting, validation, grouping, a custom type end to end |
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
-| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, the flag that removes them and the key that overrides that flag in both directions, for a session — how a winbar is assembled from typed segments, with no review, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, what a narrow pane sheds, the tree dismissed, a name carrying a `%`, and a review with no files |
-| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cell proving that bar mutes with its pane |
+| `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, the flag that removes them and the key that overrides that flag in both directions, for a session — how a winbar is assembled from typed segments, with no review, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, which group every piece of the bar draws in, what a narrow pane sheds and what the glyphs bought the path, the tree dismissed, a name carrying a `%`, and a review with no files |
+| `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cells proving that bar mutes with its pane and draws its counts in a group of the plugin's own |
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
@@ -54,7 +54,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
 | `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
 | `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, the four things it refuses, and the key that opens it from the diff and from the tree while the command still opens it from anywhere |
-| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally and the two switches that take it away with the entries, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
+| `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally, how a narrow pane fits a summary that tally is in, and the two switches that take it away with the entries, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
 | `open_diff_spec` | The `open_diff` adapter: what it is handed across a scope whose post-image is a ref and one whose post-image is the working tree, from both panes and from the tree, and the key that exists only while it is wired |
@@ -134,17 +134,19 @@ so the out-of-core language path is still checked locally without ever failing C
 - **The `gA` cases have to sit at the end of `render_spec`, and what they are keeping clear
   of is a winbar.** Opening a review is what runs `judge_archive`, and this file archives a
   batch part-way down — so the first case that opens a review of its own is also the first to
-  put an `N untouched` segment on the **sticky header**, and every case below it then reads a
-  bar one segment longer than the one it was written against. The case that notices is `the
+  put an untouched tally on the **sticky header**, and every case below it then reads a bar
+  one segment longer than the one it was written against. The case that notices is `the
   sticky header on a pane that has to choose`: at 45 columns the summary sheds its spares
-  first and then from its head, so one more segment pushes the shedding one step further and
-  the `0/N reviewed` tally that case asserts *survives* is exactly what goes. Measured rather
-  than predicted — a bare `view.reconcile()` above that block reds it, and nothing else in the
-  suite, on a bar reading `○ ▾ … → src/newname.lua  +1 -1  2 untouched` with the reviewed
-  tally gone. Nothing in that failure mentions archived entries or the key, which is what
-  makes it expensive: a case about `gA` breaks a case about narrow panes, and the two have
-  nothing to say to each other. Moving the block up the file brings it back, and so does
-  giving any earlier block a review of its own.
+  first and then from its head, and one more segment on it is columns the path does not get.
+  What reds is `spends the columns the shorter summary freed on the path` — the path keeps
+  five columns fewer, which is the head of the pre-image name in a rename. Measured rather
+  than predicted — a bare `view.reconcile()` above that block reds that one case, and nothing
+  else in the suite, on a bar reading `○ ▾ …ua → src/newname.lua  +1 -1  ✓0/8 · ↺2`. Nothing
+  in that failure mentions archived entries or the key, which is what makes it expensive: a
+  case about `gA` breaks a case about narrow panes, and the two have nothing to say to each
+  other. Moving the block up the file brings it back, and so does giving any earlier block a
+  review of its own. The glyphs bought that bar about thirty columns, so what used to go at
+  45 was the whole `0/N reviewed` tally; the trap is the same one, one notch further down.
 - **A session-lived override can only be caught falling back to configuration once.** `gA`
   overrides `archived` for the whole process, so "unset means the configured value" is
   observable only while this process has not yet pressed the key. `render_spec`'s cases for
@@ -333,14 +335,29 @@ so the out-of-core language path is still checked locally without ever failing C
 - **A muted winbar cannot be told from a bright one by its text**, and a non-current window
   draws its winbar in `WinBarNC` whether or not anything is muted — so "the unfocused pane's
   bar is not `WinBar`" holds with the muted namespace never reaching the winbar at all. The
-  sticky header carries no group of the plugin's own, so that namespace covering `WinBar`
+  path on that bar carries no group of the plugin's own, so that namespace covering `WinBar`
   and `WinBarNC` is the only thing making it recede with its pane, and the only assertion
   that can see it is the painted cell. `split_spec` spawns `winbar_child.lua` three times
   over one cell inside the path the bar names — focused, muted, and **muted off** — and it
   is the third that gives the second its teeth: without it the muted reading is only known
-  to differ from `WinBar`, not to be a blend of anything. Its window position is taken from
-  `nvim_win_get_position`, which is the winbar's own row, and the offset into the bar is a
-  display width, since the icon and the chevron in front of the path are both multibyte.
+  to differ from `WinBar`, not to be a blend of anything. A fourth run reads a different
+  cell of the same bar — the file's added count, which is where a group of the plugin's own
+  is — because no reading of the path can say that group reached the screen, and no reading
+  of the count can say the bar mutes: it is taken on the pane with focus, at the group's own
+  brightness. Its window position is taken from `nvim_win_get_position`, which is the
+  winbar's own row, and the offset into the bar is a display width **of what the bar draws**,
+  from `nvim_eval_statusline`: the icon and the chevron in front of the path are multibyte,
+  so a byte offset lands early, and a highlight marker is characters with no columns at all,
+  so an offset measured off the option lands late.
+- **An assertion about what the winbar says has to read what it draws.** The option holds
+  markup: the file's `+N -M` is two segments with a marker between them, so
+  `winbar:find("+1 -1")` is nil however the bar reads — and an `is_nil` written that way
+  passes whatever the bar says, which is a case gone quiet rather than a case passing.
+  `h.winbar` puts the option through Neovim's own statusline parser and hands back the text
+  and the width a reviewer sees, and every assertion about what a bar says goes through it.
+  The one that must not is `render_spec`'s escape case: `ja%%nus` in the markup is `ja%nus`
+  on the screen, and there the markup *is* the claim. The case beside it reads the drawn bar,
+  which is where "the name was drawn rather than expanded" can be seen at all.
 - **`WinResized` is no use to a test.** It is fired from the main loop, so it lands after
   whatever changed the width has returned — and in a headless spec, which never pumps the
   loop, it does not land at all. Anything that changes a window's width has to repaint for

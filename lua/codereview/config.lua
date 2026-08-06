@@ -104,6 +104,13 @@ M.defaults = {
     width = 34,
     position = "left", ---@type "left"|"right"
   },
+  ---Every glyph the plugin draws, in one place. All plain Unicode: nothing here needs a
+  ---Nerd Font, and nothing added here may.
+  ---
+  ---The **sticky header** spends three of them on the three counts it carries -- reviewed,
+  ---notes and untouched -- so that three numbers side by side cannot be read as one another.
+  ---The first two are the icons a file already carries, because the same glyph says the same
+  ---thing in both places.
   icons = {
     reviewed = "✓",
     annotated = "●",
@@ -111,6 +118,7 @@ M.defaults = {
     collapsed = "▸",
     expanded = "▾",
     change_bar = "▌",
+    untouched = "↺",
   },
 
   --- Annotations ---

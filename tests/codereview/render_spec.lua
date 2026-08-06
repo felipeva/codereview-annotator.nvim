@@ -378,6 +378,14 @@ describe("the winbar assembly", function()
     assert.same("%%#CodeReviewAdd#x", render.bar({ render.literal("%#CodeReviewAdd#x") }))
   end)
 
+  -- A name can be coloured too, and the escape is unchanged by it: the bar's coloured
+  -- pieces are largely names -- a **target**'s short name, a base revision, a count carrying
+  -- a glyph a host configured -- and the alternative is a caller writing the markers around
+  -- one by hand, which is exactly what having a kind per segment refuses.
+  it("wraps a literal that carries a highlight group, and doubles its % as well", function()
+    assert.same("%#CodeReviewNoteCount#50%% done%*", render.bar({ render.literal("50% done", "CodeReviewNoteCount") }))
+  end)
+
   -- A caller cannot put a path on the bar by accident, because a segment that says nothing
   -- about its kind is not a segment. The message is asserted, not merely the raise: every
   -- one of these raises while the assembly does not exist at all, and a case satisfied by
@@ -451,16 +459,34 @@ describe("the winbar assembly", function()
     end
     assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
   end)
+
+  -- The same claim for a coloured *name*, which is the case the bar actually needs: the
+  -- escape and the marker have to compose, so that what Neovim draws is the name as it
+  -- stands, in the group asked for, and no wider than the ruler said.
+  it("colours a name without letting the escape reach the screen", function()
+    local segments = { render.literal("src/50% done.lua", "DiffAdd") }
+    local drawn = vim.api.nvim_eval_statusline(render.bar(segments), { highlights = true })
+    assert.same("src/50% done.lua", drawn.str)
+    assert.same(render.bar_width(segments), drawn.width)
+    local groups = {}
+    for _, run in ipairs(drawn.highlights) do
+      groups[run.group] = true
+    end
+    assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
+  end)
 end)
 
 -- The sticky header: the file the cursor is in, named on the winbar so that reading past
 -- that file's own header row no longer costs a reviewer the file.
 --
 -- Asserted through the window option, as the scope above already is -- what a reviewer's
--- editor holds after a real cursor movement, never the function that put it there. This is
--- the *unified* layout's bar, including the rename spelled `old → new`; the per-pane rules
--- are `split_spec`'s. Every case reads a file from well below its header row, because the
--- header is exactly what has gone by the time this matters.
+-- editor holds after a real cursor movement, never the function that put it there. Through
+-- `h.winbar`, which is that option as Neovim *draws* it: the bar carries highlight markers
+-- now, and a needle spanning two of its segments is not in the raw string at all, so an
+-- assertion that something is absent would pass whatever the bar says. This is the *unified*
+-- layout's bar, including the rename spelled `old → new`; the per-pane rules are
+-- `split_spec`'s. Every case reads a file from well below its header row, because the header
+-- is exactly what has gone by the time this matters.
 --
 -- These blocks run last in this file and move the pane's width and the scope about, which
 -- nothing below them would survive.
@@ -468,7 +494,7 @@ describe("the sticky header", function()
   local V = view.current()
 
   local function bar()
-    return vim.wo[V.win].winbar
+    return h.winbar(V.win)
   end
 
   ---Read a file the way a reviewer does -- autocmd and all, which is the only thing that
@@ -528,9 +554,127 @@ describe("the sticky header", function()
   -- existed is still on it, moved to the right rather than dropped.
   it("keeps the review summary beside the file", function()
     local added, removed = require("codereview.diff").totals(V.files)
+    local icons = config.get().icons
     assert.is_truthy(bar():find(V.scope.label, 1, true), bar())
-    assert.is_truthy(bar():find(("0/%d reviewed"):format(#V.files), 1, true), bar())
+    assert.is_truthy(bar():find(("%s0/%d"):format(icons.reviewed, #V.files), 1, true), bar())
     assert.is_truthy(bar():find(("+%d -%d"):format(added, removed), 1, true), bar())
+  end)
+end)
+
+-- What the bar says with room for all of it, and which group each piece of it draws in.
+--
+-- Wide on purpose: at the width this file's tree leaves, the summary is already shedding, so
+-- "the review's own name is gone" would hold here with nothing having dropped it. A hundred
+-- columns is room for the whole summary beside a short path, which is where its absence
+-- means something.
+--
+-- The groups are read through `nvim_eval_statusline`, which is the parser a winbar goes
+-- through: it reports what each byte of the *drawn* bar is covered by, so a marker that
+-- landed one segment out is visible here. What no markup can say -- that the cell really
+-- draws in that group -- is `split_spec`'s painted cell.
+describe("the sticky header with room for the whole summary", function()
+  local V = view.current()
+  local icons = config.get().icons
+
+  ---@param path string
+  local function read_into(path)
+    local index = assert(h.file_index(V, path))
+    vim.api.nvim_set_current_win(V.win)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index] + 1, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+  end
+
+  vim.api.nvim_win_set_width(V.win, 100)
+  view.paint()
+  read_into("src/nonl.md")
+
+  local function bar()
+    return h.winbar(V.win)
+  end
+
+  ---What the bar draws, and the group covering each byte of it. The raw option, because the
+  ---groups are what is being read and `h.winbar` has already thrown them away.
+  ---@return { str: string, highlights: table[] }
+  local function drawn()
+    local markup = vim.wo[V.win].winbar
+    return vim.api.nvim_eval_statusline(markup, { winid = V.win, use_winbar = true, highlights = true })
+  end
+
+  ---The highlight group the first byte of `needle` is drawn in.
+  ---
+  ---`WinBar` is what comes back for anything carrying no group of the plugin's own, which is
+  ---the winbar's own foreground and the brightest thing on it.
+  ---@param needle string
+  ---@return string
+  local function group_of(needle)
+    local d = drawn()
+    local at = assert(d.str:find(needle, 1, true), ("%q is not on the bar: %s"):format(needle, d.str)) - 1
+    local group = "WinBar"
+    for _, run in ipairs(d.highlights) do
+      if run.start <= at then
+        group = run.group
+      end
+    end
+    return group
+  end
+
+  -- Guards the block: at a width the summary is already shedding at, half the cases below
+  -- would be asserting that a narrow pane dropped something.
+  it("really has room for the whole summary", function()
+    assert.same(100, vim.api.nvim_win_get_width(V.win))
+    assert.is_truthy(bar():find(V.scope.label, 1, true), bar())
+    local added, removed = require("codereview.diff").totals(V.files)
+    assert.is_truthy(bar():find(("+%d -%d"):format(added, removed), 1, true), bar())
+  end)
+
+  -- A bar inside a review does not need to say it is one, and the columns it cost are the
+  -- ones the path fights hardest for.
+  it("no longer names the review itself", function()
+    assert.is_nil(bar():find("Code review", 1, true), bar())
+  end)
+
+  -- Three numbers side by side, each with a glyph of its own so none of them can be read as
+  -- another. Every glyph comes from the configured icon table and none of them needs a Nerd
+  -- Font.
+  it("says the reviewed tally in a glyph rather than in a word", function()
+    assert.is_truthy(bar():find(("%s0/%d"):format(icons.reviewed, #V.files), 1, true), bar())
+    assert.is_nil(bar():find("reviewed", 1, true), bar())
+  end)
+
+  it("draws the path in the bar's own group, the brightest thing on it", function()
+    assert.same("WinBar", group_of("src/nonl.md"))
+  end)
+
+  it("colours the file's own added and removed counts apart", function()
+    local file = V.files[assert(h.file_index(V, "src/nonl.md"))]
+    assert.same("CodeReviewStatAdd", group_of(("+%d"):format(file.added)))
+    assert.same("CodeReviewStatDel", group_of(("-%d"):format(file.removed)))
+  end)
+
+  it("dims the separators and the icons in front of the path", function()
+    assert.same("CodeReviewBarSep", group_of("·"))
+    assert.same("CodeReviewBarIcon", group_of(icons.unreviewed))
+  end)
+
+  -- Every group here is a `default = true` link into whatever colorscheme is active, which
+  -- is what makes a theme change the theme's problem -- and what gives the bar **muted**
+  -- twins for free, since `hl.groups()` derives the muted set from the same table. Asserted
+  -- as a link to a defined group, never as a resolved colour.
+  it("links the bar's own groups into the colorscheme rather than defining colours", function()
+    for _, group in ipairs({ "CodeReviewBarIcon", "CodeReviewBarSep", "CodeReviewBarTarget", "CodeReviewBarRev" }) do
+      local def = vim.api.nvim_get_hl(0, { name = group })
+      assert.is_truthy(def.link, ("%s is not a link: %s"):format(group, vim.inspect(def)))
+      assert.is_truthy(vim.api.nvim_get_hl(0, { name = def.link }), ("%s links nowhere"):format(group))
+    end
+  end)
+
+  -- The theme's problem, proven rather than asserted of the links: a colorscheme clears every
+  -- global definition, and the bar has to come back linked into the new one.
+  it("comes back in the new theme's colours when the colorscheme changes", function()
+    vim.cmd("colorscheme blue")
+    local def = vim.api.nvim_get_hl(0, { name = "CodeReviewBarSep" })
+    assert.is_truthy(def.link, vim.inspect(def))
+    vim.cmd("colorscheme default")
   end)
 end)
 
@@ -543,7 +687,7 @@ describe("the sticky header with the tree dismissed", function()
   view.toggle_panel()
 
   local function bar()
-    return vim.wo[V.win].winbar
+    return h.winbar(V.win)
   end
 
   ---@param path string
@@ -575,7 +719,7 @@ describe("the sticky header on a pane that has to choose", function()
   view.toggle_panel() -- back, so the after pane has a neighbour to give columns to
 
   local function bar()
-    return vim.wo[V.win].winbar
+    return h.winbar(V.win)
   end
 
   ---Resize the pane and repaint. `WinResized` is fired from the main loop and never lands
@@ -625,11 +769,20 @@ describe("the sticky header on a pane that has to choose", function()
   end)
 
   -- The summary gives way, and gives up what the file beside it now says twice before what
-  -- only it can say: the plugin's own name and the review's line totals go, the reviewed
-  -- tally is still there.
+  -- only it can say: the review's line totals go, the reviewed tally is still there.
   it("sheds the summary rather than the file", function()
-    assert.is_nil(bar():find("Code review", 1, true), bar())
-    assert.is_truthy(bar():find(("0/%d reviewed"):format(#V.files), 1, true), bar())
+    local added, removed = require("codereview.diff").totals(V.files)
+    assert.is_nil(bar():find(("+%d -%d"):format(added, removed), 1, true), bar())
+    assert.is_truthy(bar():find(("%s0/%d"):format(config.get().icons.reviewed, #V.files), 1, true), bar())
+  end)
+
+  -- What the glyphs were spent on. The summary is about thirty columns shorter than the
+  -- words were, and on this pane every one of them goes to the path: the words left room for
+  -- `…→ src/newname.lua` and no more, so any of the *old* name arriving is columns that did
+  -- not exist before. The path still gives up its head, which is the rule -- it is keeping
+  -- more of it.
+  it("spends the columns the shorter summary freed on the path", function()
+    assert.is_truthy(bar():find("e.lua → src/newname.lua", 1, true), bar())
   end)
 end)
 
@@ -649,6 +802,9 @@ describe("the sticky header naming something with a % in it", function()
   vim.api.nvim_win_set_width(V.win, 100)
   view.pick_target()
 
+  -- The raw option, and the one block in this file that must read it: the claim is about the
+  -- markup a winbar is set to. Drawn, the doubled `%` is one `%` again, which is the right
+  -- answer and not the one being asserted here.
   local function bar()
     return vim.wo[V.win].winbar
   end
@@ -656,6 +812,13 @@ describe("the sticky header naming something with a % in it", function()
   it("doubles the % rather than letting it start a statusline item", function()
     assert.is_truthy(bar():find("ja%%nus", 1, true), bar())
     assert.is_nil(bar():find("ja%nus", 1, true), bar())
+  end)
+
+  -- And what the doubling is *for*, which the markup alone does not say: what reaches the
+  -- screen is the target's own name, not the window's file name that `%f` would have put
+  -- there. Neovim's own parser answers it.
+  it("draws the name the picker chose rather than expanding it", function()
+    assert.is_truthy(h.winbar(V.win):find("→ ja%nus", 1, true), h.winbar(V.win))
   end)
 end)
 
@@ -666,18 +829,20 @@ describe("the sticky header on a review with no files", function()
   view.set_scope("HEAD..HEAD")
 
   local function bar()
-    return vim.wo[V.win].winbar
+    return h.winbar(V.win)
   end
 
   it("really has no files", function()
     assert.same(0, #V.files)
   end)
 
-  -- Left-aligned and starting with the summary's first word: no file segment, and no empty
-  -- one either. A bar that drew the icons with nothing after them would fail here.
+  -- Left-aligned and starting with the summary's first segment, which is the scope now that
+  -- the review's own name has gone: no file segment, and no empty one either. A bar that drew
+  -- the icons with nothing after them would fail here.
   it("gives the summary the winbar to itself", function()
-    assert.same(" Code review", bar():sub(1, #" Code review"), bar())
-    assert.is_truthy(bar():find("0/0 reviewed", 1, true), bar())
+    local head = " " .. V.scope.label
+    assert.same(head, bar():sub(1, #head), bar())
+    assert.is_truthy(bar():find(("%s0/0"):format(config.get().icons.reviewed), 1, true), bar())
   end)
 
   it("draws no chevron for a file that is not there", function()

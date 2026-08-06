@@ -146,6 +146,22 @@ function M.line_row(view, path)
   end)
 end
 
+---What a window's **sticky header** draws, and how many columns of it.
+---
+---Read through Neovim's own statusline parser rather than off the window option, and every
+---assertion about what a bar *says* has to come through here. The option holds markup: a
+---needle spanning two segments is not in that string at all, so an `is_nil` for one passes
+---whatever the bar says, and a width taken from it counts the highlight markers -- several
+---characters each and no columns at all on the screen. Both are the same trap the bar's own
+---padding walked into from the other side. What must still read the raw option is the one
+---assertion about the *escape*, which is a claim about the markup itself.
+---@param win integer
+---@return string text, integer width
+function M.winbar(win)
+  local drawn = vim.api.nvim_eval_statusline(vim.wo[win].winbar, { winid = win, use_winbar = true })
+  return drawn.str, drawn.width
+end
+
 M.NS = vim.api.nvim_create_namespace("codereview")
 
 ---@param view CRView

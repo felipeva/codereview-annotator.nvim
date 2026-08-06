@@ -11,7 +11,7 @@ One syntax-highlighted diff of everything a branch changed — unified or side b
 vim-native navigation, a file tree, reviewed-file collapsing, and a batch submit at the end.
 
 ```
-┌─ tree ──────────────┐┌─ Code review · branch vs origin/master · 2/7 · +9 -4 ─────┐
+┌─ tree ──────────────┐┌─ branch vs origin/master · ✓2/7 · +9 -4 ──────────────────┐
 │ ▾ apps          1/4 ││ ○ ▾ apps/api/src/main.ts                 +12 -3  [3 notes]│
 │   ▾ api/src     1/2 ││ @@ -19,6 +19,8 @@ function boot()                         │
 │     ▾ routes    0/1 ││  19 │  const app = express()                              │
@@ -95,7 +95,7 @@ opts = { layout = "split" }   -- "unified" (default) or "split"; validated at se
 ```
 
 ```
-┌─ tree ───────────┐┌─ Before · origin/master ────┐┌─ Code review · branch · 2/7 ─┐
+┌─ tree ───────────┐┌─ Before · origin/master ────┐┌─ branch · ✓2/7 ──────────────┐
 │ ▾ apps       1/4 ││     apps/api/src/main.ts    ││ ● ▾ apps/api/src/main.ts +12 │
 │   ▾ api/src  1/2 ││ @@ -19,6 @@                 ││ @@ +19,8 @@ function boot()  │
 │     ● main.ts  3 ││  19 │  const app = express()││  19 │  const app = express() │
@@ -267,7 +267,7 @@ A file's header row scrolls off the top as soon as you read past the first scree
 The **sticky header** keeps it:
 
 ```
- ○ ▾ src/routes.lua  +12 -3  [2 notes]        branch vs master · 2/7 reviewed · +40 -9
+ ○ ▾ src/routes.lua  +12 -3  [2 notes]        branch vs master · ✓2/7 · +40 -9 · ●2 · → janus
 ```
 
 The same icon, chevron, path, `+N -M` and note count the in-buffer header carries, with the
@@ -276,13 +276,29 @@ at the top of the window — so it is the file an annotation would attach to, wh
 you are reaching for when you annotate twenty lines into a hunk. It works with the tree
 dismissed, and with a review opened without one.
 
+The summary counts in glyphs rather than words — `✓2/7` reviewed, `●2` notes, `↺2` untouched
+— so that three numbers side by side cannot be read as one another. Every one comes from the
+`icons` table, so you can change any of them, and every one is plain Unicode: nothing here
+needs a Nerd Font. The bar does not name the review itself; a bar inside a review does not
+need to.
+
+It is coloured. Added counts green and removed counts red, the note count in the colour notes
+carry everywhere else, the delivery **target** accented, the separators quieter than the
+facts between them, and the path the brightest thing on the left — which is the thing you
+scrolled there to keep. The groups are the plugin's own (`CodeReviewBarIcon`,
+`CodeReviewBarSep`, `CodeReviewBarTarget`, `CodeReviewBarRev`, beside the stat and note-count
+groups the diff already uses), and every one is a default link into your colorscheme, so a
+theme you have never used supplies the colours and changing theme mid-review follows.
+
 In the split layout each pane names its own side, so a rename reads correctly on the side
 holding the old name; the unified layout spells it `old → new`, exactly as the file header
 does. On a pane too narrow for both halves the summary gives way first — starting with what
-the file beside it now says twice — and the path keeps its tail.
+the file beside it now says twice — and the path keeps its tail. The before pane's bar names
+the base revision, and never gives it up for the path: half a revision is worse than none of
+a path the other pane is naming anyway.
 
 The bar is chrome of the review window it sits on, so it mutes with that window: on the pane
-without focus the sticky header recedes with everything else in it.
+without focus the sticky header recedes with everything else in it, colours and all.
 
 ### Typed annotations
 
@@ -514,10 +530,10 @@ dispatched — `file changed` or `file unchanged` beside the note — and the wi
 ones that have not:
 
 ```
- Code review · branch vs master · 2/7 reviewed · +40 -12 · 1 note · 2 untouched · → janus
+ branch vs master · ✓2/7 · +40 -12 · ●1 · ↺2 · → janus
 ```
 
-`2 untouched` is the answer to *did it ignore something*, and it is exact on the case that
+`↺2` is the answer to *did it ignore something*, and it is exact on the case that
 matters: a file the agent never opened. The comparison is **per file**, against the snapshot
 the batch went out with — the same commit `since-batch` diffs against, so a file the tally
 calls touched is exactly a file that scope shows you.
@@ -703,7 +719,8 @@ opts = {
                   strength = 0.25 }, -- gentler than the muting, so the row stays findable
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
-            collapsed = "▸", expanded = "▾", change_bar = "▌" },
+            collapsed = "▸", expanded = "▾", change_bar = "▌",
+            untouched = "↺" },     -- plain Unicode throughout: no Nerd Font anywhere
   types = nil,                     -- defaults to the five above; see Typed annotations
 }
 ```
