@@ -467,6 +467,41 @@ case the header exists for.
 **`nvim_win_call` propagates only the first return value.** Returning `line("w0"), line("w$")`
 from it silently loses the end of the range.
 
+**One terminal resize fires `VimResized` *and* `WinResized`, so a callback on both runs
+twice.** Measured by driving a real Neovim over a pty and resizing the pty three times:
+
+```
+3 real terminal resizes -> WinResized=3 VimResized=3
+```
+
+The view's resize autocommand listens to both, so every terminal resize used to cost two
+complete repaints: both panes re-rendered, both buffers rewritten, the whole file tree
+rebuilt, twice. Confirmed in ordinary use as well — 6 and 6, against 14 full paints, which
+is the 12 those callbacks caused plus the 2 from opening the review.
+
+The two arrive in a fixed order and agree about what they see, which is what makes one
+comparison enough. `VimResized` is first, and the windows already report their new
+dimensions when it lands, so `WinResized` reads exactly the same numbers a moment later:
+
+```
+resize to 100x36   VimResized  after 22x33  before 42x33  tree 34x33
+                   WinResized  after 22x33  before 42x33  tree 34x33
+```
+
+That order was the trap worth measuring rather than assuming. Had `VimResized` arrived
+before the windows moved, a record written at the first callback would have been stale, the
+second would have seen a change, and the review would have repainted twice anyway — with a
+guard that reads as correct and halves nothing. It does not, so the record is written by the
+**paint**, which is also what keeps every other repainting path in step: the layout toggle
+and the file tree's arrival both change a pane's width and repaint for themselves, and the
+event the main loop lands afterwards then finds nothing to do.
+
+**That autocommand has no pattern and no buffer, so a window resized anywhere runs it.**
+Including in another tab page, where the review is not even on screen. Measured over the
+same pty: `:tabnew` followed by `:split` fired `WinResized` twice with every review window
+the size it already was — two full repaints of a review nobody was looking at. The same
+comparison answers it, because none of the review's windows moved.
+
 **`winhighlight` with `NormalNC` cannot mute a pane.** It is the obvious way to make an
 unfocused window recede and it is the wrong one here: it changes only a window's *default*
 foreground and background, and in the panes almost nothing uses those. A changed row carries
