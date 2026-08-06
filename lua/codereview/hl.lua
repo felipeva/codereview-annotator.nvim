@@ -64,6 +64,23 @@ local LINKS = {
   CodeReviewPanelSel = "CursorLine",
   CodeReviewPanelDir = "Directory",
 
+  -- The **sticky header**'s own chrome. Everything else on that bar draws in a group it
+  -- shares with the surface saying the same thing on the diff -- the stat in
+  -- `CodeReviewStatAdd` and `CodeReviewStatDel`, the note count in `CodeReviewNoteCount`,
+  -- the untouched tally in `CodeReviewUntouched` -- because one colour has to mean one
+  -- thing wherever a reviewer meets it.
+  --
+  -- The path is deliberately not here. It draws in the bar's own group, which is the
+  -- brightest thing a winbar has, and the two groups below are what leave it that: the
+  -- separators are quieter than the facts between them, and the icon and the chevron are
+  -- chrome in front of the one fact the reviewer scrolled there to keep.
+  CodeReviewBarIcon = "Comment",
+  CodeReviewBarSep = "NonText",
+  CodeReviewBarTarget = "Special",
+  -- The base revision the before **pane** names. Its own group rather than the target's:
+  -- the two are accented alike today, and they answer entirely different questions.
+  CodeReviewBarRev = "Special",
+
   -- The chrome of the floats that list entries as rows -- the queue float, and the archive
   -- float that reads the last dispatched batch back. Named for the queue because that is
   -- where they started, and shared rather than duplicated because the two surfaces list the

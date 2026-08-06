@@ -682,7 +682,8 @@ describe("opening in the split layout", function()
   end)
 
   it("carries the review status on the after pane's winbar", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("reviewed", 1, true))
+    local reviewed = ("%s0/%d"):format(require("codereview.config").get().icons.reviewed, #V.files)
+    assert.is_truthy(h.winbar(V.win):find(reviewed, 1, true), h.winbar(V.win))
   end)
 
   it("names the revision the before pane is showing", function()
@@ -1238,7 +1239,9 @@ describe("the sticky header in the split layout", function()
   end
 
   read_into("src/newname.lua")
-  local after, before = vim.wo[V.win].winbar, vim.wo[V.before_win].winbar
+  -- What the two bars draw, not the markup they are set to: a needle that crossed one of the
+  -- highlight markers on them would never be found in the option itself.
+  local after, before = h.winbar(V.win), h.winbar(V.before_win)
 
   -- Guards the block: on a pane with no room for both, the before pane's path is dropped
   -- rather than drawn over its revision, and every case here would be reading that instead.
@@ -1259,8 +1262,25 @@ describe("the sticky header in the split layout", function()
   end)
 
   it("keeps the review summary on the after pane where it has always been", function()
+    local reviewed = ("%s0/%d"):format(require("codereview.config").get().icons.reviewed, #V.files)
     assert.is_truthy(after:find(V.scope.label, 1, true), after)
-    assert.is_truthy(after:find("reviewed", 1, true), after)
+    assert.is_truthy(after:find(reviewed, 1, true), after)
+  end)
+
+  -- The before pane's bar gets the same treatment as the after pane's, and this is the only
+  -- place either can be said of *it*: the revision it exists to name is accented, the
+  -- separator in front of that is as quiet as the summary's, and the pre-image path is left
+  -- in the bar's own group -- the brightest thing on this bar, exactly as on the other one.
+  it("colours the before pane's bar as it colours the after pane's", function()
+    assert.same("CodeReviewBarRev", h.winbar_group(V.before_win, V.scope.before))
+    assert.same("CodeReviewBarSep", h.winbar_group(V.before_win, "·"))
+    assert.is_nil(h.winbar_group(V.before_win, "src/oldname.lua"))
+  end)
+
+  -- The note count carries the colour notes carry everywhere else, which is the one thing on
+  -- this bar `render_spec` cannot reach: nothing is queued while its own summary is measured.
+  it("draws the queue's note count in the group the notes themselves carry", function()
+    assert.same("CodeReviewNoteCount", h.winbar_group(V.win, ("%s1"):format(config.get().icons.annotated)))
   end)
 
   -- A file added on the branch exists on one side only, and the before pane's header row for
@@ -1318,6 +1338,9 @@ describe("the sticky header on a muted pane", function()
   local muted = child({ FOCUS = "before", MUTED = "1" })
   local bright = child({ FOCUS = "after", MUTED = "1" })
   local unmuted_nc = child({ FOCUS = "before", MUTED = "0" })
+  -- The fourth reading is a different cell of the same bar: the file's added count, which is
+  -- the one segment on the left carrying a group of the plugin's own.
+  local stat = child({ FOCUS = "after", MUTED = "1", CELL = "stat" })
 
   -- Every reading is of a cell inside the path, so a bar that had stopped naming the file
   -- would fail here before any colour was compared.
@@ -1344,5 +1367,16 @@ describe("the sticky header on a muted pane", function()
   -- darker *than*.
   it("comes back at that group's own brightness with muting off", function()
     assert.same("cell s fg=ee0000 bg=004400", unmuted_nc)
+  end)
+
+  -- The claim no reading of the path can make, and no comparison of two strings can make
+  -- either: a group of the plugin's own reaches the screen. The cell is the `+` of the file's
+  -- own added count, on the pane with focus, and the reading has to be the group the stat
+  -- links into rather than the bar's own foreground -- which is what the bright reading above
+  -- is, taken from the same bar three cells to the left. The background is the bar's, because
+  -- a `%#Group#` naming a foreground leaves it showing through.
+  it("draws the added count in the plugin's own group rather than the bar's foreground", function()
+    assert.same("cell + fg=00cc66 bg=006600", stat)
+    assert.are_not.same(bright:sub(#"cell + " + 1), stat:sub(#"cell + " + 1), "the same colour as the path")
   end)
 end)

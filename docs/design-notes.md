@@ -57,24 +57,38 @@ works too, and takes effect on the next redraw: measured in a prototype, not ass
 group the namespace does not define falls back to its global definition, so what is not in
 it stays bright.
 
-**The winbar draws in `WinBar`/`WinBarNC` and in nothing of the plugin's own.** No segment
-on it carries a `%#Group#` today, so the **sticky header** mutes with its window through
-those two built-in groups and needs nothing added to the muted set — which is also the whole
-of what keeps the two features from colliding, and is why `split_spec` asserts the painted
-cell of a muted pane's bar rather than trusting that the two happen to agree. This used to
-be a rule the escaping *enforced*, and it is now only a fact about what the bar is built
-from: chrome may carry a group (see below), so the first segment that takes one leaves this
-paragraph out of date and the muted set with something to say about the winbar.
+**The winbar draws in `WinBar`/`WinBarNC` and in the plugin's own groups on top of them.**
+A segment carrying a `%#Group#` takes that group's foreground and leaves the bar's own
+background showing through, and both halves of that resolve through the window's highlight
+namespace — measured, not assumed: in a **muted** pane the same cell comes back as the
+group's *twin* over the muted `WinBarNC`'s background. So the sticky header mutes with its
+window on two mechanisms at once, and each needs the other to be right. The built-in pair is
+in `EDITOR_GROUPS`; every group the bar asks for is in `LINKS`, which is what `hl.groups()`
+derives the muted set from, so a bar group added anywhere else is one a muted pane leaves
+bright. `split_spec` reads two cells of one bar for exactly this reason: one inside the path,
+which carries no group of the plugin's own and is where the muting is proven, and one on the
+file's added count, which carries one and is where the colour is.
+
+**The path is the one thing on the bar left in the bar's own group**, and that is what makes
+it the brightest thing on the left rather than any group being brighter: the icon and the
+chevron in front of it are quiet, the separators quieter still, and everything else carries
+the group the surface saying the same thing on the diff carries — the stat, the note count
+and the untouched tally are the diff's own groups, not a second set for the bar. One colour,
+one meaning, wherever a reviewer meets it.
 
 **Every name on the winbar is escaped, per segment, and the bar is padded by hand in display
-columns.** A bar is built from typed segments — chrome, which the plugin wrote and may carry
-a highlight group, or a literal, which is a name the plugin did not choose — and
-`render.bar` doubles every `%` in a literal. The rule is the same one the wholesale escape
-held: the bar carries a path a reviewer's repository chose, and a `%f` in one would be read
-as a statusline item and expanded into something else. What moved is where it is applied, so
-that a caller cannot pass a path unescaped by accident: a segment has to say which kind it
-is, and the kind that takes a name is the kind that escapes it. The statusline's `%=` would
-now be possible, and would still buy nothing — see below.
+columns.** A bar is built from typed segments — chrome, which the plugin wrote, or a literal,
+which is a name the plugin did not choose — and `render.bar` doubles every `%` in a literal.
+The rule is the same one the wholesale escape held: the bar carries a path a reviewer's
+repository chose, and a `%f` in one would be read as a statusline item and expanded into
+something else. What moved is where it is applied, so that a caller cannot pass a path
+unescaped by accident: a segment has to say which kind it is, and the kind that takes a name
+is the kind that escapes it. **Escaping is by kind and colouring is not** — either kind may
+carry a highlight group, because most of what is worth colouring on this bar is a name: the
+**target**, the base revision, a count carrying a glyph a host configured. The alternative is
+a caller writing the markers around a name by hand, which is markup arriving from outside the
+one seam that decides what markup is. The statusline's `%=` would now be possible, and would
+still buy nothing — see below.
 
 **The ruler for that bar is `render.bar_width`, and it measures what is drawn.** Two things
 separate a bar's string from its columns, and they pull opposite ways. Almost everything on
@@ -83,18 +97,26 @@ a bar padded by `#` lands a dozen columns short of the pane while every ASCII as
 the suite still passes; the renamed file is what catches it. The mirror of that is a
 highlight marker: `%#Group#` is characters in the string and no columns at all on the
 screen, so a bar measured with its markers in drifts the other way, by the width of every
-one of them. Both are why the padding is arithmetic rather than `%=` — the fitting rule has
-to know how many columns the path may keep, which is the same measurement either way, and a
-bar that padded itself would take its own width out of reach of every assertion that reads
-it.
+one of them. That half stopped being hypothetical the moment the bar was coloured: a
+hundred-column bar is now some two hundred and fifty characters, so a ruler counting the
+string overshoots by more than the pane is wide. Both are why the padding is arithmetic
+rather than `%=` — the fitting rule has to know how many columns the path may keep, which is
+the same measurement either way, and a bar that padded itself would take its own width out of
+reach of every assertion that reads it. The same trap reaches the *tests*: a needle spanning
+two segments is not in the option's string at all, so `h.winbar` reads the bar as Neovim
+draws it and every assertion about what a bar says goes through it.
 
 **What the sticky header sheds on a narrow pane is decided by what it now says twice.** The
-summary drops the plugin's own name, the review's line totals and the queue's note count
-first — the file segment beside them carries a chevron, that file's own `+N -M` and that
-file's own note count — and only then does the path give up its head, down to the file's own
-name. Below that the summary keeps shedding, from its head, so the target it ends on is the
-last thing to go. Shedding the summary's *tail* was the first attempt and is wrong: the
-tail is where everything nothing else on screen says has accumulated.
+summary drops the review's line totals and the queue's note count first — the file segment
+beside them carries that file's own `+N -M` and that file's own note count — and only then
+does the path give up its head, down to the file's own name. Below that the summary keeps
+shedding, from its head, so the target it ends on is the last thing to go. Shedding the
+summary's *tail* was the first attempt and is wrong: the tail is where everything nothing
+else on screen says has accumulated. The review's own name used to head that list, and it is
+gone from the bar entirely: it was the first thing dropped on a narrow pane, and a bar inside
+a review does not need to say it is one. That, with the words the glyphs replaced, is about
+thirty columns handed to the path — enough that a 45-column pane keeps the directory above
+the file as well as the file.
 
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one

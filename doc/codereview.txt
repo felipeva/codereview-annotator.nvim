@@ -317,7 +317,7 @@ The sticky header                                  *codereview-sticky-header*
 
 Each pane's winbar names the file the cursor is in, so reading past that
 file's own header row in the diff does not cost you the file: >
-    ○ ▾ src/routes.lua  +12 -3  [2 notes]    branch vs master · 2/7 reviewed
+    ○ ▾ src/routes.lua  +12 -3  [2 notes]    branch vs master · ✓2/7 · ●2
 <
 It carries what the in-buffer file header carries -- the icon, the chevron,
 the path, the `+N -M` and the note count -- with the review summary
@@ -332,12 +332,27 @@ scrolled off -- so it names the file an annotation would attach to, which is
 what matters when you annotate twenty lines into a hunk. It works with the
 file tree dismissed, and with a review that was opened without one.
 
+The summary counts in glyphs rather than words: `✓2/7` reviewed, `●2` notes,
+`↺2` untouched, one glyph each so that three numbers side by side are never
+ambiguous. All of them come from `icons` (|codereview-config|) and all of them
+are plain Unicode -- no Nerd Font is needed anywhere in this plugin. The bar
+does not name the review itself.
+
+It is coloured, in groups of the plugin's own that are default links into your
+colorscheme: added counts green and removed counts red, the note count in the
+colour notes carry on the diff, the target accented, the separators dimmed,
+and the path left in the bar's own group, which makes it the brightest thing
+on the left. See |codereview-highlights|. A pane without focus mutes its bar
+with everything else in it.
+
 On a pane too narrow to hold both halves, the summary gives way first -- and
-gives up what the file beside it now says twice (the plugin's own name, the
-review's line totals, the queue's note count) before anything only it can say.
-The path is then cut from its head, keeping its tail, because the file's own
-name is the part being kept. A review with no files at all shows the summary
-alone, with no empty file segment.
+gives up what the file beside it now says twice (the review's line totals, the
+queue's note count) before anything only it can say. The path is then cut from
+its head, keeping its tail, because the file's own name is the part being
+kept. The before pane's base revision is never cut for the path's sake: half a
+revision says less than none of a path the other pane is naming anyway. A
+review with no files at all shows the summary alone, with no empty file
+segment.
 
 What changed inside a line                                 *codereview-spans*
 
@@ -652,9 +667,9 @@ Touched and untouched                                  *codereview-touched*
 Each entry of the *last* batch says whether its file has changed since that
 batch was dispatched -- `file changed` or `file unchanged` beside the note --
 and the winbar tallies the ones that have not: >
-    Code review · branch vs master · 2/7 reviewed · +40 -12 · 2 untouched
+    branch vs master · ✓2/7 · +40 -12 · ↺2 · → janus
 <
-`2 untouched` answers "did it ignore something", and it is exact on the case
+`↺2` answers "did it ignore something", and it is exact on the case
 that matters: a file the agent never opened. The comparison is per file, made
 against the snapshot the batch went out with -- the same commit
 |codereview-since-batch| diffs against, so a file the tally calls touched is
@@ -676,7 +691,7 @@ when the batch went (a snapshot records none), and a bare note, which is about
 no file at all. Nothing judged means no segment on the winbar rather than a
 zero to misread.
 
-That the scope decides who is judged is why the tally reads `0 untouched`
+That the scope decides who is judged is why the tally reads `↺0`
 inside |codereview-since-batch|: that scope shows exactly the files that
 moved, so every entry it covers is touched by definition, and the ones you are
 looking for are the ones it is not showing. `branch` and `worktree` are where
@@ -947,6 +962,7 @@ Defaults: >
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
         collapsed = "▸", expanded = "▾", change_bar = "▌",
+        untouched = "↺",
       },
       types = nil,
       send = nil, pick_target = nil, pick_file = nil,
@@ -1012,6 +1028,10 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewUntouched    -> DiagnosticHint
     CodeReviewQueueIndex   -> LineNr
     CodeReviewQueueState   -> Comment
+    CodeReviewBarIcon      -> Comment
+    CodeReviewBarSep       -> NonText
+    CodeReviewBarTarget    -> Special
+    CodeReviewBarRev       -> Special
     CodeReviewPanelDir     -> Directory
     CodeReviewPanelSel     -> CursorLine
     CodeReviewBug          -> DiagnosticError

@@ -146,6 +146,50 @@ function M.line_row(view, path)
   end)
 end
 
+---What a window's **sticky header** draws, and how many columns of it.
+---
+---Read through Neovim's own statusline parser rather than off the window option, and every
+---assertion about what a bar *says* has to come through here. The option holds markup: a
+---needle spanning two segments is not in that string at all, so an `is_nil` for one passes
+---whatever the bar says, and a width taken from it counts the highlight markers -- several
+---characters each and no columns at all on the screen. Both are the same trap the bar's own
+---padding walked into from the other side. What must still read the raw option is the one
+---assertion about the *escape*, which is a claim about the markup itself.
+---@param win integer
+---@return string text, integer width
+function M.winbar(win)
+  local drawn = vim.api.nvim_eval_statusline(vim.wo[win].winbar, { winid = win, use_winbar = true })
+  return drawn.str, drawn.width
+end
+
+---The group of the plugin's own that the first byte of `needle` is drawn in, or nil.
+---
+---**nil means the bar's own group**, which is the brightest thing a winbar has -- and it is
+---reported as an absence rather than by name because that name is `WinBar` in the pane with
+---focus and `WinBarNC` in the other one. A case naming it answers differently depending on
+---where the cursor was, which is a case that reds for a reason that has nothing to do with
+---colour. What is read is the group stacked *on top of* the bar's own, which is exactly the
+---question every caller is asking.
+---
+---Read through the same parser `M.winbar` uses, so a marker that landed one segment out is
+---visible here. What this cannot say is that the cell on the screen took that group's
+---colour. Only a painted cell can, and `split_spec` reads two.
+---@param win integer
+---@param needle string
+---@return string|nil
+function M.winbar_group(win, needle)
+  local opts = { winid = win, use_winbar = true, highlights = true }
+  local drawn = vim.api.nvim_eval_statusline(vim.wo[win].winbar, opts)
+  local at = assert(drawn.str:find(needle, 1, true), ("%q is not on the bar: %s"):format(needle, drawn.str)) - 1
+  local stack = {}
+  for _, run in ipairs(drawn.highlights) do
+    if run.start <= at then
+      stack = run.groups
+    end
+  end
+  return #stack > 1 and stack[#stack] or nil
+end
+
 M.NS = vim.api.nvim_create_namespace("codereview")
 
 ---@param view CRView

@@ -37,6 +37,20 @@ codereview.setup({
   send = function() end,
 })
 
+local icons = require("codereview.config").get().icons
+
+---The tally as the **sticky header** spells it: the configured glyph, and the number on it.
+---
+---A glyph rather than the word, because three counts sit side by side on that bar and each
+---needs one of its own. Every assertion about it reads `h.winbar`, which is the bar as
+---Neovim draws it: the option holds highlight markers, and a tally that had gone missing
+---from behind one would be found all the same.
+---@param n integer
+---@return string
+local function tally(n)
+  return ("%s%d"):format(icons.untouched, n)
+end
+
 ---Queue one whole-file annotation, as the review path would have left it.
 ---@param path string
 ---@param note string
@@ -247,7 +261,13 @@ describe("an archived entry on the diff", function()
   end)
 
   it("tallies the untouched ones on the winbar", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("1 untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_truthy(h.winbar(V.win):find(tally(1), 1, true), h.winbar(V.win))
+  end)
+
+  -- The same group the entries themselves are drawn in, two rows below. One colour, one
+  -- meaning: the tally is the count of what is drawn in that colour on the diff.
+  it("draws the tally in the group those entries carry on the diff", function()
+    assert.same("CodeReviewUntouched", h.winbar_group(V.win, tally(1)))
   end)
 end)
 
@@ -275,7 +295,7 @@ describe("a stale queued entry beside them", function()
   end)
 
   it("leaves the tally where it was", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("1 untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_truthy(h.winbar(V.win):find(tally(1), 1, true), h.winbar(V.win))
   end)
 
   queue.clear()
@@ -296,7 +316,7 @@ describe("a scope that covers neither file", function()
   end)
 
   it("tallies nothing rather than nothing-untouched", function()
-    assert.is_nil(vim.wo[V.win].winbar:find("untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_nil(h.winbar(V.win):find(icons.untouched, 1, true), h.winbar(V.win))
   end)
 
   it("judges nothing", function()
@@ -327,7 +347,7 @@ describe("a file deleted since the dispatch", function()
   end)
 
   it("leaves nothing untouched, and says so rather than going quiet", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("0 untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_truthy(h.winbar(V.win):find(tally(0), 1, true), h.winbar(V.win))
   end)
 end)
 
@@ -339,7 +359,7 @@ describe("the configuration flag", function()
   view.refresh()
 
   it("takes the tally with the entries", function()
-    assert.is_nil(vim.wo[V.win].winbar:find("untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_nil(h.winbar(V.win):find(icons.untouched, 1, true), h.winbar(V.win))
   end)
 
   it("judges nothing, so nothing is spent deciding", function()
@@ -351,7 +371,7 @@ describe("the configuration flag", function()
   view.refresh()
 
   it("brings both back together", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("0 untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_truthy(h.winbar(V.win):find(tally(0), 1, true), h.winbar(V.win))
   end)
 end)
 
@@ -367,7 +387,7 @@ describe("the key beside it", function()
   h.feed("gA")
 
   it("takes the tally with the entries", function()
-    assert.is_nil(vim.wo[V.win].winbar:find("untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_nil(h.winbar(V.win):find(icons.untouched, 1, true), h.winbar(V.win))
   end)
 
   it("judges nothing, so nothing is spent deciding", function()
@@ -382,7 +402,7 @@ describe("the key beside it", function()
   h.feed("gA")
 
   it("brings both back together, without re-reading the diff", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("0 untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_truthy(h.winbar(V.win):find(tally(0), 1, true), h.winbar(V.win))
   end)
 end)
 
@@ -446,7 +466,7 @@ describe("a file the reviewer edited between annotating and submitting", functio
   end)
 
   it("counts as untouched on the winbar", function()
-    assert.is_truthy(vim.wo[V.win].winbar:find("1 untouched", 1, true), vim.wo[V.win].winbar)
+    assert.is_truthy(h.winbar(V.win):find(tally(1), 1, true), h.winbar(V.win))
   end)
 
   -- The reviewer's own edits are not the agent's work, and the entry carries the blob that
@@ -462,5 +482,49 @@ describe("a file the reviewer edited between annotating and submitting", functio
     local touched = state.reconcile_archive(root, V.files)
     assert.is_nil(touched[dispatched_ids["the agent will edit this file"]])
     assert.same({ [entry.id] = false }, touched)
+  end)
+end)
+
+-- The **sticky header** with one more segment on it than a review usually has, on a pane
+-- that cannot hold them all. `render_spec` owns the fitting rule; what only this file can
+-- reach is the rule fitting a summary the tally is *in*, because this segment is the one
+-- that comes and goes.
+--
+-- Last in this file: it narrows the pane, which nothing below it would survive.
+describe("the tally on a pane that has to choose", function()
+  local V = assert(view.current())
+
+  vim.api.nvim_win_set_width(V.win, 45)
+  view.paint()
+  local index = assert(h.file_index(V, "src/newname.lua"))
+  vim.api.nvim_set_current_win(V.win)
+  vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[index] + 1, 0 })
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+
+  local function bar()
+    return h.winbar(V.win)
+  end
+
+  -- Guards the block: with no tally on the bar this is `render_spec`'s narrow-pane case
+  -- again, and every case below would pass without the segment it is about being there.
+  it("really is fitting a bar the tally is on", function()
+    assert.same(1, V.untouched)
+    assert.same(45, vim.api.nvim_win_get_width(V.win))
+    assert.is_truthy(bar():find(tally(1), 1, true), bar())
+  end)
+
+  -- The order is unchanged by the extra segment: the review's line totals are what the file
+  -- beside them says twice, so they go first and the counts that only the summary can give
+  -- stay. In words this bar had room for one of them; in glyphs it has room for both.
+  it("sheds what the file says twice and keeps both counts", function()
+    local added, removed = require("codereview.diff").totals(V.files)
+    assert.is_nil(bar():find(("+%d -%d"):format(added, removed), 1, true), bar())
+    assert.is_truthy(bar():find(("%s0/%d"):format(icons.reviewed, #V.files), 1, true), bar())
+  end)
+
+  -- The path still gives up its head rather than its tail, tally or no tally.
+  it("keeps the file's own name at the end of the path", function()
+    assert.is_truthy(bar():find("src/newname.lua", 1, true), bar())
+    assert.is_truthy(bar():find("…", 1, true), bar())
   end)
 end)

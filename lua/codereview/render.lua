@@ -324,7 +324,7 @@ end
 ---@class CRBarSegment
 ---@field kind "chrome"|"literal"
 ---@field text string
----@field hl string|nil          Highlight group; chrome only, and nil draws in the bar's own
+---@field hl string|nil          Highlight group, or nil to draw in the bar's own
 
 ---Chrome: a piece of the bar the plugin itself wrote.
 ---
@@ -346,15 +346,23 @@ end
 ---statusline item and expanded into something else -- the window's own file name, in that
 ---case, which is not even the file the bar is naming. The same holds for every other name
 ---the plugin did not choose: a **scope**'s label, a **target**'s short name, a base
----revision.
+---revision, and a glyph a host put in the icon table.
 ---
 ---A segment has to say which kind it is precisely so this cannot be forgotten. There is no
 ---way onto the bar that does not go through one of these two functions, and the one that
 ---takes a name is the one that escapes it.
+---
+---A literal takes a highlight group as chrome does, and for the reason the escape exists:
+---most of what is worth colouring on this bar is a name -- the **target**, the base
+---revision, a count carrying a configured glyph -- and the alternative is a caller writing
+---the markers around one by hand, which is markup arriving from outside the one seam that
+---decides what markup is. The escape is unchanged by it: the name is doubled, and the
+---markers go outside what was doubled.
 ---@param text string
+---@param hl string|nil
 ---@return CRBarSegment
-function M.literal(text)
-  return { kind = "literal", text = text }
+function M.literal(text, hl)
+  return { kind = "literal", text = text, hl = hl }
 end
 
 ---@param seg CRBarSegment
@@ -371,13 +379,16 @@ end
 function M.bar(segments)
   local out = {}
   for i, seg in ipairs(segments) do
+    local text = seg.text
+    -- Escape by kind, colour whatever asked for it: the two are separate questions, and a
+    -- name that is coloured is still a name.
     if kind_of(seg) == "literal" then
-      out[i] = (seg.text:gsub("%%", "%%%%"))
-    elseif seg.hl then
-      out[i] = ("%%#%s#%s%%*"):format(seg.hl, seg.text)
-    else
-      out[i] = seg.text
+      text = (text:gsub("%%", "%%%%"))
     end
+    if seg.hl then
+      text = ("%%#%s#%s%%*"):format(seg.hl, text)
+    end
+    out[i] = text
   end
   return table.concat(out)
 end
