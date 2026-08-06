@@ -393,6 +393,16 @@ so the out-of-core language path is still checked locally without ever failing C
   of its terminal-resize case changed `columns` in the `describe` body and then counted the
   paints of two events that had nothing left to do, which reported *zero* repaints and read
   as the guard working perfectly.
+- **The file tree cannot change size on its own, so its place in the resize record has no
+  spec.** The record the guard compares holds all three review windows, because
+  `paint_panel` builds the tree from its own window's width — but the tree can never be the
+  only one that moved. Narrowing it hands the columns to a **pane** (measured: the tree at 34
+  → 20 put the before pane at 37 → 51), and its height is the panes' height, since the three
+  share a row. So the record differs on a pane whether or not the tree is in it, and taking
+  the tree out of `dimensions()` reds nothing in the suite. That is a fact about where the
+  windows are and not a case waiting to be written; the same shape as "no fixture is both
+  tall and multilingual" above. Anyone who gives the tree a window arrangement of its own
+  should take this bullet out and assert it.
 - **A repaint test needs a seam a counter cannot fake, and change ticks are it.**
   `repaint_spec` reads `nvim_buf_get_changedtick` on the two panes and the file tree, because
   a paint rewrites each of those buffers exactly once. A counter on the view would measure the
@@ -401,6 +411,13 @@ so the out-of-core language path is still checked locally without ever failing C
   really does move all three ticks, and by exactly one: without them the whole file is a row
   of assertions that nothing moved, which is also what a seam that stopped measuring looks
   like. Same trap as "a filter test needs a fixture only that filter can reject".
+- **A resize record holding widths alone passes everything a diff is padded by.** Header
+  padding and the winbar's fitting are the visible half of a pane's size and both are width,
+  so a guard comparing widths only reads as complete. Emission is bounded by the *viewport*,
+  which is a height: a window that grew taller shows rows whose marks were never written, and
+  nothing repaints them until the reviewer scrolls. Dropping the height from `view.lua`'s
+  `dimensions()` must red `repaint_spec`'s `a window that changed only its height` and nothing
+  else in the suite — it left the whole suite green before that block was written.
 - **Moving the cursor from a script does not fire `CursorMoved`.** Neither
   `nvim_win_set_cursor` nor a `normal! j` inside `nvim_win_call` raises it under `nvim -l` —
   measured rather than assumed, the same way `scrollbind` was. So anything claiming to cost

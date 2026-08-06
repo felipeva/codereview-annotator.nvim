@@ -193,6 +193,33 @@ describe("a pane that really changed width", function()
   end)
 end)
 
+-- Only a pane's *width* is drawn into the diff -- the header padding, the winbar's fitting --
+-- so a record holding widths alone reads as complete. Emission is bounded by the viewport,
+-- and a viewport is a height: a window that grew taller is showing rows whose marks were
+-- never written, and nothing repaints until the reviewer scrolls. This is the ordinary case
+-- and not an exotic one -- measured over a pty, a `:split` beside the review took the after
+-- pane from 42x37 to 42x18 and gave it back, with the width the same at every step. Dropping
+-- the height from the record reds these two cases and nothing else in the suite.
+describe("a window that changed only its height", function()
+  local before_lines = vim.o.lines
+  local before = dims()
+  local seen = paints(function()
+    vim.o.lines = before_lines + 8
+  end)
+  local after = dims()
+
+  it("really changed a height and left every width alone", function()
+    assert.is_true(after.win[2] ~= before.win[2], "no review window changed height")
+    for name, wh in pairs(after) do
+      assert.same(before[name][1], wh[1], name .. " changed width as well")
+    end
+  end)
+
+  it("repaints once", function()
+    assert.same(1, seen)
+  end)
+end)
+
 -- The halving. One terminal resize fires both events -- `VimResized` first, and with the
 -- windows already reporting their new dimensions at it, both measured over a pty. So the
 -- first callback repaints and records, and the second finds nothing left to do.
@@ -222,12 +249,14 @@ describe("one terminal resize, which fires both events", function()
   end)
 end)
 
--- The trap the issue asks to be checked rather than assumed. The pty says the windows are
--- already resized when the first event arrives -- but a guard that wrote the record in the
--- callback rather than in the paint would still fail here: the first callback would record
--- dimensions nothing had moved yet, and the change that followed would then find them
--- already recorded and repaint nothing at all. The record is written by the paint, so an
--- event that finds nothing changed leaves it where it was.
+-- The trap the issue asks to be checked rather than assumed, from the side a spec can reach.
+-- The pty says the windows are already resized when the first event arrives, so the order
+-- below does not happen on a real resize -- what it pins is that the guard is a *comparison*
+-- and never a latch. Coalescing the pair with a flag, or a scheduled repaint, is the obvious
+-- alternative and it reads as equivalent: it halves the count just as well. Here it would
+-- swallow the event that carries the real change, and the review would be left drawn for a
+-- terminal that is no longer that size. An event that finds nothing changed must cost
+-- nothing and consume nothing.
 describe("a resize event that arrives before anything moved", function()
   local before_cols = vim.o.columns
   local seen = paints(function()
