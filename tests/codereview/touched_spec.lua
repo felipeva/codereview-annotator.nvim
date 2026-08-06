@@ -263,6 +263,12 @@ describe("an archived entry on the diff", function()
   it("tallies the untouched ones on the winbar", function()
     assert.is_truthy(h.winbar(V.win):find(tally(1), 1, true), h.winbar(V.win))
   end)
+
+  -- The same group the entries themselves are drawn in, two rows below. One colour, one
+  -- meaning: the tally is the count of what is drawn in that colour on the diff.
+  it("draws the tally in the group those entries carry on the diff", function()
+    assert.same("CodeReviewUntouched", h.winbar_group(V.win, tally(1)))
+  end)
 end)
 
 -- A queued entry's staleness and an archived entry's touchedness are drawn from the same

@@ -1267,6 +1267,22 @@ describe("the sticky header in the split layout", function()
     assert.is_truthy(after:find(reviewed, 1, true), after)
   end)
 
+  -- The before pane's bar gets the same treatment as the after pane's, and this is the only
+  -- place either can be said of *it*: the revision it exists to name is accented, the
+  -- separator in front of that is as quiet as the summary's, and the pre-image path is left
+  -- in the bar's own group -- the brightest thing on this bar, exactly as on the other one.
+  it("colours the before pane's bar as it colours the after pane's", function()
+    assert.same("CodeReviewBarRev", h.winbar_group(V.before_win, V.scope.before))
+    assert.same("CodeReviewBarSep", h.winbar_group(V.before_win, "·"))
+    assert.is_nil(h.winbar_group(V.before_win, "src/oldname.lua"))
+  end)
+
+  -- The note count carries the colour notes carry everywhere else, which is the one thing on
+  -- this bar `render_spec` cannot reach: nothing is queued while its own summary is measured.
+  it("draws the queue's note count in the group the notes themselves carry", function()
+    assert.same("CodeReviewNoteCount", h.winbar_group(V.win, ("%s1"):format(config.get().icons.annotated)))
+  end)
+
   -- A file added on the branch exists on one side only, and the before pane's header row for
   -- it is filler. Its winbar says the same thing by naming nothing.
   it("names no pre-image for a file that has none", function()

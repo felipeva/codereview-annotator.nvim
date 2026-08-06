@@ -592,30 +592,10 @@ describe("the sticky header with room for the whole summary", function()
     return h.winbar(V.win)
   end
 
-  ---What the bar draws, and the group covering each byte of it. The raw option, because the
-  ---groups are what is being read and `h.winbar` has already thrown them away.
-  ---@return { str: string, highlights: table[] }
-  local function drawn()
-    local markup = vim.wo[V.win].winbar
-    return vim.api.nvim_eval_statusline(markup, { winid = V.win, use_winbar = true, highlights = true })
-  end
-
-  ---The highlight group the first byte of `needle` is drawn in.
-  ---
-  ---`WinBar` is what comes back for anything carrying no group of the plugin's own, which is
-  ---the winbar's own foreground and the brightest thing on it.
   ---@param needle string
-  ---@return string
+  ---@return string|nil
   local function group_of(needle)
-    local d = drawn()
-    local at = assert(d.str:find(needle, 1, true), ("%q is not on the bar: %s"):format(needle, d.str)) - 1
-    local group = "WinBar"
-    for _, run in ipairs(d.highlights) do
-      if run.start <= at then
-        group = run.group
-      end
-    end
-    return group
+    return h.winbar_group(V.win, needle)
   end
 
   -- Guards the block: at a width the summary is already shedding at, half the cases below
@@ -642,7 +622,7 @@ describe("the sticky header with room for the whole summary", function()
   end)
 
   it("draws the path in the bar's own group, the brightest thing on it", function()
-    assert.same("WinBar", group_of("src/nonl.md"))
+    assert.is_nil(group_of("src/nonl.md"))
   end)
 
   it("colours the file's own added and removed counts apart", function()
@@ -812,6 +792,12 @@ describe("the sticky header naming something with a % in it", function()
   it("doubles the % rather than letting it start a statusline item", function()
     assert.is_truthy(bar():find("ja%%nus", 1, true), bar())
     assert.is_nil(bar():find("ja%nus", 1, true), bar())
+  end)
+
+  -- Where a **target** is named the bar is accented, arrow and name alike: it is where a
+  -- batch is going, and a reviewer looks for it while reading code.
+  it("accents the target it is naming", function()
+    assert.same("CodeReviewBarTarget", h.winbar_group(V.win, "→ ja%nus"))
   end)
 
   -- And what the doubling is *for*, which the markup alone does not say: what reaches the
