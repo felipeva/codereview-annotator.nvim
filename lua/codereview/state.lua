@@ -31,6 +31,7 @@ local VERSION = 1
 ---@field at integer            When it went
 ---@field target string         Short name of where it went; "local" for the adapter's default
 ---@field snapshot string|nil   Commit object recording the working tree at that moment
+---@field preamble string|nil   The prose it went under, absent when it went under none
 ---@field entries CRAnnotation[]
 
 ---How many dispatched batches a store keeps, oldest dropped on write.
@@ -266,7 +267,12 @@ end
 ---       functions included, and one that will not JSON-encode would take the whole
 ---       document's write down with it.
 ---@param root string|nil nil outside a repository, where only the global store applies
-function M.archive_batch(items, target, root)
+---@param preamble string|nil The prose the batch went out under, as the payload rendered it
+---       -- nil where it rendered nothing, because the record is of what was sent. Written
+---       to both halves rather than to either: a preamble is about the **dispatch**, exactly
+---       as the stamp and the target are, and neither half is the thing it was written
+---       about.
+function M.archive_batch(items, target, root, preamble)
   local owned, loose = partition(items)
   -- One stamp for the batch, taken once: the two stores are recording the same dispatch.
   local at = os.time()
@@ -280,7 +286,7 @@ function M.archive_batch(items, target, root)
     -- No snapshot: these entries have no repository whose working tree could be recorded,
     -- and a snapshot of whichever checkout happened to be current would describe nothing
     -- they are about.
-    push(doc.archive, { at = at, target = target, entries = loose })
+    push(doc.archive, { at = at, target = target, preamble = preamble, entries = loose })
     write_global(doc)
   end
 
@@ -294,6 +300,7 @@ function M.archive_batch(items, target, root)
     -- Minted here rather than handed in. The snapshot is the working tree at the moment of
     -- dispatch, and it is only that if it is taken at that moment.
     snapshot = require("codereview.git").snapshot(root),
+    preamble = preamble,
     entries = owned,
   })
   M.save(root, data)

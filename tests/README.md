@@ -29,7 +29,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/archived_child.lua` | Spawned by `render_spec` to archive a batch and turn archived entries off — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
 | `codereview/capture_child.lua` | Spawned twice by `capture_spec` — deliberately not a spec. |
-| `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch and exit — deliberately not a spec. |
+| `codereview/archive_child.lua` | Spawned by `archive_spec` to dispatch a batch under a **preamble** and exit — deliberately not a spec. |
 | `codereview/norepo_child.lua` | Spawned twice by `norepo_spec` (write, then read) — deliberately not a spec. |
 | `codereview/muted_child.lua` | Spawned eight times by `muted_spec`, one painted cell each — four on a token of a changed line for the muting, four on a token of a context line for the row a pane lights — deliberately not a spec. |
 | `codereview/faded_child.lua` | Spawned three times by `faded_spec`, one painted cell each — deliberately not a spec. |
@@ -52,8 +52,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit, and the **preamble**: above the header, the empty one that renders nothing, and the same arguments rendering the same message |
 | `state_spec` | Persistence across a real restart, blob invalidation, corrupt files, scopes a view never opened |
-| `archive_spec` | A dispatched batch kept across a real restart: both stores, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and a document written before the archive existed |
-| `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, the four things it refuses, and the key that opens it from the diff and from the tree while the command still opens it from anywhere |
+| `archive_spec` | A dispatched batch kept across a real restart: both stores, the **preamble** each half carries, the snapshot and what minting it must not disturb, the bound, the id a new annotation takes, what dropping does on the anchor that holds both, and the documents written before the archive and before preambles existed |
+| `archive_float_spec` | The surface over that record: which batch it decides went last, the two stores rejoined into one listing, how it draws an entry, the four things it refuses, the **preamble** it draws above the batch and will not let you edit, and the key that opens it from the diff and from the tree while the command still opens it from anywhere |
 | `touched_spec` | Whether an archived entry's file has moved since its batch went: the reconciliation, the marker on the diff, the winbar tally and the two switches that take it away with the entries, the three things left unjudged, which of three candidate blobs it is judged against, and that the queue's own staleness rule is untouched by any of it |
 | `since_batch_spec` | The scope that diffs against the newest snapshot, inside a view: what it leaves out, syntax, navigation, collapse, reviewed marks, both layouts, the entry annotating in it produces, and where `gs` reaches it |
 | `viewless_spec` | The queue with no review view open: persist, restore, submit, immediate send |
@@ -259,6 +259,27 @@ so the out-of-core language path is still checked locally without ever failing C
   that catches it is in `archive_float_spec`: two dispatches, a file edited between them so
   the two snapshots are genuinely different shas, and the batch the scope resolved against
   looked up *by its snapshot* rather than by taking the head a third time.
+- **A compose stub that answers one thing cannot tell a preamble from a note.** The same
+  adapter is asked for both, so a stub returning one string leaves "the preamble reached the
+  record" satisfied by an entry's note reaching it instead — and every assertion about where
+  it is drawn passes on a row holding the annotation. `archive_child.lua` and
+  `archive_float_spec` both branch on `ctx.preamble` and answer differently, which is the
+  only reason those cases measure the preamble at all. Same trap as "a filter test needs a
+  fixture only that filter can reject".
+- **A batch dispatched under a preamble restores focus on a later tick.** `<C-a>` is a
+  submit with a composer in front of it, and the submit schedules the focus restore every
+  composer path ends with. A spec that dispatches and then opens the last-batch float has
+  that restore land *after* the float is on screen — taking focus off it, so the keys the
+  next case feeds go to the window behind. `archive_float_spec`'s `dispatch_under` drains
+  with `vim.wait(50)` before returning, exactly as `focus_spec` drains between an annotation
+  and the submit that follows it.
+- **The archive lives in the same document as the queue, so "the file does not say it" is
+  not "the queue does not hold it".** `delivery_spec`'s claim that a preamble never joins
+  the queue was a search over the whole state file, which stopped being true the moment a
+  dispatch archived one into that same file — for a reason the case is not about. It now
+  decodes the document and searches the *entries*, queued and archived alike, which is the
+  claim: a preamble is not an entry. Asserting over `doc.queue` alone would be weaker still,
+  since a dispatched batch leaves it empty.
 - **A rejoin test needs the loose entry queued first.** Concatenating one store after the
   other happens to produce the right order whenever the repository entries were queued
   first, so a fixture in that order passes with the ordering deleted. `archive_float_spec`

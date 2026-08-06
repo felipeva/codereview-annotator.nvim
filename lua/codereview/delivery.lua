@@ -259,7 +259,16 @@ function M.deliver(items, to, opts)
   -- raise and the register the shipped default copies to leave the archive exactly where
   -- they leave the batch. Here rather than in the two callers because a batch and a batch
   -- of one go out through this function and must not diverge on the way (ADR-0004).
-  require("codereview.state").archive_batch(items, M.label_of(to), repo)
+  --
+  -- The preamble goes into the record through the renderer's own rule, not past it: what is
+  -- kept is what the agent was handed, so a batch that rendered no covering note is archived
+  -- with none. An **immediate send** and a copy reach neither branch with one.
+  require("codereview.state").archive_batch(
+    items,
+    M.label_of(to),
+    repo,
+    require("codereview.payload").preamble(opts.preamble)
+  )
   return true
 end
 
