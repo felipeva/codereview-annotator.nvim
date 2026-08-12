@@ -139,9 +139,9 @@ function M.open(root)
     pcall(vim.api.nvim_buf_set_extmark, buf, NS_TRIM, m.row, m.col, m.opts)
   end
 
-  -- Newest first, and the cursor on the newest: the row a reviewer wants is nearly always
-  -- one of the recent ones, so reading this list costs no movement.
-  pcall(vim.api.nvim_win_set_cursor, win, { 1, 0 })
+  -- The cursor opens on the newest commit, which is where a fresh window puts it and where
+  -- the row a reviewer wants nearly always is -- so reading this list costs no movement.
+  -- Nothing places it here, because there is nothing yet that would want it elsewhere.
 
   local function close()
     if vim.api.nvim_win_is_valid(win) then

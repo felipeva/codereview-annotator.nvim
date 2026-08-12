@@ -586,6 +586,15 @@ so the out-of-core language path is still checked locally without ever failing C
   in both panes on its row passes with the before pane never drawing anything, because the
   case is then reading the after pane twice. `spans_spec` uses `src/nonl.md`, the fixture's
   only pair that changes something on each side.
+- **The commit list's opening row cannot be measured while every listing starts at the
+  top.** A fresh window puts the cursor on row 1, so `trim_float_spec`'s "opens the cursor
+  on the first row" is satisfied by placing it there, by placing it nowhere, and by deleting
+  every line that could place it — measured: removing an explicit `nvim_win_set_cursor`
+  from `trim_float.lua` reds nothing in the suite, which is why there is no such line. The
+  case is kept because it is the claim a reviewer can see, and it gets its teeth the moment
+  the float has a row it must open somewhere other than the top. Same shape as "no fixture
+  is both tall and multilingual" — a gap in what can be observed, not an assertion to
+  delete.
 - **Two entries of different types are separated by a group, not by a row.** The queue
   float's boundary between entries is one blank row carrying no bar, and an assertion about
   it needs two entries of the *same* annotation type — give them different ones and what
