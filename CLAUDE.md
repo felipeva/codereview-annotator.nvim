@@ -9,11 +9,14 @@ Operating instructions for agents working in `codereview-annotator.nvim`.
 Anything with a feature or design decision behind it runs through the skill chain below,
 in order. Do not skip to code.
 
-1. **`/to-prd`** — synthesises the conversation into a PRD and publishes it to the issue
+1. **`/to-spec`** — synthesises the conversation into a spec and publishes it to the issue
    tracker (a GitHub issue here) labelled `ready-for-agent`. It does not interview; it
-   works from what has already been discussed, so do that discussion first.
-2. **`/to-issues`** — breaks the PRD into independently-grabbable issues, one per vertical
-   slice.
+   works from what has already been discussed, so do that discussion first. It stops once
+   on the way to put its test seams to you.
+2. **`/to-tickets`** — breaks the spec into **tickets**: tracer-bullet vertical slices, each
+   declaring the tickets that **block** it. A ticket with no blockers can start at once;
+   the rest wait on theirs. It puts the breakdown to you before it publishes, and publishes
+   blockers first, so every edge names an issue that already exists.
 3. **Branch off the issue id**: `<type>/<issue>-<slug>`, e.g.
    `feat/12-single-annotation-queue`. `<type>` is the Conventional Commits type the work
    will land under, so the branch, the commits and the PR title all agree.
@@ -21,11 +24,12 @@ in order. Do not skip to code.
 5. **Open the PR** with `gh pr create`. The title is a Conventional Commits subject; the
    body closes the issue (`Closes #12`).
 
-Both PRD skills are `disable-model-invocation: true` — **the user invokes them.** Ask for
-`/to-prd` rather than trying to run it, and never hand-roll a PRD to work around that.
+Both skills are `disable-model-invocation: true` — **the user invokes them.** Ask for
+`/to-spec` rather than trying to run it, and never hand-roll a spec or a ticket to work
+around that.
 
 Straight-to-`master` is only for what has no issue behind it: docs corrections,
-formatting, CI plumbing. Anything a PRD was written for gets a branch and a PR.
+formatting, CI plumbing. Anything a spec was written for gets a branch and a PR.
 
 `CONTRIBUTING.md` is the same workflow written for outside contributors. Change both when
 one moves, or they drift.

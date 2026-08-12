@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues in `felipeva/codereview-annotator.nvim`. Use the `gh` CLI for all operations.
+Issues, specs and tickets for this repo all live as GitHub issues in `felipeva/codereview-annotator.nvim`. Use the `gh` CLI for all operations.
 
 ## Conventions
 
