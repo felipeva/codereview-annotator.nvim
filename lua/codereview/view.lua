@@ -90,10 +90,14 @@ end
 
 ---Reviewed/expanded state is tracked per scope: marking a file done in `staged` says
 ---nothing about whether you have reviewed the whole branch's changes to it.
+---
+---Which scope that is comes from the scope's own identity, and is not worked out here. The
+---identity holds still while the pre-image ref moves, so a scope that draws a smaller diff
+---than it did yesterday reads yesterday's reviewed marks back.
 ---@param scope CRScope
 ---@return string
 local function scope_key(scope)
-  return scope.name .. ":" .. scope.before
+  return scope.name .. ":" .. scope.identity
 end
 
 --- Panes ----------------------------------------------------------------------
