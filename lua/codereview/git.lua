@@ -121,6 +121,8 @@ end
 ---@field before string     Ref for the pre-image; ":0" means the index
 ---@field after string|nil  Ref for the post-image; nil means the working tree
 ---@field untracked boolean Whether untracked files belong in this scope
+---@field identity string   What makes this the same scope again; the view keys its
+---                         per-scope progress on it
 
 ---Every scope with a name, in the order `gs` moves through them. A bare revspec is
 ---resolved separately, and completion offers exactly this list.
@@ -150,6 +152,12 @@ end
 ---`before`/`after` exist because the diff text alone cannot tell the syntax highlighter
 ---where to find whole-file content: `--cached` compares HEAD to the index, and neither
 ---side is a file on disk.
+---
+---Every scope also carries an identity: the ref that tells the view which scope it reads
+---progress for. Today it is `before` in each of them. That is what the progress key has
+---always held, so a key written before this field existed still finds its reviewed marks.
+---It is a field of its own because the two can move apart. If a scope moves its pre-image,
+---the identity does not move with it, and the reviewer keeps the marks they made.
 ---@param spec string
 ---@param root string
 ---@return CRScope|nil, string|nil err
@@ -162,11 +170,28 @@ function M.resolve_scope(spec, root)
       before = "HEAD",
       after = ":0",
       untracked = false,
+      identity = "HEAD",
     }
   elseif spec == "unstaged" then
-    return { name = "unstaged", label = "unstaged", args = {}, before = ":0", after = nil, untracked = false }
+    return {
+      name = "unstaged",
+      label = "unstaged",
+      args = {},
+      before = ":0",
+      after = nil,
+      untracked = false,
+      identity = ":0",
+    }
   elseif spec == "worktree" then
-    return { name = "worktree", label = "worktree", args = { "HEAD" }, before = "HEAD", after = nil, untracked = true }
+    return {
+      name = "worktree",
+      label = "worktree",
+      args = { "HEAD" },
+      before = "HEAD",
+      after = nil,
+      untracked = true,
+      identity = "HEAD",
+    }
   elseif spec == "since-batch" then
     -- Resolved here rather than anywhere of its own, and to a *real ref*: the diff parser,
     -- the blob hashing and the whole-file fetch the highlighter needs all read content out
@@ -191,6 +216,7 @@ function M.resolve_scope(spec, root)
       -- through the same synthesis the branch and worktree scopes already apply rather
       -- than through a mechanism of its own.
       untracked = true,
+      identity = batch.snapshot,
     }
   elseif spec == "branch" or spec == "" or spec == nil then
     local branch = M.default_branch(root)
@@ -208,6 +234,9 @@ function M.resolve_scope(spec, root)
       before = base,
       after = nil,
       untracked = true,
+      -- The merge base, which is what says *this branch*. A scope that starts at a later
+      -- commit is the same branch review, and it reads the same progress back.
+      identity = base,
     }
   end
 
@@ -222,11 +251,27 @@ function M.resolve_scope(spec, root)
     if not base then
       return nil, ("no merge base between %s and %s"):format(a, b)
     end
-    return { name = "revspec", label = spec, args = { spec }, before = base, after = b, untracked = false }
+    return {
+      name = "revspec",
+      label = spec,
+      args = { spec },
+      before = base,
+      after = b,
+      untracked = false,
+      identity = base,
+    }
   elseif kind == ".." then
     local a = left ~= "" and left or "HEAD"
     local b = right ~= "" and right or "HEAD"
-    return { name = "revspec", label = spec, args = { spec }, before = a, after = b, untracked = false }
+    return {
+      name = "revspec",
+      label = spec,
+      args = { spec },
+      before = a,
+      after = b,
+      untracked = false,
+      identity = a,
+    }
   end
 
   if not line({ "rev-parse", "--verify", "--quiet", spec .. "^{commit}" }, root) then
@@ -239,6 +284,7 @@ function M.resolve_scope(spec, root)
     before = spec,
     after = nil,
     untracked = true,
+    identity = spec,
   }
 end
 
