@@ -117,6 +117,10 @@ function M.diff(buf, view)
     -- `gb` for the **batch**, from the same `g` family. It opens the surface the command
     -- opens, so a reviewer reads one fact off one surface however they asked for it.
     ["gb"] = { view.last_batch, "Read the last batch back" },
+    -- `gc` for the **commits**, from the same `g` family. It takes the comment operator,
+    -- which is dead in a nomodifiable buffer for the reason `a` became the annotation
+    -- prefix: nothing here can be commented out, so the key costs a keystroke and no motion.
+    ["gc"] = { view.commit_list, "List the commits on the branch" },
     -- `gA` for **archived** entries, and uppercase because `ga` is `:ascii`. It overrides
     -- the configured switch for the session rather than editing it.
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
@@ -209,6 +213,7 @@ function M.panel(buf, view)
     ["gp"] = { view.toggle_panel, "Hide the file tree" },
     ["gl"] = { view.toggle_layout, "Switch between the unified and split layouts" },
     ["gb"] = { view.last_batch, "Read the last batch back" },
+    ["gc"] = { view.commit_list, "List the commits on the branch" },
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
     ["R"] = { view.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { view.close, "Close the review" },

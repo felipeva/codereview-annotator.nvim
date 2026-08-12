@@ -615,6 +615,7 @@ worth a look before we ship this
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
 | `gb` | Read the last dispatched batch back |
+| `gc` | List the commits on the branch |
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
@@ -662,6 +663,7 @@ is to stop looking at them, so the useful motion is "the next thing I have not d
 | `gp` | Dismiss the tree, landing back in the diff |
 | `gl` | Switch between the unified and split layouts |
 | `gb` | Read the last dispatched batch back |
+| `gc` | List the commits on the branch |
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `q` | Close |
 
@@ -705,6 +707,25 @@ about a place in the code. What is missing is every key that would change someth
 Those two are bound rather than left off so that the queue float's muscle memory gets a
 sentence instead of `E21`. Nothing else is: the batch has gone, and there is nothing left
 to route, drop or send.
+
+### In the commit list
+
+`gc`, in the diff or in the tree, lists the commits on the branch — newest first, one row
+each, with the short sha, the subject and how long ago it was written. Not the author: it is
+your own branch. Not the added and deleted counts: they cost a second pass over the whole
+branch, and the subject is what you recognise.
+
+The listing is `--first-parent` from the merge base, so a merge is one row and the commits
+that arrived through it are not listed beside your own. There is **no limit on the rows**: a
+long branch keeps its oldest commits on screen, at the bottom of the list.
+
+| Key | Action |
+| --- | --- |
+| `q` / `<Esc>` | Close |
+
+Two cases open nothing and say why in one sentence: `gc` outside a branch review, where
+there is no branch behind the diff to list, and `gc` on a branch whose `HEAD` is the merge
+base, which has no commits of its own.
 
 ## Configuration
 

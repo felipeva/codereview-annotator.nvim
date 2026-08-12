@@ -25,6 +25,7 @@ local hl = require("codereview.hl")
 local fade = require("codereview.fade")
 local delivery = require("codereview.delivery")
 local queue_float = require("codereview.queue_float")
+local trim_float = require("codereview.trim_float")
 local view_layout = require("codereview.view_layout")
 local view_panel = require("codereview.view_panel")
 
@@ -1625,6 +1626,28 @@ end
 ---key already bind, and this module handing itself in for the actions the float drives.
 function M.review_queue()
   queue_float.open(M)
+end
+
+---List the commits on the branch, from inside a review.
+---
+---The surface is `trim_float`'s, and the repository is handed to it rather than looked up:
+---the review already knows which one it is reading, and a second answer to that question is
+---a second chance to answer it differently.
+---
+---What stays here is the one refusal only the view can make. Which **scope** is on screen
+---is this module's own state, and a commit list is about a branch: on `staged`, `unstaged`,
+---`worktree` or a revspec there is no branch behind the review to list. Said rather than
+---ignored, so a reviewer learns where the key applies instead of watching nothing happen.
+function M.commit_list()
+  local v = M.current()
+  if not v then
+    return
+  end
+  if v.scope.name ~= "branch" then
+    info(("Commits are listed for a branch review — this review is %s"):format(v.scope.label))
+    return
+  end
+  trim_float.open(v.root)
 end
 
 ---Read the last dispatched **batch** back, from inside a review.
