@@ -28,8 +28,8 @@ end
 ---disturb the diff's, the tree's or the queue float's.
 local NS_TRIM = vim.api.nvim_create_namespace("codereview_trim")
 
----One column to the left of every row, reserved so that marking the row a trim starts at
----costs no realignment of everything beside it. Nothing draws in it yet.
+---One column to the left of every row, reserved so a later change can mark a row there
+---without moving anything beside it. Nothing draws in it yet.
 local GUTTER = " "
 
 ---Two spaces between the sha and the subject, and at least two between the subject and the
@@ -94,6 +94,10 @@ end
 ---base has done no work of its own, which is an ordinary state and not a failure, and a
 ---float holding nothing a reviewer can act on would leave them wondering which of the two
 ---had gone wrong.
+---
+---The cursor opens on the newest commit, which is where a fresh window puts it and where the
+---row a reviewer wants nearly always is, so reading this list costs no movement. Nothing
+---places it there, because nothing yet would want it anywhere else.
 ---@param root string The repository the branch belongs to
 function M.open(root)
   local commits, err = git.branch_commits(root)
@@ -138,10 +142,6 @@ function M.open(root)
   for _, m in ipairs(painted.marks) do
     pcall(vim.api.nvim_buf_set_extmark, buf, NS_TRIM, m.row, m.col, m.opts)
   end
-
-  -- The cursor opens on the newest commit, which is where a fresh window puts it and where
-  -- the row a reviewer wants nearly always is -- so reading this list costs no movement.
-  -- Nothing places it here, because there is nothing yet that would want it elsewhere.
 
   local function close()
     if vim.api.nvim_win_is_valid(win) then
