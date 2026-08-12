@@ -68,6 +68,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
+| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the cursor's opening row, the keys that close it, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
@@ -77,7 +78,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 
 ## Fixtures
 
-Three repositories, each rebuilt from scratch by its script. They are not
+Four repositories, each rebuilt from scratch by its script. They are not
 interchangeable, and the assertions know which one they are looking at.
 
 - **`mkfixture.sh`** — flat `src/`-only repo covering every file status at once:
@@ -98,6 +99,15 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mktree.sh`** — nested repo whose *shape* is the point: `apps/api/src` and
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
+- **`mkcommits.sh`** — repo whose *history* is the point, and the smallest of the four: no
+  file statuses, no binary, no rename. A branch of four commits over the default branch,
+  one of them a merge that brings in a fifth commit from a side branch cut off master's
+  tip. Used by `trim_float_spec`. Two rules need exactly that shape and can be seen in
+  nothing else: a listing that dropped `--first-parent` draws the commit the merge brought
+  in as a row of its own, and the merge base is a different commit from the oldest listed
+  commit's parent, which is what resolving the oldest row has to notice. Its commits are
+  dated days apart, as offsets back from the moment the script runs, so a relative date on
+  a row is a fact a spec can check and never goes stale.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
   well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
   asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,

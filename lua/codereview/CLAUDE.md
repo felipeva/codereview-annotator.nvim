@@ -33,6 +33,7 @@ change there is felt through.
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named, and how a winbar is assembled from typed segments | pure |
 | `state.lua` | Persisted review progress, and the blob comparisons over it — staleness, and touchedness kept in a function of its own | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
+| `trim_float.lua` | The float over the branch's commits: the first-parent listing from the merge base, one row per commit, and the two refusals that open nothing | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
 | `view.lua` | The review view: the `CRView` it owns, the paint, navigation, delivery, opening and closing | stateful (windows) |
 | `view_layout.lua` | Where the review's windows are: the panes, the before pane, the toggle between the unified and split layouts, which of them is muted, and which group each lights its row in | stateful (windows) |
@@ -43,7 +44,7 @@ change there is felt through.
 - **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
   `archive`, `delivery`, `keymaps`, `syntax`; then `composer`, `hl`, `fade`, `queue_float`,
-  `view_layout`; then `view_panel`.
+  `trim_float`, `view_layout`; then `view_panel`.
 - **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
@@ -76,6 +77,9 @@ rather than requiring `view` for them. That is deliberate, and it is what leaves
 function of its arguments and the configured annotation types. `queue_float` reads no view
 state either: the one field it needs, the window a float is open in, stays on `view` behind
 two accessors, because closing a float on submit is a rule about the view's windows.
+`trim_float` is not even a candidate: it runs no view action yet, so what it takes is the
+repository whose commits it lists, and the view keeps the one refusal only the view can make
+— the **scope** on screen.
 `view_layout` and `view_panel` do read view state, but never their own copy of it: the
 `CRView` table is handed in beside the view and mutated in place, exactly as `syntax` and
 `state` are handed it, so there is still one table and `view` still owns it. The one edge

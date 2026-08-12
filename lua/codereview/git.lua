@@ -457,4 +457,60 @@ function M.collect(scope, root, opts)
   return files, nil
 end
 
+--- The branch's commits ---------------------------------------------------------
+
+---@class CRCommit
+---@field sha string      Short sha, abbreviated by git to whatever this repository needs
+---@field when string     How long ago it was authored, in git's own words
+---@field subject string  The commit's first line
+
+---Every commit the branch carries, newest first.
+---
+---`--first-parent` from the merge base to `HEAD`. A merge is then one commit and reads as
+---the one change it was, and the work that arrived through it is not listed beside the work
+---the branch did itself.
+---
+---**There is no limit.** A limit would put the oldest commits on a long branch out of reach,
+---which is the one thing a list a reviewer picks from must never do.
+---
+---The merge base is resolved here rather than taken from a scope. What a reviewer is being
+---shown is the branch, and a scope's pre-image is free to be something narrower than the
+---branch -- so reading it would quietly shorten the list the moment it was.
+---@param root string
+---@return CRCommit[]|nil commits, string|nil err
+function M.branch_commits(root)
+  local branch = M.default_branch(root)
+  if not branch then
+    return nil, "could not determine the default branch"
+  end
+  local base = M.merge_base(branch, "HEAD", root)
+  if not base then
+    return nil, ("no merge base with %s"):format(branch)
+  end
+
+  -- The fields are separated by a unit separator, and the subject comes last. A subject is
+  -- one line and can hold anything else at all, including whatever a friendlier separator
+  -- would be built out of -- so the one field that could contain the delimiter is the one
+  -- field nothing is parsed after.
+  local out, err = run({
+    "log",
+    "--first-parent",
+    "--format=%h%x1f%ar%x1f%s",
+    base .. "..HEAD",
+    -- A long branch's log is closer to a diff than to a metadata query.
+  }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
+  if not out then
+    return nil, err
+  end
+
+  local commits = {}
+  for _, entry in ipairs(vim.split(out, "\n", { trimempty = true })) do
+    local sha, when, subject = entry:match("^(%S+)\31(.-)\31(.*)$")
+    if sha then
+      commits[#commits + 1] = { sha = sha, when = when, subject = subject }
+    end
+  end
+  return commits, nil
+end
+
 return M
