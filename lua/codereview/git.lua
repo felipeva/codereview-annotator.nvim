@@ -95,6 +95,25 @@ function M.merge_base(a, b, root)
   return line({ "merge-base", a, b }, root)
 end
 
+---Whether `HEAD` still descends from `commit`.
+---
+---What a stored **trim** is checked with before a review reads from it. A rebase, an amend
+---and a force-push all end in the same place: the commit the trim was picked off is not in
+---this branch any more, and a diff against one of those is a diff nobody asked for.
+---
+---One answer out of two failures, deliberately. `merge-base --is-ancestor` exits 1 when the
+---commit is real and off this line of work, and 128 when the repository has nothing under
+---that name at all -- which is what a `git gc` after a rebase leaves a stored trim naming.
+---Both mean *not a commit this review can read from*, and the reviewer has one thing to be
+---told either way. The exit code is the whole answer, so an empty stdout is a yes here and
+---only `nil` is a no.
+---@param commit string
+---@param root string
+---@return boolean
+function M.is_ancestor(commit, root)
+  return run({ "merge-base", "--is-ancestor", commit, "HEAD" }, { cwd = root }) ~= nil
+end
+
 ---How many commits `from` is behind `HEAD` on the branch's own line of work.
 ---
 ---What the scope label reports as `last N`, derived rather than remembered: a reviewer who
@@ -248,9 +267,9 @@ function M.resolve_scope(spec, root)
     -- The **trim**, read here rather than taken as an argument -- the shape `since-batch`
     -- already has, and for the reason recorded for it: handing the value in would put the
     -- one scope that needs it into every caller of scope resolution, and scope resolution
-    -- is exactly what has to stay one function. A trim naming a commit this repository does
-    -- not have is not a trim, and the whole branch is the answer; saying so out loud belongs
-    -- with the trim that outlives a session, which is where a rewritten commit can reach.
+    -- is exactly what has to stay one function. What comes back is already checked: the
+    -- store drops a trim `HEAD` no longer descends from and says so, so a commit this
+    -- repository cannot read from never reaches the arithmetic below.
     local trim = require("codereview.state").trim(root)
     local kept = trim and M.count_commits(trim, root)
 

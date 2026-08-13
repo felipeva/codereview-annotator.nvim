@@ -77,7 +77,7 @@ end
 function M.load(root)
   local file = M.path(root)
   if vim.fn.filereadable(file) == 0 then
-    return { version = VERSION, scopes = {}, queue = {}, archive = {} }
+    return { version = VERSION, scopes = {}, queue = {}, archive = {}, trims = {} }
   end
   local ok, decoded = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
@@ -88,14 +88,17 @@ function M.load(root)
     -- A corrupt or older file is discarded rather than migrated: the cost of losing
     -- review progress is far lower than the cost of restoring marks that mean something
     -- different than they did when written.
-    return { version = VERSION, scopes = {}, queue = {}, archive = {} }
+    return { version = VERSION, scopes = {}, queue = {}, archive = {}, trims = {} }
   end
   decoded.scopes = decoded.scopes or {}
   decoded.queue = decoded.queue or {}
   -- A document written before the archive existed lacks the key entirely, and defaulting
   -- it here is the whole of what it takes to read one: nothing about the marks stored
-  -- beside it means anything different than it did.
+  -- beside it means anything different than it did. The **trims** arrived the same way,
+  -- for the same reason -- a bump would throw away every reviewed mark in the file to add
+  -- a key those files simply lack.
   decoded.archive = decoded.archive or {}
+  decoded.trims = decoded.trims or {}
   return decoded
 end
 
@@ -234,30 +237,94 @@ end
 
 --- The trim ---------------------------------------------------------------------
 
----The **trim** on each repository's branch review: the ref the review reads from, which is
----the parent of the oldest commit the reviewer still wants to read.
+---The **trim** on a branch's review: the ref the review reads from, which is the parent of
+---the oldest commit the reviewer still wants to read.
 ---
 ---A ref rather than a count or a commit, because that is what a scope needs: `before` has to
 ---be something the diff, the blob hashing and the highlighter's whole-file fetch can all
 ---read content out of, and none of them can read a marker. It is the *parent* of the picked
 ---commit, so the commit picked is in the diff and the ref needs no arithmetic at open time.
 ---
----**Session-only, and per process.** Keeping a trim across restarts is a feature of its own:
----a stored trim has to be checked against `HEAD` before it is used, because a rebase, an
----amend or a force-push leaves it pointing at a commit that was rewritten, and resolving
----against one of those silently is worse than opening the whole branch.
-local trims = {}
+---**Kept in the state document, keyed by branch name**, beside the reviewed marks it is a
+---review of. A review spans days, so a reviewer who trimmed on Monday opens the same branch
+---on Tuesday where their reading stopped. Keyed by the branch rather than by the repository
+---because two branches are two readings: trimming one says nothing about the other.
+---
+---The sentences below are said here, which is the one place in this module that says
+---anything. Both are about the **store** and nothing above it can see either fact -- by the
+---time a scope is resolved the trim is either usable or gone -- and saying them here is also
+---what keeps one sentence one sentence: the surfaces that read a trim are the review and the
+---commit list, and a rule copied into both is a rule that says it twice.
+---@param msg string
+local function info(msg)
+  vim.notify(msg, vim.log.levels.INFO, { title = "Code review" })
+end
 
+---A trim set while `HEAD` is detached, which has no branch name to key on.
+---
+---It works for the session and reaches no document, because there is nothing to file it
+---under: the next session may be anywhere. Keyed by root, which is all there is.
+local session_trims = {}
+
+---Roots already told that a detached `HEAD` keeps no trim.
+---
+---Said once, when a trim is set. Of the three cases where a trim is refused or limited this
+---is the only one a reviewer could take for a defect -- the other two say what they refused
+---at the moment they refuse it, and this one refuses nothing until the session ends.
+local said_detached = {}
+
+---@param root string
+---@param branch string
+---@param before string|nil nil removes it
+local function store_trim(root, branch, before)
+  local data = M.load(root)
+  data.trims = data.trims or {}
+  data.trims[branch] = before
+  M.save(root, data)
+end
+
+---The branch's trim, checked before it is handed back.
+---
+---**The check is the point of storing it at all.** The commit has to still be one `HEAD`
+---descends from; a rebase, an amend or a force-push leaves it naming a commit that was
+---rewritten, and a review that quietly resolves against one of those is worse than no trim.
+---A trim that fails is dropped from the document as well as from this answer, which is what
+---makes the sentence a reviewer reads a single sentence rather than one per resolve: there
+---is nothing left to fail the next time.
+---
+---Checked on every read rather than once per session, because the history can be rewritten
+---while a review is open -- a reviewer rebases in another window and comes back to the diff.
 ---@param root string
 ---@return string|nil before nil when the whole branch is in the review
 function M.trim(root)
-  return trims[root]
+  local git = require("codereview.git")
+  local branch = git.current_branch(root)
+  if not branch then
+    return session_trims[root]
+  end
+
+  local stored = (M.load(root).trims or {})[branch]
+  if not stored or git.is_ancestor(stored, root) then
+    return stored
+  end
+  store_trim(root, branch, nil)
+  info("The trim was lost — its commit is not in this branch any more, so the full branch is open")
+  return nil
 end
 
 ---@param root string
 ---@param before string|nil nil removes the trim
 function M.set_trim(root, before)
-  trims[root] = before
+  local branch = require("codereview.git").current_branch(root)
+  if not branch then
+    session_trims[root] = before
+    if before and not said_detached[root] then
+      said_detached[root] = true
+      info("HEAD is detached — this trim is not kept for the next session")
+    end
+    return
+  end
+  store_trim(root, branch, before)
 end
 
 --- The archive ------------------------------------------------------------------

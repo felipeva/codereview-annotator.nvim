@@ -36,6 +36,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/quiet_child.lua` | Spawned eight times by `quiet_spec`, one painted cell each, where two quiet states meet — deliberately not a spec. |
 | `codereview/drafts_child.lua` | Spawned by `drafts_spec` to abandon a half-written note and exit — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
+| `codereview/trim_child.lua` | Spawned twice by `trim_spec` — once to trim two branches and exit, once to report what a later session's branch review holds — deliberately not a spec. |
 | `codereview/winbar_child.lua` | Spawned four times by `split_spec` to read one cell of a pane's winbar — three inside the path for the muting, one on the file's added count for the colour — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
@@ -68,7 +69,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
-| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — the picked commit in the diff, the oldest row at the merge base, the identity that does not move with the pre-image, the label — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it |
+| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — the picked commit in the diff, the oldest row at the merge base, the identity that does not move with the pre-image, the label — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
 | `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the row that removes the trim, the row a trim is marked on, the cursor's opening row, the keys, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
@@ -108,7 +109,11 @@ interchangeable, and the assertions know which one they are looking at.
   in as a row of its own, and the merge base is a different commit from the oldest listed
   commit's parent, which is what resolving the oldest row has to notice. Its commits are
   dated days apart, as offsets back from the moment the script runs, so a relative date on
-  a row is a fact a spec can check and never goes stale.
+  a row is a fact a spec can check and never goes stale. `trim_spec` builds a **second copy**
+  for the trim a restart brings back, and cuts a `second` branch at `feature`'s tip inside
+  it: two branches over one history is what "each branch keeps its own trim" needs, and
+  neither branch the script builds can offer it — `lexer` has one commit of its own, so
+  every trim on it resolves to the merge base, which is the review it already was.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
   well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
   asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
@@ -596,14 +601,23 @@ so the out-of-core language path is still checked locally without ever failing C
   the *oldest* row and only then reopens the float: deleting the `nvim_win_set_cursor` in
   `trim_float.lua` reds that block and nothing else in the suite. Same trap as "a filter test
   needs a fixture only that filter can reject".
-- **A trim is a hidden input to branch scope resolution, and every claim about one runs
-  through the same module-level store.** `git.resolve_scope("branch", …)` reads
-  `state.trim(root)`, which is per process and never written to disk, so a spec that sets one
-  and does not clear it hands it to every block below — including blocks that open a review
-  and expect the whole branch. `trim_spec` and `trim_float_spec` both reset it at the seams
-  between their halves. Eight other call sites resolve `branch` with nothing set, and each
-  spec process gets a state directory of its own, so they stay correct — but a `branch` scope
-  behaving oddly should send the reader to the stored trim before anywhere else.
+- **A trim is a hidden input to branch scope resolution, and it now reaches the disk.**
+  `git.resolve_scope("branch", …)` reads `state.trim(root)`, which reads the repository's
+  state document keyed by the branch checked out at that moment — so a spec that sets one and
+  does not clear it hands it to every block below, *and* to any child process sharing the
+  state directory, including blocks and children that open a review and expect the whole
+  branch. `trim_spec` and `trim_float_spec` both reset it at the seams between their halves.
+  Eight other call sites resolve `branch` with nothing set, and each spec process gets a state
+  directory and a fixture of its own, so they stay correct — but a `branch` scope behaving
+  oddly should send the reader to the stored trim before anywhere else.
+- **"The trim was not written" cannot be read off a detached `HEAD` alone.** A trim set while
+  `HEAD` is detached is kept in memory and never filed, and it is also never *read* from the
+  document — so a later process opening the same detached checkout finds the whole branch
+  whether or not anything was written. `trim_spec` spawns `trim_child.lua` in `read` mode for
+  the claim a reviewer can see, which is that the session after this one opens the full
+  branch; that has teeth against the implementation worth fearing, a trim filed under the
+  root when there is no branch to file it under. Asserting the document's own shape instead
+  would pin the store rather than the behaviour, which no spec in this suite does.
 - **Two entries of different types are separated by a group, not by a row.** The queue
   float's boundary between entries is one blank row carrying no bar, and an assertion about
   it needs two entries of the *same* annotation type — give them different ones and what
