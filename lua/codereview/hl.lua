@@ -90,6 +90,12 @@ local LINKS = {
   CodeReviewQueueIndex = "LineNr",
   CodeReviewQueueState = "Comment",
 
+  -- The row the commit list calls out: where the review the reviewer is already in starts.
+  -- Its own group rather than the index's, because it answers *you are here* and not *this
+  -- is which one* -- and it is the one thing in that float a reviewer is looking for before
+  -- they change anything.
+  CodeReviewTrimMark = "Special",
+
   -- Annotation types, mapped onto diagnostic severities so the visual weight already
   -- matches the intent: a bug reads as loud as an error, a nitpick as quiet as a hint.
   CodeReviewBug = "DiagnosticError",

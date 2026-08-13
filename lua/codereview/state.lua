@@ -232,6 +232,34 @@ function M.clear_global()
   archive_writes = archive_writes + 1
 end
 
+--- The trim ---------------------------------------------------------------------
+
+---The **trim** on each repository's branch review: the ref the review reads from, which is
+---the parent of the oldest commit the reviewer still wants to read.
+---
+---A ref rather than a count or a commit, because that is what a scope needs: `before` has to
+---be something the diff, the blob hashing and the highlighter's whole-file fetch can all
+---read content out of, and none of them can read a marker. It is the *parent* of the picked
+---commit, so the commit picked is in the diff and the ref needs no arithmetic at open time.
+---
+---**Session-only, and per process.** Keeping a trim across restarts is a feature of its own:
+---a stored trim has to be checked against `HEAD` before it is used, because a rebase, an
+---amend or a force-push leaves it pointing at a commit that was rewritten, and resolving
+---against one of those silently is worse than opening the whole branch.
+local trims = {}
+
+---@param root string
+---@return string|nil before nil when the whole branch is in the review
+function M.trim(root)
+  return trims[root]
+end
+
+---@param root string
+---@param before string|nil nil removes the trim
+function M.set_trim(root, before)
+  trims[root] = before
+end
+
 --- The archive ------------------------------------------------------------------
 
 ---Add a batch to an archive, dropping the oldest once it is full.

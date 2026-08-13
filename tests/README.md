@@ -68,7 +68,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
-| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the cursor's opening row, the keys that close it, `gc` from the diff and from the tree, and the two refusals that open nothing |
+| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — the picked commit in the diff, the oldest row at the merge base, the identity that does not move with the pre-image, the label — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it |
+| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the row that removes the trim, the row a trim is marked on, the cursor's opening row, the keys, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
@@ -102,7 +103,7 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mkcommits.sh`** — repo whose *history* is the point, and the smallest of the four: no
   file statuses, no binary, no rename. A branch of four commits over the default branch,
   one of them a merge that brings in a fifth commit from a side branch cut off master's
-  tip. Used by `trim_float_spec`. Two rules need exactly that shape and can be seen in
+  tip. Used by `trim_spec` and `trim_float_spec`. Two rules need exactly that shape and can be seen in
   nothing else: a listing that dropped `--first-parent` draws the commit the merge brought
   in as a row of its own, and the merge base is a different commit from the oldest listed
   commit's parent, which is what resolving the oldest row has to notice. Its commits are
@@ -586,15 +587,23 @@ so the out-of-core language path is still checked locally without ever failing C
   in both panes on its row passes with the before pane never drawing anything, because the
   case is then reading the after pane twice. `spans_spec` uses `src/nonl.md`, the fixture's
   only pair that changes something on each side.
-- **The commit list's opening row cannot be measured while every listing starts at the
-  top.** A fresh window puts the cursor on row 1, so `trim_float_spec`'s "opens the cursor
-  on the first row" is satisfied by placing it there, by placing it nowhere, and by deleting
-  every line that could place it — measured: removing an explicit `nvim_win_set_cursor`
-  from `trim_float.lua` reds nothing in the suite, which is why there is no such line. The
-  case is kept because it is the claim a reviewer can see, and it gets its teeth the moment
-  the float has a row it must open somewhere other than the top. Same shape as "no fixture
-  is both tall and multilingual" — a gap in what can be observed, not an assertion to
-  delete.
+- **The commit list's opening row can only be measured from a row that is not the top.** A
+  fresh window puts the cursor on row 1, so `trim_float_spec`'s "opens the cursor on the row
+  that removes the trim" — the case made with no **trim** set — is satisfied by placing it
+  there, by placing it nowhere, and by deleting every line that could place it. It was
+  measured as toothless while it was the only such case, and it is kept because it is the
+  claim a reviewer can see. What gives the rule teeth is the block below it, which trims to
+  the *oldest* row and only then reopens the float: deleting the `nvim_win_set_cursor` in
+  `trim_float.lua` reds that block and nothing else in the suite. Same trap as "a filter test
+  needs a fixture only that filter can reject".
+- **A trim is a hidden input to branch scope resolution, and every claim about one runs
+  through the same module-level store.** `git.resolve_scope("branch", …)` reads
+  `state.trim(root)`, which is per process and never written to disk, so a spec that sets one
+  and does not clear it hands it to every block below — including blocks that open a review
+  and expect the whole branch. `trim_spec` and `trim_float_spec` both reset it at the seams
+  between their halves. Eight other call sites resolve `branch` with nothing set, and each
+  spec process gets a state directory of its own, so they stay correct — but a `branch` scope
+  behaving oddly should send the reader to the stored trim before anywhere else.
 - **Two entries of different types are separated by a group, not by a row.** The queue
   float's boundary between entries is one blank row carrying no bar, and an assertion about
   it needs two entries of the *same* annotation type — give them different ones and what

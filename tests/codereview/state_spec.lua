@@ -226,10 +226,17 @@ describe("marks belonging to a scope this view never opened", function()
     view.toggle_reviewed()
   end
 
+  ---The key the plugin files this scope's progress under.
+  ---
+  ---Built from the scope's **identity** and never from its pre-image, which is the same
+  ---rule the view itself follows. The two agree for every scope that carries no **trim**,
+  ---so a key spelled with `before` reads correctly here and quietly stops naming anything
+  ---the moment a trimmed branch review is opened -- and the assertions below then compare
+  ---two empty tables instead of failing.
   ---@return string
   local function scope_key_of()
     local V = assert(view.current())
-    return V.scope.name .. ":" .. V.scope.before
+    return V.scope.name .. ":" .. V.scope.identity
   end
 
   view.close()

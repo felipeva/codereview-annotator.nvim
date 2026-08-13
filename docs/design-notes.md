@@ -252,6 +252,23 @@ number now belongs to unrelated code. A hunk is always inlined for the same reas
 to an agent whose working directory is not this one; anything outside its tree falls back
 to an absolute path with the code inlined.
 
+**A scope's identity and its pre-image are two refs, and only one of them may be re-derived.**
+A **trim** moves a `branch` scope's `before` up the branch and leaves `identity` at the merge
+base. Anything asking *where does this branch start* — the commit list, the progress key —
+has to read the identity: the pre-image is what a trim narrows, so a commit list built from
+it shortens every time a reviewer trims and takes away the rows they need to widen it again.
+Anything asking *what is this review reading* has to read the pre-image. Neither may be
+recomputed from `origin/HEAD` a second time: a `git fetch` in another window moves the default
+branch, and a surface that re-derives the base then draws against a base the review is not
+using. That is why `git.branch_commits` takes the base and no longer resolves one.
+
+**Keying progress on the pre-image fails silently rather than loudly.** The per-scope progress
+key is `name .. ":" .. identity`. Spelled with `before` it agrees with the plugin for every
+scope that carries no trim, so it reads correctly everywhere until a trimmed branch review is
+opened — and then it names a key nothing was ever written under, and an assertion over it
+compares two empty tables and passes. `tests/codereview/state_spec.lua` built its key by hand
+and had exactly this shape before #140.
+
 **That cwd is realpath'd first, and only that side.** Every `abs_path` in the queue is
 already canonical — `git rev-parse --show-toplevel` answers with symlinks resolved, and
 buffer capture realpaths for the same reason — but a target's `cwd` is whatever the adapter
