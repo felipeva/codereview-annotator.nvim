@@ -6,7 +6,7 @@
 -- meeting already behaves as it should. Each of them holds by construction rather than by
 -- intent, and until this file none of them was asserted anywhere.
 --
--- That is the shape #108 met in the winbar: a behaviour nothing announces the end of. The
+-- That is the shape #108 met in the winbar: a behavior nothing announces the end of. The
 -- fade renames `hl_group` and `line_hl_group` and returns early for a mark that carries
 -- neither, so it never reaches the chunks an entry's virtual lines are drawn from. The muted
 -- namespace links the groups `hl.groups()` names, and the faded family is not among them, so
@@ -16,10 +16,10 @@
 -- Asserted at the cell, in `quiet_child.lua`, one process per reading -- a group name cannot
 -- tell a faded row from a bright one, and it cannot tell one blend from two. The blocks in
 -- this process assert the mechanism each reading rests on, which is the only level that can
--- say *why* a colour stayed where it is.
+-- say *why* a color stayed where it is.
 --
 -- The one thing no cell can show: `CodeReviewFaded.CodeReviewAdd` is absent from the muted
--- namespace and is a definition with a colour in it, not a link reaching nothing. An absent
+-- namespace and is a definition with a color in it, not a link reaching nothing. An absent
 -- entry falls back and draws; a dead link draws nothing at all. The claim rests on that
 -- difference, so both halves are read here.
 local h = require("tests.helpers")
@@ -30,7 +30,7 @@ local view = require("codereview.view")
 h.ui(110, 40)
 local fixture = h.cd_fixture("mkfixture")
 
--- Colours with even channels, so a blend has no rounding in it and the numbers can be read
+-- Colors with even channels, so a blend has no rounding in it and the numbers can be read
 -- at a glance.
 vim.o.termguicolors = true
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
@@ -51,7 +51,7 @@ require("codereview").setup({
   layout = "unified",
   syntax = true,
   -- Two strengths that cannot be mistaken for each other, for the reason the child gives:
-  -- one blend, the other blend and both blends are three different colours.
+  -- one blend, the other blend and both blends are three different colors.
   muted = { enabled = true, strength = 0.25 },
   faded = { enabled = true, strength = 0.5 },
   types = { { name = "bug", key = "b", icon = "!", hl = "CodeReviewBug", label = "Bugs" } },
@@ -167,7 +167,7 @@ describe("a queued entry and an archived one inside a faded file", function()
   end)
 
   -- The mechanism the whole claim rests on. An entry hangs *under* the row it is about, and
-  -- its colours are in that mark's chunks. The fade renames `hl_group` and `line_hl_group`,
+  -- its colors are in that mark's chunks. The fade renames `hl_group` and `line_hl_group`,
   -- which is what a mark puts on the row it sits on, and returns early for a mark that
   -- carries neither.
   it("puts no group of its own on the row it hangs under, so the fade has nothing to rename", function()
@@ -213,7 +213,7 @@ end)
 describe("the groups a faded row carries and the namespace a muted pane draws through", function()
   -- The guard every case below needs: with nothing in the namespace at all, "the faded family
   -- is not in it" holds over an empty table.
-  it("links the group that faded row's colour is blended from", function()
+  it("links the group that faded row's color is blended from", function()
     assert.is_truthy(vim.api.nvim_get_hl(MUTED, { name = "CodeReviewAdd" }).link, "the namespace links nothing")
   end)
 
@@ -230,9 +230,9 @@ describe("the groups a faded row carries and the namespace a muted pane draws th
   -- What the case above is worth nothing without, and what no cell reading can show. An
   -- absent entry falls back to the twin's global definition and draws it; a link reaching
   -- nothing draws nothing at all. Nobody is to "fix" the absence by adding a link.
-  it("leaves a definition with a colour in it to fall back to, not a dead link", function()
+  it("leaves a definition with a color in it to fall back to, not a dead link", function()
     local def = vim.api.nvim_get_hl(0, { name = FADED .. "CodeReviewAdd", link = false })
-    assert.is_truthy(def.bg, "the fade's twin of a changed line holds no colour")
+    assert.is_truthy(def.bg, "the fade's twin of a changed line holds no color")
     assert.is_nil(def.link)
   end)
 end)
@@ -245,7 +245,7 @@ end)
 -- cell of it: the marker of either entry, or the first token the replay painted on an added
 -- line of the code around them.
 --
--- The fade pulls a colour half of the way to the background and the window rule a quarter of
+-- The fade pulls a color half of the way to the background and the window rule a quarter of
 -- the way, so the four numbers a changed line's token can hold are all different: `ec0000` on
 -- `004400` bright, `760000` on `002200` faded, `b10000` on `003300` muted, and `590000` on
 -- `001a00` had it been both.
@@ -297,7 +297,7 @@ describe("the cell under a reviewer's eye", function()
     assert.same("cell ! fg=00ec00 bg=440044", note_away)
   end)
 
-  it("gives it exactly the colour it has in a file that is not faded", function()
+  it("gives it exactly the color it has in a file that is not faded", function()
     assert.same(note_inside, note_away)
   end)
 
@@ -307,7 +307,7 @@ describe("the cell under a reviewer's eye", function()
     assert.same("cell ! fg=0000ec bg=444400", gone_away)
   end)
 
-  it("gives that one exactly the colour it has in a file that is not faded too", function()
+  it("gives that one exactly the color it has in a file that is not faded too", function()
     assert.same(gone_inside, gone_away)
   end)
 

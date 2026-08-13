@@ -19,6 +19,6 @@ README this touches. Delete if there is nothing.
 ## Checklist
 
 - [ ] `make all` passes (lint + suite).
-- [ ] New behaviour has a spec under `tests/codereview/`.
-- [ ] `README.md` and `doc/codereview.txt` updated, if user-facing behaviour changed.
+- [ ] New behavior has a spec under `tests/codereview/`.
+- [ ] `README.md` and `doc/codereview.txt` updated, if user-facing behavior changed.
 - [ ] Commits follow Conventional Commits (`make hooks` validates them).

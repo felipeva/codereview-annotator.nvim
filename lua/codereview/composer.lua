@@ -112,7 +112,7 @@ function M.open(ctx, on_accept, label)
   vim.keymap.set({ "i", "n" }, "<C-t>", function()
     routing.pick(refresh)
   end, { buffer = buf, desc = "Choose target" })
-  -- The sentinel is written *before* the picker opens, so cancelling leaves the literal
+  -- The sentinel is written *before* the picker opens, so canceling leaves the literal
   -- character that was just pressed. The position is remembered rather than re-derived for
   -- the same reason a host composer has to remember it: the picker takes focus, and the
   -- cursor with it, so by the time it answers the composer's cursor means nothing.
@@ -146,7 +146,7 @@ function M.open(ctx, on_accept, label)
     end
     pick_file(function(chosen)
       -- Empty when the picker was dismissed, which is the whole point of writing the
-      -- sentinel up front: cancelling costs the reviewer the `@` they typed and nothing
+      -- sentinel up front: canceling costs the reviewer the `@` they typed and nothing
       -- else, and everything below still applies to where that leaves them.
       local spliced = ""
       if chosen and chosen.path then

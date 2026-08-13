@@ -83,7 +83,7 @@ end
 ---either a focus restore or a geometry read, for which the two panes are equivalent.
 ---
 ---Internal. Exported only because target resolution lives in another module, and is
----exercised through that module's behaviour rather than directly.
+---exercised through that module's behavior rather than directly.
 ---@param V CRView
 ---@return integer win, CRRender|nil render
 function M.focused_pane(V)
@@ -107,7 +107,7 @@ end
 ---@param V CRView
 ---@param row integer
 ---@param cmd string|nil A normal-mode view command: `zt` to put the row at the top, `zz`
----       to centre it, nil to leave the window where it is
+---       to center it, nil to leave the window where it is
 function M.place(V, row, cmd)
   local bound = M.has_before(V)
   ---@param on boolean
@@ -220,12 +220,12 @@ end
 
 ---Every window this module has enrolled in the focus rule, as a set.
 ---
----Enrolment goes through `window_opts` below, the one helper every review window already
+---Enrollment goes through `window_opts` below, the one helper every review window already
 ---passes through -- the file tree's included, though it is not a pane -- so a pane the
 ---layout toggle rebuilt and a tree dismissed and summoned again join the set on the same
 ---line that gives them their options, rather than by a caller remembering to say so.
 ---
----Enrolment says two things: which windows `mute` walks, and which windows can move the
+---Enrollment says two things: which windows `mute` walks, and which windows can move the
 ---bright latch. The tree is here for the second. `mute` walks it too, but only to keep it
 ---bright -- see there.
 ---
@@ -237,7 +237,7 @@ end
 local enrolled = {}
 
 ---@param win integer
-local function enrol(win)
+local function enroll(win)
   for w in pairs(enrolled) do
     if not vim.api.nvim_win_is_valid(w) then
       enrolled[w] = nil
@@ -274,14 +274,14 @@ function M.window_opts(win)
   vim.wo[win].signcolumn = "no"
   vim.wo[win].foldcolumn = "0"
   -- What a **pane** opens with rather than what it keeps: with muting on, `mute` owns a
-  -- pane's `cursorline` from here -- it leaves it set and decides which colour the row is lit
+  -- pane's `cursorline` from here -- it leaves it set and decides which color the row is lit
   -- in, or, with the counterpart row off, makes it a function of focus again. The file tree
   -- keeps this one, because `mute` never touches it. With muting off every review window
   -- keeps it, which is what a review looked like before muting existed.
   vim.wo[win].cursorline = true
   vim.wo[win].list = false
   vim.wo[win].spell = false
-  enrol(win)
+  enroll(win)
 end
 
 --- Muting ---------------------------------------------------------------------
@@ -293,10 +293,10 @@ end
 ---muted. Attaching it is what mutes a window; handing the window the global namespace back
 ---is what brightens it.
 ---
----**The namespace holds links, and no colour of its own.** `hl.lua` owns the blended
----groups, so the colours a muted window draws are reachable from outside this namespace --
+---**The namespace holds links, and no color of its own.** `hl.lua` owns the blended
+---groups, so the colors a muted window draws are reachable from outside this namespace --
 ---which is what keeps one set of them behind every rule that wants them. A link also
----survives a colorscheme change, because it holds a name and not a colour.
+---survives a colorscheme change, because it holds a name and not a color.
 local NS_MUTED = vim.api.nvim_create_namespace("codereview_muted")
 
 ---Which family's blend a muted pane draws `group` through.
@@ -328,8 +328,8 @@ local linked = {}
 ---
 ---**A group left without a link stays bright, and that is the feature.** A group the
 ---namespace does not name falls back to its global definition -- measured, not assumed --
----so a colorscheme this plugin has never heard of, or one whose group carries no colour of
----its own to blend, comes out merely less muted instead of wrongly coloured. `hl.lua`
+---so a colorscheme this plugin has never heard of, or one whose group carries no color of
+---its own to blend, comes out merely less muted instead of wrongly colored. `hl.lua`
 ---decides which groups have a twin, and it hands back nothing for the rest.
 ---@param group string
 local function ensure_link(group)
@@ -375,19 +375,19 @@ function M.mute_extend()
   end
 end
 
----Point every muted window at the colours the theme that is active now decides.
+---Point every muted window at the colors the theme that is active now decides.
 ---
 ---Little is left to do here, and that is the point of the links. `hl.lua` writes every twin
 ---again from its own `ColorScheme` autocommand, and a link inside the namespace survives
----`:colorscheme` and reaches the new colour by name -- measured, not assumed. So no colour
+---`:colorscheme` and reaches the new color by name -- measured, not assumed. So no color
 ---is touched from here.
 ---
 ---What is left is one more pass over the groups in play. A group the old theme gave no
----colour to, and the new theme does, gets its link at last.
+---color to, and the new theme does, gets its link at last.
 ---
 ---Driven by the view's `ColorScheme` autocommand, which is declared after the one `hl.lua`
 ---writes its twins from. The two fire in that order, so every twin this links to exists.
-function M.recolour()
+function M.recolor()
   extended_at = -1
   M.mute_extend()
 end
@@ -403,7 +403,7 @@ end
 ---
 ---**The file tree is never muted, and it still moves the latch.** A muted map is harder to
 ---read than a bright one and buys nothing back: a tree looks nothing like a diff, so no
----colour is needed to tell the two apart. The tree keeps the other half of the rule --
+---color is needed to tell the two apart. The tree keeps the other half of the rule --
 ---focus landing in it mutes the panes -- so "the muted window is the one I am not in" stays
 ---true of the panes, and the tree is not part of that statement. It is named from the
 ---`CRView` this is already handed, so no second set of windows is kept and no flag is put
@@ -412,22 +412,22 @@ end
 ---**The tree is set bright rather than passed over.** A window id that carried the
 ---namespace at some earlier moment would otherwise keep it.
 ---
----**Every pane lights the row its cursor is on**, and the namespace decides in which colour.
+---**Every pane lights the row its cursor is on**, and the namespace decides in which color.
 ---A muted pane lights a **counterpart row**: the same `cursorline`, drawn through the
 ---counterpart family instead of at the theme's own strength. The panes are cursorbound, so
 ---that row is the one opposite the row the reviewer is reading -- and where it is a
 ---**filler**, a lit blank row is the only thing that says nothing existed there before.
----Which row is lit stays Neovim's business; only which colour it is lit in is this.
+---Which row is lit stays Neovim's business; only which color it is lit in is this.
 ---
 ---With the counterpart row off, `cursorline` is a function of focus again and a muted pane
----lights nothing -- the behaviour shipped before this existed.
+---lights nothing -- the behavior shipped before this existed.
 ---
 ---**The tree's `cursorline` is left alone**, so it keeps the one `window_opts` gives it. The
 ---tree is not cursorbound, and its lit row follows the diff cursor rather than sitting
 ---opposite it, so a lit row there names the file being read.
 ---
 ---With muting off this returns having done nothing at all: no namespace is attached to
----anything, no colour is computed, and `cursorline` is left as `window_opts` set it.
+---anything, no color is computed, and `cursorline` is left as `window_opts` set it.
 ---@param V CRView|nil
 function M.mute(V)
   if not (V and vim.api.nvim_win_is_valid(V.win) and config.get().muted.enabled) then
@@ -494,7 +494,7 @@ function M.show_before_pane(V, view)
 
   -- Both window-local. `scrollopt`, which decides what a bound window keeps in step, is
   -- global -- a plugin that set it would reach outside its own windows -- so it is left
-  -- alone. Its default gives vertical synchronisation only, and horizontal scrolling
+  -- alone. Its default gives vertical synchronization only, and horizontal scrolling
   -- staying independent per pane is accepted.
   for _, w in ipairs({ V.win, win }) do
     vim.wo[w].scrollbind = true
@@ -592,7 +592,7 @@ end
 ---
 ---What survives the switch is the **anchor** under the cursor, never the row: the same line
 ---of the same hunk sits at a different row in each layout, so a row carried across would
----land on unrelated code. The result is centred, because the row moved structurally and an
+---land on unrelated code. The result is centered, because the row moved structurally and an
 ---exact scroll offset preserved across that would be preserving something meaningless.
 ---@param V CRView|nil
 ---@param view table The review view: the anchor under its cursor, and the repaint this needs.

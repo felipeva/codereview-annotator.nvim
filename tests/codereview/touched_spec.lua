@@ -7,7 +7,7 @@
 --
 -- Everything is asserted through what a reviewer can see -- the winbar, the text of a
 -- virtual line, the highlight *group* it is drawn in -- or through what the reconciliation
--- returns. Never a colour, and never the JSON behind the archive.
+-- returns. Never a color, and never the JSON behind the archive.
 local h = require("tests.helpers")
 
 h.ui(110, 40)
@@ -248,11 +248,11 @@ describe("an archived entry on the diff", function()
     local groups = h.virt_groups(V)
     assert.is_true(groups.CodeReviewTouched or false, vim.inspect(vim.tbl_keys(groups)))
     assert.is_true(groups.CodeReviewUntouched or false, vim.inspect(vim.tbl_keys(groups)))
-    -- Never the group staleness draws in: one colour for both is the merge the rule refuses.
+    -- Never the group staleness draws in: one color for both is the merge the rule refuses.
     assert.is_nil(groups.CodeReviewStale, vim.inspect(vim.tbl_keys(groups)))
   end)
 
-  it("links those groups into the colorscheme rather than defining colours", function()
+  it("links those groups into the colorscheme rather than defining colors", function()
     for _, group in ipairs({ "CodeReviewTouched", "CodeReviewUntouched" }) do
       local def = vim.api.nvim_get_hl(0, { name = group })
       assert.is_truthy(def.link, ("%s is not a link: %s"):format(group, vim.inspect(def)))
@@ -264,8 +264,8 @@ describe("an archived entry on the diff", function()
     assert.is_truthy(h.winbar(V.win):find(tally(1), 1, true), h.winbar(V.win))
   end)
 
-  -- The same group the entries themselves are drawn in, two rows below. One colour, one
-  -- meaning: the tally is the count of what is drawn in that colour on the diff.
+  -- The same group the entries themselves are drawn in, two rows below. One color, one
+  -- meaning: the tally is the count of what is drawn in that color on the diff.
   it("draws the tally in the group those entries carry on the diff", function()
     assert.same("CodeReviewUntouched", h.winbar_group(V.win, tally(1)))
   end)

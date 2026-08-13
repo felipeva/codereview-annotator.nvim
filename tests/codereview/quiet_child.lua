@@ -7,7 +7,7 @@
 -- is to make exactly one such call, in one arrangement, and print what it saw.
 --
 -- A group name cannot tell a faded row from a bright one, and it cannot tell one blend from
--- two. The cell is the only reading that says where a colour really ended up.
+-- two. The cell is the only reading that says where a color really ended up.
 --
 -- The screen is 80x24 because that is the grid a headless Neovim keeps whatever `columns`
 -- and `lines` are set to: a window drawn past column 80 is drawn into cells no assertion can
@@ -24,14 +24,14 @@ vim.o.lines = 24
 local fixture = assert(vim.env.FIXTURE, "FIXTURE is not set")
 vim.cmd("cd " .. vim.fn.fnameescape(fixture))
 
--- Colours the arithmetic is exact on: every channel divides by four, so a blend halfway to a
--- black background and a blend a quarter of the way are both colours with no rounding in
+-- Colors the arithmetic is exact on: every channel divides by four, so a blend halfway to a
+-- black background and a blend a quarter of the way are both colors with no rounding in
 -- them -- and so is one laid over the other.
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 vim.api.nvim_set_hl(0, "DiffAdd", { bg = 0x004400 })
 vim.api.nvim_set_hl(0, "@keyword", { fg = 0xec0000 })
 -- What the marker of a queued entry draws in, through `CodeReviewBug`, and what the marker
--- of an archived one draws in, through `CodeReviewArchived`. Two colours of their own, so a
+-- of an archived one draws in, through `CodeReviewArchived`. Two colors of their own, so a
 -- reading of either says which of the two it read.
 vim.api.nvim_set_hl(0, "DiagnosticError", { fg = 0x00ec00, bg = 0x440044 })
 vim.api.nvim_set_hl(0, "Comment", { fg = 0x0000ec, bg = 0x444400 })
@@ -40,8 +40,8 @@ require("codereview").setup({
   layout = "unified",
   syntax = true,
   -- Two strengths that cannot be mistaken for each other. A cell blended once at either of
-  -- them, and a cell blended at both, are three different colours -- which is what lets one
-  -- reading say how many times a colour was pulled toward the background.
+  -- them, and a cell blended at both, are three different colors -- which is what lets one
+  -- reading say how many times a color was pulled toward the background.
   muted = { enabled = vim.env.MUTED ~= "0", strength = 0.25 },
   faded = { enabled = true, strength = 0.5 },
   -- One type, with an ASCII marker: the cell under test then holds a character this file can

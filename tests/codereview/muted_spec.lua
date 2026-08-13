@@ -16,7 +16,7 @@
 -- One level lower, and only where there is no higher way to say it, the namespace's own
 -- contents are read: that a variant is derived from the theme that is active now, and that a
 -- group this plugin cannot know about has none. The namespace holds a link to the group that
--- holds the colour, so `muted_hl` below reads the colour through it. Read the namespace alone
+-- holds the color, so `muted_hl` below reads the color through it. Read the namespace alone
 -- and you stop at a name, which says nothing about what a cell will show.
 --
 -- Lower still, the cells the reviewer's screen really holds. Those are in `muted_child.lua`,
@@ -36,7 +36,7 @@ local view = require("codereview.view")
 -- already has, so this is a lookup rather than a second namespace.
 local MUTED = vim.api.nvim_create_namespace("codereview_muted")
 
--- Colours with even channels, so a blend halfway to a black background has no rounding in
+-- Colors with even channels, so a blend halfway to a black background has no rounding in
 -- it and the numbers below can be read at a glance.
 vim.o.termguicolors = true
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
@@ -78,7 +78,7 @@ end
 ---can carry `CursorLine` all the way down to the muting's own blend -- which is the one
 ---answer a **counterpart row** must never have. So the group is named as well, and naming it
 ---needs the namespace's own contents; there is no higher way to say it. The cells
----`muted_child.lua` reads are what prove those names are colours.
+---`muted_child.lua` reads are what prove those names are colors.
 ---@param win integer
 ---@return string
 local function lit(win)
@@ -111,7 +111,7 @@ end
 
 ---What a muted window really draws `group` in.
 ---
----One hop, because the namespace names a group and that group holds the colour. Reading the
+---One hop, because the namespace names a group and that group holds the color. Reading the
 ---namespace alone stops at the name, which says nothing about what a cell will show.
 ---@param group string
 ---@return table
@@ -185,7 +185,7 @@ describe("a file whose syntax is parsed only after its pane lost focus", functio
     local bright = {}
     for _, group in ipairs(fresh) do
       local def = vim.api.nvim_get_hl(0, { name = group, link = false })
-      -- A group the theme gives no colour of its own is deliberately left without a
+      -- A group the theme gives no color of its own is deliberately left without a
       -- variant; it is the case below, not a miss here.
       if (def.fg or def.bg) and vim.tbl_isempty(vim.api.nvim_get_hl(MUTED, { name = group })) then
         bright[#bright + 1] = group
@@ -493,8 +493,8 @@ describe("archived entries toggled off the diff and back", function()
   end)
 
   -- The one thing the two readings above cannot see. They name a group; a repaint that had
-  -- written the twins again against nothing would leave the name reaching a different colour.
-  it("leaves the colour that group holds alone", function()
+  -- written the twins again against nothing would leave the name reaching a different color.
+  it("leaves the color that group holds alone", function()
     assert.same(twin, muted_hl("CursorLine").bg)
   end)
 
@@ -519,8 +519,8 @@ describe("a group the plugin cannot know about", function()
   end)
 
   -- Nobody is to "fix" the case above by giving the namespace a palette of its own: a group
-  -- with no variant falling back to its global definition is what keeps an unrecognised
-  -- theme merely less muted instead of wrongly coloured. `muted_child.lua` reads the cell.
+  -- with no variant falling back to its global definition is what keeps an unrecognized
+  -- theme merely less muted instead of wrongly colored. `muted_child.lua` reads the cell.
   it("keeps a group the plugin does know about muted beside it", function()
     local add = muted_hl("CodeReviewAdd")
     assert.is_truthy(add.bg, "CodeReviewAdd has no muted variant")
@@ -528,7 +528,7 @@ describe("a group the plugin cannot know about", function()
 end)
 
 -- A family of its own, holding one member. The alternative is a second copy of the blend
--- arithmetic, which is how this one and the muting would drift apart in colour.
+-- arithmetic, which is how this one and the muting would drift apart in color.
 describe("the group a muted pane lights its counterpart row in", function()
   local theme = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false }).bg
   local counterpart = muted_hl("CursorLine").bg
@@ -539,8 +539,8 @@ describe("the group a muted pane lights its counterpart row in", function()
 
   it("is a blend of the lit row this theme draws, and not that row itself", function()
     assert.same(0x004488, theme)
-    assert.is_truthy(counterpart, "a muted pane lights its row in no colour of its own")
-    assert.is_true(counterpart ~= theme, "the counterpart row is the focused pane's colour")
+    assert.is_truthy(counterpart, "a muted pane lights its row in no color of its own")
+    assert.is_true(counterpart ~= theme, "the counterpart row is the focused pane's color")
   end)
 
   -- What the family is for: a row pulled as far as the muting is would be lost inside the
@@ -585,7 +585,7 @@ describe("changing colorscheme", function()
   end
 
   -- Without these two the cases below pass on a theme that happens to paint a changed line,
-  -- or a lit row, the same colour the last one did -- which would prove nothing about
+  -- or a lit row, the same color the last one did -- which would prove nothing about
   -- recomputing anything.
   it("is a change the theme really made", function()
     assert.is_true(was ~= now, ("both themes give a changed line %s"):format(tostring(now)))
@@ -595,14 +595,14 @@ describe("changing colorscheme", function()
     assert.is_true(lit_was ~= lit_now, ("both themes light a row %s"):format(tostring(lit_now)))
   end)
 
-  it("recomputes the muted colour against the theme that is active now", function()
-    assert.is_true(before ~= after, "the muted colour is the one the old theme was blended into")
-    assert.is_true(after ~= now, "the muted colour is the new theme's, unmuted")
+  it("recomputes the muted color against the theme that is active now", function()
+    assert.is_true(before ~= after, "the muted color is the one the old theme was blended into")
+    assert.is_true(after ~= now, "the muted color is the new theme's, unmuted")
     pulled_toward_the_background("muted", after, now)
   end)
 
   it("recomputes the counterpart row against it too", function()
-    assert.is_true(lit_before ~= lit_after, "the counterpart row is the colour the old theme was blended into")
+    assert.is_true(lit_before ~= lit_after, "the counterpart row is the color the old theme was blended into")
     assert.is_true(lit_after ~= lit_now, "the counterpart row is the new theme's lit row, unblended")
     pulled_toward_the_background("counterpart", lit_after, lit_now)
   end)
@@ -739,7 +739,7 @@ describe("the cell under a reviewer's eye", function()
   end)
 
   -- The regression the `winhighlight`/`NormalNC` route would be: it changes a window's
-  -- default colours, and neither of these two comes from those.
+  -- default colors, and neither of these two comes from those.
   it("mutes both of them once its pane loses focus", function()
     assert.same("cell l fg=770000 bg=002200", (muted:gsub(" at %d+,%d+$", "")))
   end)

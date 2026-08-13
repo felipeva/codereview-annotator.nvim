@@ -7,7 +7,7 @@
 -- is to make exactly one such call, in one arrangement, and print what it saw.
 --
 -- A group name cannot tell a faded row from a bright one, which is why this exists at all:
--- the cell is the only reading that says the colour really moved.
+-- the cell is the only reading that says the color really moved.
 --
 -- The screen is 80x24 because that is the grid a headless Neovim keeps whatever `columns`
 -- and `lines` are set to: a window drawn past column 80 is drawn into cells no assertion can
@@ -24,8 +24,8 @@ vim.o.lines = 24
 local fixture = assert(vim.env.FIXTURE, "FIXTURE is not set")
 vim.cmd("cd " .. vim.fn.fnameescape(fixture))
 
--- Colours the arithmetic is exact on: every channel is even, so a blend halfway to a black
--- background is a colour with no rounding in it.
+-- Colors the arithmetic is exact on: every channel is even, so a blend halfway to a black
+-- background is a color with no rounding in it.
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 vim.api.nvim_set_hl(0, "DiffAdd", { bg = 0x004400 })
 vim.api.nvim_set_hl(0, "@keyword", { fg = 0xee0000 })
@@ -33,9 +33,9 @@ vim.api.nvim_set_hl(0, "@keyword", { fg = 0xee0000 })
 require("codereview").setup({
   layout = "unified",
   syntax = true,
-  -- The window rule is off, so nothing but the fade can pull a colour toward the background
+  -- The window rule is off, so nothing but the fade can pull a color toward the background
   -- here. Its strength is deliberately not the fade's either: a fade that read the number
-  -- beside it would print a colour this cell can tell apart.
+  -- beside it would print a color this cell can tell apart.
   muted = { enabled = false, strength = 0.25 },
   faded = { enabled = vim.env.FADED ~= "0", strength = 0.5 },
 })

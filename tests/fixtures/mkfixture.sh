@@ -30,7 +30,7 @@ printf 'local name = "old"\nlocal second = 2\nlocal third = 3\n' > src/oldname.l
 # The fixture's only non-ASCII content, and it is deliberate. Everything else here is
 # ASCII, and an ASCII line CANNOT fail the byte-splitting bug -- a span computed over bytes
 # passes every assertion an ASCII fixture can make. é/è share their leading byte, as do
-# 🎉/🎈, so a byte-wise diff emphasises a trailing byte alone: a boundary inside a
+# 🎉/🎈, so a byte-wise diff emphasizes a trailing byte alone: a boundary inside a
 # character, which is a rendering error. It rides on the line this file already changes, so
 # no count anywhere moves and nothing else has to know.
 printf '# no trailing newline café 🎉' > src/nonl.md

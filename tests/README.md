@@ -20,7 +20,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 
 | Path | What |
 | --- | --- |
-| `minimal_init.lua` | The only runtimepath is this plugin plus plenary. Also redirects `XDG_STATE_HOME` and neutralises git config. |
+| `minimal_init.lua` | The only runtimepath is this plugin plus plenary. Also redirects `XDG_STATE_HOME` and neutralizes git config. |
 | `helpers.lua` | Fixture builders, notification capture, extmark filters, highlight-group sets, anchor lookups. |
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
@@ -37,7 +37,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/drafts_child.lua` | Spawned by `drafts_spec` to abandon a half-written note and exit — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `codereview/trim_child.lua` | Spawned twice by `trim_spec` — once to trim two branches and exit, once to report what a later session's branch review holds — deliberately not a spec. |
-| `codereview/winbar_child.lua` | Spawned four times by `split_spec` to read one cell of a pane's winbar — three inside the path for the muting, one on the file's added count for the colour — deliberately not a spec. |
+| `codereview/winbar_child.lua` | Spawned four times by `split_spec` to read one cell of a pane's winbar — three inside the path for the muting, one on the file's added count for the color — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
 | Spec | Covers |
@@ -46,8 +46,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `diff_spec` | Scope resolution, unified-diff parsing, rename/binary/untracked, blob hashing |
 | `render_spec` | Anchor map, byte columns, navigation, collapse, panel, scope cycling, archived entries on the diff — where they draw, the groups they draw in, what they cost a file they say nothing about, the flag that removes them and the key that overrides that flag in both directions, for a session — how a winbar is assembled from typed segments, with no review, no fixture and no repository behind it, and the unified layout's sticky header: the file under the cursor, the crossing, the rename spelled out, which group every piece of the bar draws in, what a narrow pane sheds and what the glyphs bought the path, the tree dismissed, a name carrying a `%`, and a review with no files |
 | `split_spec` | The split layout: pane parity, anchor totality, filler, per-pane chrome and note mirroring — queued and archived alike — with no windows; then the binding, annotation parity against the unified layout, the two intersections nobody else owns, each pane's winbar naming its own side of a rename, and the painted cells proving that bar mutes with its pane and draws its counts in a group of the plugin's own |
-| `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centring, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
-| `spans_spec` | What is emphasised inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
+| `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centering, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
+| `spans_spec` | What is emphasized inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
 | `bounded_spec` | Emission bounded by the viewport: what a paint writes and what it leaves out, the bound it shares with the harvest, what a scroll adds and what scrolling back does not, both panes at once — on a diff taller than the window, guarded |
 | `repaint_spec` | When a paint runs on a resize and when it must not: either event with nothing resized, in both layouts; a pane that really changed width; one terminal resize, which fires both events, repainting once; an event that arrives before anything moved; a window resized in another tab page; and the file tree summoned and dismissed |
@@ -66,7 +66,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `norepo_spec` | Bare notes and files outside a checkout: the new kind, the global store, the age sweep |
 | `faded_spec` | Every file but the one the cursor is in: what a review draws when it opens, the crossing, the hunk that changes nothing, the header left bright, both panes, a repaint that moves the rows, an empty review, the fade's family of blended groups beside the muting's, the switch — the two traps, `syntax = false` and a scroll past the last paint — and the cells three child processes read |
 | `muted_spec` | The **pane** without focus: which pane is bright, the namespace that follows focus and the group each pane lights its row in, the **counterpart row** a muted pane lights and the family of one it comes from, the file tree never muted — bright with its row lit under every focus, and still muting the panes in both layouts when focus lands in it — a float changing nothing, a rebuilt pane and a re-summoned tree, `gA` repainting through a path that has never heard of the muting, the group left bright on purpose, the colorscheme change, both switches — and the cells eight child processes read |
-| `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colours one token can hold |
+| `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colors one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
 | `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — the picked commit in the diff, the oldest row at the merge base, the identity that does not move with the pre-image, the label — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
@@ -75,7 +75,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
 | `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
-| `interactive_spec` | The insert-mode leak, and where a completed or cancelled `@` leaves you, in a real pty-backed Neovim |
+| `interactive_spec` | The insert-mode leak, and where a completed or canceled `@` leaves you, in a real pty-backed Neovim |
 | `map_spec` | That `lua/codereview/CLAUDE.md` lists exactly the modules that exist — the only part of the map a machine can check |
 
 ## Fixtures
@@ -317,7 +317,7 @@ so the out-of-core language path is still checked locally without ever failing C
   whose value is `""`, so a child cannot tell "set to empty" from "never set". A flag a
   child branches on has to be absent or carry a real value — `capture_child.lua` declines a
   type when `CAPTURE_TYPE` is absent, not when it is blank.
-- **git config is neutralised.** Both the fixture scripts and `minimal_init.lua` set
+- **git config is neutralized.** Both the fixture scripts and `minimal_init.lua` set
   `GIT_CONFIG_GLOBAL=/dev/null`. Inherited settings quietly change what a fixture means:
   `diff.renames = false` turns the rename case into an unrelated add plus delete, and
   `commit.gpgsign` makes building a fixture depend on a gpg agent.
@@ -450,7 +450,7 @@ so the out-of-core language path is still checked locally without ever failing C
 - **A bounded paint is invisible on a diff that fits on screen.** Only the rows near the
   window are written into a pane's buffer, so every extmark assertion elsewhere in the suite
   runs on a fixture small enough to sit inside that band and passes whether or not anything
-  is bounded — the same trap as "centring is unobservable in a window taller than its
+  is bounded — the same trap as "centering is unobservable in a window taller than its
   buffer". `bounded_spec` builds `mkbig` for it, and its first case guards that the render
   really is taller than one paint can reach — as does the last block of `faded_spec`, which
   needs the same height for the same reason. Two of its cases judge against
@@ -481,9 +481,9 @@ so the out-of-core language path is still checked locally without ever failing C
   bands. Both traps above caught this while it was being written, and neither was written
   for it.
 - **Two quiet states that meet are invisible to the spec of either one.** A queued entry and
-  an archived one inside a faded file keep their own colours because the fade renames
+  an archived one inside a faded file keep their own colors because the fade renames
   `hl_group` and `line_hl_group` and returns early for a mark carrying neither — an entry's
-  colours are in the chunks of its virtual lines. A faded file inside a muted pane is faded
+  colors are in the chunks of its virtual lines. A faded file inside a muted pane is faded
   once because the muted namespace links the groups `hl.groups()` names, and the faded family
   is not among them. Both were true from the day the fade landed and neither was measured:
   making the fade rename an entry's chunks reds seven cases, **all** of them in `quiet_spec`,
@@ -493,11 +493,11 @@ so the out-of-core language path is still checked locally without ever failing C
   does not name falls back to its global definition and draws it; a link that reaches no
   definition draws nothing at all. So "the muted namespace holds no entry for
   `CodeReviewFaded.CodeReviewAdd`" is only half the claim, and the half a cell cannot show:
-  `quiet_spec` reads the global definition beside it and asserts it holds a colour and is not
-  itself a link. `hl.lua` writes a twin that loses its colour back as a link to the group it
+  `quiet_spec` reads the global definition beside it and asserts it holds a color and is not
+  itself a link. `hl.lua` writes a twin that loses its color back as a link to the group it
   blends for the same reason.
 - **Two blends can only be counted apart when the two strengths differ.** A cell says how far
-  a colour was pulled, not how many times it was pulled, so with `muted.strength` equal to
+  a color was pulled, not how many times it was pulled, so with `muted.strength` equal to
   `faded.strength` a file faded once and a file merely muted print the same number — and
   "faded once, not twice" then passes for a fade that never ran. `quiet_spec` and
   `quiet_child.lua` run the window rule at 0.25 and the fade at 0.5, which gives one token
@@ -558,15 +558,15 @@ so the out-of-core language path is still checked locally without ever failing C
   each. A round trip started there passes with the anchor scan replaced by "keep the row",
   which is the bug. `layout_spec` starts in `src/newname.lua` and `src/routes.lua`, both
   below that collapse, and guards every round trip by asserting the row really did change.
-- **Centring is unobservable in a window taller than its buffer.** `split_spec` runs at 45
+- **Centering is unobservable in a window taller than its buffer.** `split_spec` runs at 45
   lines, where the whole fixture diff fits on screen and nothing can scroll, so a `zz`
   assertion there passes with the `zz` deleted. `layout_spec` runs at 24 for that reason,
-  and asserts centring as "a second `zz` here changes nothing" plus a guard that the window
+  and asserts centering as "a second `zz` here changes nothing" plus a guard that the window
   had scrolled at all.
 - **Two bound panes given the same view command land somewhere neither was asked for.**
   `scrollbind` tracks deltas, so running `zz` in the after pane scrolls the before pane
   before the before pane has been placed, and its own `zz` then scrolls the after pane
-  back — nine rows apart, neither centred. `place` lifts both bindings while it works and
+  back — nine rows apart, neither centered. `place` lifts both bindings while it works and
   puts them back, which does not scroll anything. `zt` happens to be self-correcting from
   an aligned start, which is why no file-jump assertion caught this first.
 - **Reviewed marks and expansion are per scope, so setting them before a scope change
@@ -577,7 +577,7 @@ so the out-of-core language path is still checked locally without ever failing C
   over *characters*; the obvious implementation splits a Lua string with a pattern, which
   splits by byte, and it passes every assertion an ASCII line can make. `src/nonl.md`'s
   changed line therefore carries `café 🎉` against `cafè 🎈`: `é`/`è` share a leading byte,
-  as do `🎉`/`🎈`, so a byte-wise diff emphasises a trailing byte alone — a boundary inside
+  as do `🎉`/`🎈`, so a byte-wise diff emphasizes a trailing byte alone — a boundary inside
   a character. Replacing `diff.lua`'s `characters()` with a byte loop must red five cases,
   two of which come through the fixture. It rides on a line that file already changed, so
   no count anywhere moved. This is the same trap as "a filter test needs a fixture only that
@@ -587,7 +587,7 @@ so the out-of-core language path is still checked locally without ever failing C
   50% default, and the rename silently degrades into an add plus a delete. Three cases go
   green-to-red for reasons that have nothing to do with what was being tested. Keep that
   file ASCII.
-- **A "both panes" assertion needs a pair that emphasises both sides.** `src/main.lua`'s
+- **A "both panes" assertion needs a pair that emphasizes both sides.** `src/main.lua`'s
   edit is a pure insertion, so its *deletion* carries no spans at all — asserting emphasis
   in both panes on its row passes with the before pane never drawing anything, because the
   case is then reading the after pane twice. `spans_spec` uses `src/nonl.md`, the fixture's
@@ -625,7 +625,7 @@ so the out-of-core language path is still checked locally without ever failing C
   the claim a reviewer can see, which is that the session after this one opens the full
   branch; that has teeth against the implementation worth fearing, a trim filed under the
   root when there is no branch to file it under. Asserting the document's own shape instead
-  would pin the store rather than the behaviour, which no spec in this suite does.
+  would pin the store rather than the behavior, which no spec in this suite does.
 - **Two entries of different types are separated by a group, not by a row.** The queue
   float's boundary between entries is one blank row carrying no bar, and an assertion about
   it needs two entries of the *same* annotation type — give them different ones and what
@@ -692,16 +692,16 @@ so the out-of-core language path is still checked locally without ever failing C
 ## Deliberately not covered
 
 - **Rendering as pixels.** Assertions are against the buffer, the anchor map and extmark
-  metadata — never a screenshot. Highlight *groups* are checked; the colours a colorscheme
+  metadata — never a screenshot. Highlight *groups* are checked; the colors a colorscheme
   resolves them to are not.
 - **The `git diff` long tail.** Submodules, mode-only changes and combined (merge) diffs
   are not handled by the plugin and are not tested either way. They should degrade to a
-  visible "unsupported entry" row rather than a stack trace; today neither behaviour is
+  visible "unsupported entry" row rather than a stack trace; today neither behavior is
   pinned down.
 - **Real adapters.** `send`, `pick_target` and `compose` are injected stubs throughout.
   That is the point of the seam — the plugin carries no opinion about the transport — but
   it means no test exercises a real agent handoff.
-- **Horizontal scroll synchronisation between panes.** There is nothing to cover: it is
+- **Horizontal scroll synchronization between panes.** There is nothing to cover: it is
   `scrollopt` that decides whether a bound window keeps its horizontal position in step,
   `scrollopt` is global, and the plugin deliberately does not set it. What *is* covered is
   that it stays untouched.

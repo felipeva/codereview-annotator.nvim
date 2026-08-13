@@ -434,7 +434,7 @@ end)
 -- A revspec rather than one of the working-tree scopes: the fixture is a clean checkout, so
 -- `staged`, `unstaged` and `worktree` have nothing in them to open a review on -- and a
 -- revspec is the scope a reviewer reaches for when they already know which commit they
--- want, which is the neighbouring surface this key exists beside.
+-- want, which is the neighboring surface this key exists beside.
 describe("gc outside a branch review", function()
   codereview.open("HEAD~1")
   local review = assert(view.current(), "no review view opened")

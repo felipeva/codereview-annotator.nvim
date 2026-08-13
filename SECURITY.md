@@ -12,7 +12,7 @@ Report privately — **do not open a public issue**.
 - Or email **jfelipevalr@gmail.com**
 
 Include what an attacker can do, the repository or configuration shape needed to reach it,
-and a reproduction if you have one. Expect an acknowledgement within a week.
+and a reproduction if you have one. Expect an acknowledgment within a week.
 
 ## What is in scope
 
@@ -29,7 +29,7 @@ Neovim buffer. Things worth reporting:
 
 ## What is out of scope
 
-- The behaviour of any `send`, `pick_target` or `compose` adapter you supply. The plugin
+- The behavior of any `send`, `pick_target` or `compose` adapter you supply. The plugin
   hands the rendered payload to your function and has no opinion about where it goes;
   what that function does with it is yours to secure.
 - The plugin makes no network requests of its own, and reads no credentials.

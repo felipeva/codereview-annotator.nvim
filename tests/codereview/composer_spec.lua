@@ -486,9 +486,9 @@ describe("a picker that answers with a path outside the tree", function()
   end)
 end)
 
--- The sentinel is written before the picker opens precisely so that this is what cancelling
+-- The sentinel is written before the picker opens precisely so that this is what canceling
 -- costs you: nothing.
-describe("cancelling the file picker", function()
+describe("canceling the file picker", function()
   reset()
   file_answer = nil
   annotate_line()

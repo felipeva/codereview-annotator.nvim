@@ -190,11 +190,11 @@ local function set_winbar(win, segments)
   vim.wo[win].winbar = render.bar(segments)
 end
 
----The `+N -M` a stat is, with its two halves coloured apart.
+---The `+N -M` a stat is, with its two halves colored apart.
 ---
 ---Taken as the string the stat already is rather than as two numbers, so that the file's own
----counts and the review's totals are spelled by one format and coloured by one rule. A
----`binary` file has no counts in it and takes no colour.
+---counts and the review's totals are spelled by one format and colored by one rule. A
+---`binary` file has no counts in it and takes no color.
 ---@param stat string
 ---@return CRBarSegment[]
 local function stat_segments(stat)
@@ -221,7 +221,7 @@ end
 ---and a bar inside a review does not need to say it is one -- which is about thirty columns
 ---handed back to the path.
 ---
----Each entry is already segments, because a count is coloured and the `·` beside it is not,
+---Each entry is already segments, because a count is colored and the `·` beside it is not,
 ---and because the counts carry glyphs a host chose: those are literals for the reason the
 ---file's icon is one. Three counts, three glyphs, so that three numbers side by side cannot
 ---be read as one another.
@@ -321,7 +321,7 @@ end
 ---The path stays a bare string rather than a segment because it is the one part the fitting
 ---rule cuts, and `render.keep_tail` takes text.
 ---
----Coloured as the in-buffer file header colours the same facts, and for the same reason one
+---Colored as the in-buffer file header colors the same facts, and for the same reason one
 ---function names the file for both: the counts apart, the note count in the group the notes
 ---themselves carry, the icon and the chevron quiet. The path takes no group at all, which
 ---leaves it drawing in the bar's own -- the brightest thing on the left, and the thing the
@@ -527,7 +527,7 @@ local function emit_rows(buf, rendered, first, last, faded)
       opts = fade.opts(opts)
     end
     -- An end_col past the end of a line is a hard error; a mis-measured header should
-    -- lose its colour, not abort the whole repaint.
+    -- lose its color, not abort the whole repaint.
     pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, opts)
   end
 end
@@ -1838,9 +1838,9 @@ function M.open(spec)
     end,
   })
 
-  -- A **muted** window's colours are blends of the theme's, so they cannot outlive it.
+  -- A **muted** window's colors are blends of the theme's, so they cannot outlive it.
   -- `hl.lua` writes those blends again from its own `ColorScheme` autocommand; what this
-  -- adds is the pass that links a group the new theme gives a colour to at last. Declared
+  -- adds is the pass that links a group the new theme gives a color to at last. Declared
   -- after `hl.setup()`, which is the first thing this function does: the two fire in the
   -- order they were declared, so every blend this links to exists by the time it links.
   -- Watched from here rather than from `hl.lua`, which would have to reach back up into the
@@ -1848,7 +1848,7 @@ function M.open(spec)
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = V.augroup,
     callback = function()
-      view_layout.recolour()
+      view_layout.recolor()
     end,
   })
 

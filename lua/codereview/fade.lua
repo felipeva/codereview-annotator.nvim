@@ -7,17 +7,17 @@
 ---
 ---**The fade changes which group a mark carries. It does not change the priority order.** A
 ---faded file's rows are emitted in the blended variants of the groups they would carry
----anyway. The alternative is one grey foreground laid over the file above the syntax replay,
+---anyway. The alternative is one gray foreground laid over the file above the syntax replay,
 ---and this project already refused that shape for the intra-line **span** emphasis: a
 ---foreground above the replay wins where a parser painted and loses where none did, so the
 ---result changes with the parsers a reader has installed. Leaving the bands alone is also
 ---what keeps the composition rules in the design notes true.
 ---
----**It is marks, and not a highlight namespace.** A namespace colours a whole window, so it
+---**It is marks, and not a highlight namespace.** A namespace colors a whole window, so it
 ---cannot fade one file inside a **pane**. The **muted** window rule is a namespace because
 ---its unit *is* the window. The two mechanisms answer two different questions, and they
 ---share nothing but the blends in `hl.lua` -- which is what stops them drifting apart in
----colour while each keeps a strength of its own.
+---color while each keeps a strength of its own.
 local config = require("codereview.config")
 local hl = require("codereview.hl")
 
@@ -25,7 +25,7 @@ local M = {}
 
 ---Whether anything fades at all.
 ---
----Off means no mark is renamed and no colour is computed, so the diff is drawn exactly as it
+---Off means no mark is renamed and no color is computed, so the diff is drawn exactly as it
 ---was before this existed.
 ---@return boolean
 function M.enabled()
@@ -34,21 +34,21 @@ end
 
 ---The group a faded row carries in place of `group`.
 ---
----**A group the active theme gives no colour of its own is emitted as itself.** `hl.lua`
+---**A group the active theme gives no color of its own is emitted as itself.** `hl.lua`
 ---hands back nothing for it, and the row is then drawn in the group it would have carried
----anyway -- a file merely not faded rather than one drawn in a colour nobody chose.
+---anyway -- a file merely not faded rather than one drawn in a color nobody chose.
 ---@param group string
 ---@return string
 function M.group(group)
   return hl.blended("faded", group) or group
 end
 
----One mark's options, with the groups that colour its own row faded.
+---One mark's options, with the groups that color its own row faded.
 ---
 ---`hl_group` and `line_hl_group` are what a mark puts on the row it sits on, and they are
 ---what the fade renames. The virtual lines hanging under a row are left as they are: they
 ---are the **queue**'s entries and the **archive**'s, drawn beneath the code rather than on
----it, and their colours are in the chunks of that mark rather than in either field. So a
+---it, and their colors are in the chunks of that mark rather than in either field. So a
 ---queued entry inside a faded file stays bright, and an archived one keeps the dimness it
 ---already has -- which is how *already sent* and *not the file I am in* stay two statements.
 ---The early return below is what says so, and `quiet_spec` is what pins it.

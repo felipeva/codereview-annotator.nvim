@@ -5,7 +5,7 @@ adapter — handed exactly what a host composer is handed, required to do exactl
 must. A host that injects its own replaces it rather than upgrading from a lesser path.
 
 The obvious alternative was what this replaced: a one-line prompt built in, with anything
-better left to the host. That produced two behaviours to keep in step, and pushed every host
+better left to the host. That produced two behaviors to keep in step, and pushed every host
 into reimplementing a floating buffer with a submit key before it could have drafts or
 references.
 

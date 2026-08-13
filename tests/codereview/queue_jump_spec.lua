@@ -6,7 +6,7 @@
 -- scope -- which is why the messages are asserted apart rather than merely counted.
 local h = require("tests.helpers")
 
--- Deliberately short: whether a landing row is *centred* is only observable when the diff
+-- Deliberately short: whether a landing row is *centered* is only observable when the diff
 -- outruns the window and there is somewhere else the cursor could have been put.
 h.ui(100, 20)
 h.cd_fixture("mkfixture")
@@ -128,7 +128,7 @@ describe("jumping to a line annotation", function()
   local landed = vim.api.nvim_win_get_cursor(V.win)[1]
   local winline = vim.api.nvim_win_call(V.win, vim.fn.winline)
 
-  -- Guards the test itself: a target already on screen would pass the centring assertion
+  -- Guards the test itself: a target already on screen would pass the centering assertion
   -- with nothing scrolling it.
   it("is a jump that has to scroll", function()
     assert.is_true(target > height, ("row %d, window height %d"):format(target, height))
@@ -147,7 +147,7 @@ describe("jumping to a line annotation", function()
     assert.same(target, landed)
   end)
 
-  it("centres it", function()
+  it("centers it", function()
     assert.is_true(
       math.abs(winline - math.ceil(height / 2)) <= 1,
       ("cursor on screen row %d of %d"):format(winline, height)

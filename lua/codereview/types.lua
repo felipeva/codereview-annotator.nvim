@@ -2,15 +2,15 @@
 ---
 ---A type is not decoration. `directive` is what earns it a keystroke: it becomes the
 ---instruction attached to that group in the submitted payload, so "bug" and "nitpick"
----produce different behaviour from the receiving agent rather than just different icons.
+---produce different behavior from the receiving agent rather than just different icons.
 local M = {}
 
 ---@class CRType
 ---@field name string       Required. Identifier used by `annotate()` and stored on an entry.
 ---@field key string        Required. Suffix after the `a` annotate prefix.
 ---@field icon string       Defaults to the configured `icons.annotated`.
----@field hl string         Defaults to `CodeReview<Name>`, auto-linked so it has colour.
----@field label string      Group heading in the payload. Defaults to the pluralised name.
+---@field hl string         Defaults to `CodeReview<Name>`, auto-linked so it has color.
+---@field label string      Group heading in the payload. Defaults to the pluralized name.
 ---@field directive string? What the receiving agent should do with this group. Optional:
 ---                         a type without one gets a bare `## Label (n)` heading.
 
@@ -75,7 +75,7 @@ end
 ---@return string
 local function default_label(name)
   local label = table.concat(words(name), " ")
-  -- Naive pluralisation, minus the worst case. A name that is already plural, or one
+  -- Naive pluralization, minus the worst case. A name that is already plural, or one
   -- English declines irregularly, wants an explicit `label`.
   return label:lower():sub(-1) == "s" and label or (label .. "s")
 end
@@ -95,7 +95,7 @@ end
 ---@param list CRType[]
 ---@param opts? { icon?: string }
 ---@return CRType[]
-function M.normalise(list, opts)
+function M.normalize(list, opts)
   opts = opts or {}
 
   if type(list) ~= "table" or vim.tbl_isempty(list) then

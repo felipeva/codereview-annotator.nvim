@@ -8,7 +8,7 @@
 ---
 ---What a row carries is the short sha, the subject and the relative date. Not the author --
 ---you are reading your own branch. Not the added and deleted counts -- they cost a second
----pass over the whole branch to fill, and the subject is what a reviewer recognises.
+---pass over the whole branch to fill, and the subject is what a reviewer recognizes.
 local git = require("codereview.git")
 local render = require("codereview.render")
 
@@ -44,7 +44,7 @@ local ALL = "All commits"
 
 ---Turn the commits into the float's rows.
 ---
----The subject keeps the buffer's own colour, which is the brightest thing this float has,
+---The subject keeps the buffer's own color, which is the brightest thing this float has,
 ---for the reason the **sticky header** leaves the path in the bar's own group: the sha and
 ---the date are what a row is found by, and the subject is what it is read for.
 ---

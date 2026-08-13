@@ -208,10 +208,10 @@ describe("referencing a file while typing", function()
   end)
 end)
 
--- Cancelling is the case the sentinel is written up front for. What it costs the reviewer
+-- Canceling is the case the sentinel is written up front for. What it costs the reviewer
 -- should be the `@` they typed and nothing else -- not the sentence they were in the
 -- middle of.
-describe("cancelling the file picker while typing", function()
+describe("canceling the file picker while typing", function()
   local typed = "look at @"
 
   -- A picker that answers with nothing is a picker the reviewer dismissed.

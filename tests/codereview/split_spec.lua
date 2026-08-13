@@ -693,7 +693,7 @@ end)
 
 describe("holding the panes together", function()
   -- `scrollopt` is global. A plugin that set it would reach outside its own windows, so
-  -- what is accepted instead is its default: vertical synchronisation only.
+  -- what is accepted instead is its default: vertical synchronization only.
   it("does not modify the global scroll-options setting", function()
     assert.same(scrollopt_before, vim.go.scrollopt)
   end)
@@ -914,7 +914,7 @@ describe("annotating from either pane", function()
 
   it("binds the diff's keys in the before pane too", function()
     -- Both sides through `vim.keycode`: the API reports a control key in its own notation
-    -- (`<C-P>`, capitalised) rather than the one it was bound with, so comparing the
+    -- (`<C-P>`, capitalized) rather than the one it was bound with, so comparing the
     -- strings as written silently never matches.
     local lhs = {}
     for _, m in ipairs(vim.api.nvim_buf_get_keymap(V.before_buf, "n")) do
@@ -1224,7 +1224,7 @@ describe("the sticky header in the split layout", function()
   -- Both bars have to hold a 40-character revision and a path at once, and a third of a
   -- 120-column terminal is not enough for that -- the pane would truncate its way to a pass
   -- or a fail for reasons that have nothing to do with which side it names. Widening the
-  -- terminal hands every new column to the last window, so the panes are levelled after it,
+  -- terminal hands every new column to the last window, so the panes are leveled after it,
   -- and the repaint is this test's to drive: `WinResized` never lands in a headless spec.
   vim.o.columns = 200
   vim.cmd("wincmd =")
@@ -1271,13 +1271,13 @@ describe("the sticky header in the split layout", function()
   -- place either can be said of *it*: the revision it exists to name is accented, the
   -- separator in front of that is as quiet as the summary's, and the pre-image path is left
   -- in the bar's own group -- the brightest thing on this bar, exactly as on the other one.
-  it("colours the before pane's bar as it colours the after pane's", function()
+  it("colors the before pane's bar as it colors the after pane's", function()
     assert.same("CodeReviewBarRev", h.winbar_group(V.before_win, V.scope.before))
     assert.same("CodeReviewBarSep", h.winbar_group(V.before_win, "·"))
     assert.is_nil(h.winbar_group(V.before_win, "src/oldname.lua"))
   end)
 
-  -- The note count carries the colour notes carry everywhere else, which is the one thing on
+  -- The note count carries the color notes carry everywhere else, which is the one thing on
   -- this bar `render_spec` cannot reach: nothing is queued while its own summary is measured.
   it("draws the queue's note count in the group the notes themselves carry", function()
     assert.same("CodeReviewNoteCount", h.winbar_group(V.win, ("%s1"):format(config.get().icons.annotated)))
@@ -1343,7 +1343,7 @@ describe("the sticky header on a muted pane", function()
   local stat = child({ FOCUS = "after", MUTED = "1", CELL = "stat" })
 
   -- Every reading is of a cell inside the path, so a bar that had stopped naming the file
-  -- would fail here before any colour was compared.
+  -- would fail here before any color was compared.
   it("really read the file segment in all three arrangements", function()
     for _, reading in ipairs({ muted, bright, unmuted_nc }) do
       assert.same("cell s", reading:sub(1, #"cell s"), reading)
@@ -1354,7 +1354,7 @@ describe("the sticky header on a muted pane", function()
     assert.same("cell s fg=eeee00 bg=006600", bright)
   end)
 
-  -- `WinBar`'s colours blended halfway to `Normal`'s background -- the muted namespace's
+  -- `WinBar`'s colors blended halfway to `Normal`'s background -- the muted namespace's
   -- variant, not the group itself.
   it("mutes the file segment with the pane it names the file for", function()
     assert.same("cell s fg=770000 bg=002200", muted)
@@ -1377,6 +1377,6 @@ describe("the sticky header on a muted pane", function()
   -- a `%#Group#` naming a foreground leaves it showing through.
   it("draws the added count in the plugin's own group rather than the bar's foreground", function()
     assert.same("cell + fg=00cc66 bg=006600", stat)
-    assert.are_not.same(bright:sub(#"cell + " + 1), stat:sub(#"cell + " + 1), "the same colour as the path")
+    assert.are_not.same(bright:sub(#"cell + " + 1), stat:sub(#"cell + " + 1), "the same color as the path")
   end)
 end)

@@ -34,7 +34,7 @@ change there is felt through.
 | `state.lua` | Persisted review progress, the blob comparisons over it — staleness, and touchedness kept in a function of its own — and each branch's **trim**, checked against `HEAD` before it is handed back | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, one row per commit, the row a **trim** starts at, and the pick that applies one | stateful (float) |
-| `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
+| `types.lua` | Annotation types: defaults, normalization, labels, and the directive that earns a type its keystroke | pure |
 | `view.lua` | The review view: the `CRView` it owns, the paint, navigation, delivery, opening and closing | stateful (windows) |
 | `view_layout.lua` | Where the review's windows are: the panes, the before pane, the toggle between the unified and split layouts, which of them is muted, and which group each lights its row in | stateful (windows) |
 | `view_panel.lua` | The file tree's stateful half: its window and buffer, the repaint that follows the diff cursor, and the actions its keys run | stateful (windows) |

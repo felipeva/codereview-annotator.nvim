@@ -77,12 +77,12 @@ end
 
 --- Spans ----------------------------------------------------------------------
 
----Above this proportion of the longer line inside spans, a pair is left plainly coloured.
+---Above this proportion of the longer line inside spans, a pair is left plainly colored.
 ---
 ---Two lines sharing almost nothing are not an edit, they are a replacement, and
----emphasising nine tenths of both tells a reviewer less than emphasising neither.
+---emphasizing nine tenths of both tells a reviewer less than emphasizing neither.
 ---
----The figure is a judgement read off real diffs rather than derived. Measured over three
+---The figure is a judgment read off real diffs rather than derived. Measured over three
 ---corpora -- this repository's own history, a file put through stylua at a different width
 ---and indent, and two unrelated modules paired line for line, which is what the pairing
 ---rule produces inside a long run:
@@ -93,7 +93,7 @@ end
 ---| a re-indentation | 0% | 0% |
 ---| unrelated lines paired by index | 90.6% | 73.6% |
 ---
----70%, the figure this started at, still emphasises a quarter of the unrelated pairs, and
+---70%, the figure this started at, still emphasizes a quarter of the unrelated pairs, and
 ---reading them confirms they are noise. Every genuine one-for-one edit above 60% in that
 ---history reads as a replacement rather than an edit -- a `nvim_win_set_cursor` call
 ---becoming `place(1)`, a statement becoming a comment -- so 60% loses nothing worth

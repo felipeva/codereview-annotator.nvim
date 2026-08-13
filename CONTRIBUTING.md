@@ -44,7 +44,7 @@ make format                                          # stylua, in place
 make perf                                            # timing report at two sizes, not part of CI
 ```
 
-New behaviour needs a spec. [`tests/README.md`](tests/README.md) covers the layout, the
+New behavior needs a spec. [`tests/README.md`](tests/README.md) covers the layout, the
 fixture scripts, what is deliberately not covered, and the traps worth knowing before you
 change a fixture — read it before adding one. The short version:
 
@@ -78,7 +78,7 @@ commits and the PR title all agree.
 - The title is a Conventional Commits subject — it becomes the squash commit.
 - The body closes the issue (`Closes #12`) and says why, not what.
 - Keep it to one vertical slice. Two unrelated changes are two PRs.
-- Update `README.md` and `doc/codereview.txt` when you change user-facing behaviour; both
+- Update `README.md` and `doc/codereview.txt` when you change user-facing behavior; both
   are hand-written and neither is generated from the other.
 
 ## Code style

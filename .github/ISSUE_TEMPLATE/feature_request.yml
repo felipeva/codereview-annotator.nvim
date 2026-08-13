@@ -23,7 +23,7 @@ body:
     id: proposal
     attributes:
       label: What you have in mind
-      description: The behaviour you want, including keys, commands or config if relevant.
+      description: The behavior you want, including keys, commands or config if relevant.
     validations:
       required: true
 

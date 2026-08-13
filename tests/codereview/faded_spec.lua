@@ -7,12 +7,12 @@
 -- that emits.
 --
 -- Only this plugin's own groups are judged bright or faded. A treesitter capture the active
--- theme gives no colour of its own is emitted as itself by design -- `@spell` is one in this
+-- theme gives no color of its own is emitted as itself by design -- `@spell` is one in this
 -- fixture -- and counting that as "left bright" would be counting the nil contract as a
 -- defect. What the replay does under the fade is asserted on the captures that do have a
--- colour, by name.
+-- color, by name.
 --
--- Two blocks exist for traps rather than for behaviour. One opens a review with
+-- Two blocks exist for traps rather than for behavior. One opens a review with
 -- `syntax = false`, which fails for a fade that took its row spans from the replay's row map:
 -- that map is built only when highlighting is on. One scrolls into rows no paint had reached
 -- at the moment of the crossing, which fails for a fade that renamed the rows it could see
@@ -32,14 +32,14 @@ local view = require("codereview.view")
 h.ui(110, 40)
 local fixture = h.cd_fixture("mkfixture")
 
--- Colours with even channels, so a blend a quarter of the way to a black background has no
+-- Colors with even channels, so a blend a quarter of the way to a black background has no
 -- rounding in it and the numbers below can be read at a glance.
 vim.o.termguicolors = true
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 vim.api.nvim_set_hl(0, "DiffAdd", { bg = 0x004400 })
--- A group with a name and no colour at all: the one thing the blend cannot compute, and the
+-- A group with a name and no color at all: the one thing the blend cannot compute, and the
 -- case it must hand back nothing for. Defined before any review has blended anything.
-vim.api.nvim_set_hl(0, "FadedSpecColourless", {})
+vim.api.nvim_set_hl(0, "FadedSpecColorless", {})
 
 ---What the name of every blended group in the fade's family starts with.
 local FADED = "CodeReviewFaded."
@@ -384,7 +384,7 @@ describe("a review with no files", function()
   view.set_scope("branch")
 end)
 
---- The colours behind it ------------------------------------------------------------
+--- The colors behind it ------------------------------------------------------------
 
 describe("the fade's family of blended groups, beside the muting's", function()
   it("gives the fade a strength of its own", function()
@@ -394,21 +394,21 @@ describe("the fade's family of blended groups, beside the muting's", function()
     local one = vim.api.nvim_get_hl(0, { name = faded, link = false }).bg
     local other = vim.api.nvim_get_hl(0, { name = muted, link = false }).bg
     assert.is_true(one ~= other, ("both families blend a changed line to %s"):format(tostring(one)))
-    -- Both pulled from the same colour toward the same background, and the fade less far:
+    -- Both pulled from the same color toward the same background, and the fade less far:
     -- it covers every file but one, where the window rule covers a pane.
     assert.is_true(one < theme and other < one, ("theme %s, faded %s, muted %s"):format(theme, one, other))
   end)
 
   -- Nobody is to "fix" this by giving the fade a palette of its own. A group with no blend
-  -- emitted as itself is what keeps an unrecognised theme merely less faded instead of
-  -- wrongly coloured, and there is no higher place to say it: the render carries no mark in
-  -- a colourless group, so no reading of the buffer can reach this.
-  it("hands back nothing for a group the theme gives no colour", function()
-    assert.is_nil(hl.blended("faded", "FadedSpecColourless"))
-    assert.same("FadedSpecColourless", fade.group("FadedSpecColourless"))
+  -- emitted as itself is what keeps an unrecognized theme merely less faded instead of
+  -- wrongly colored, and there is no higher place to say it: the render carries no mark in
+  -- a colorless group, so no reading of the buffer can reach this.
+  it("hands back nothing for a group the theme gives no color", function()
+    assert.is_nil(hl.blended("faded", "FadedSpecColorless"))
+    assert.same("FadedSpecColorless", fade.group("FadedSpecColorless"))
   end)
 
-  it("hands back a blend for a group it does colour, beside it", function()
+  it("hands back a blend for a group it does color, beside it", function()
     assert.same(FADED .. "CodeReviewAdd", fade.group("CodeReviewAdd"))
   end)
 end)
@@ -577,7 +577,7 @@ end)
 
 --- A colorscheme the review was not blended against ------------------------------------
 
--- Last of the in-process blocks, because it replaces every colour the ones above read.
+-- Last of the in-process blocks, because it replaces every color the ones above read.
 describe("changing colorscheme", function()
   local function bg(group)
     return vim.api.nvim_get_hl(0, { name = group, link = false }).bg
@@ -593,14 +593,14 @@ describe("changing colorscheme", function()
   local after = bg(FADED .. "CodeReviewAdd")
 
   -- Without this the case below passes on a theme that happens to paint a changed line the
-  -- same colour the last one did, which would prove nothing about recomputing anything.
+  -- same color the last one did, which would prove nothing about recomputing anything.
   it("is a change the theme really made", function()
     assert.is_true(was ~= now, ("both themes give a changed line %s"):format(tostring(now)))
   end)
 
-  it("recomputes the faded colour against the theme that is active now", function()
-    assert.is_true(before ~= after, "the faded colour is the one the old theme was blended into")
-    assert.is_true(after ~= now, "the faded colour is the new theme's, unfaded")
+  it("recomputes the faded color against the theme that is active now", function()
+    assert.is_true(before ~= after, "the faded color is the one the old theme was blended into")
+    assert.is_true(after ~= now, "the faded color is the new theme's, unfaded")
     local theme, back, faded = now, backdrop, after
     for _, place in ipairs({ 65536, 256, 1 }) do
       local one = math.floor(theme / place) % 256

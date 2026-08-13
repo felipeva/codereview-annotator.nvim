@@ -142,7 +142,7 @@ end
 ---whether one is wired.
 ---
 ---It reports a non-dispatch because that is the truth: a register is not a consumer.
----The behaviour a host with no delivery already had -- the payload reachable, the batch
+---The behavior a host with no delivery already had -- the payload reachable, the batch
 ---still queued -- then falls out of the one rule that empties the queue rather than
 ---being written down a second time.
 ---@param payload string

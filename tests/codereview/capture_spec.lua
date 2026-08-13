@@ -162,8 +162,8 @@ describe("declining a type", function()
 end)
 
 -- Dismissing the picker still abandons the annotation entirely. The two were the same
--- outcome while cancelling was the only way out of the picker without choosing.
-describe("cancelling the picker", function()
+-- outcome while canceling was the only way out of the picker without choosing.
+describe("canceling the picker", function()
   local orig = vim.ui.select
   vim.ui.select = function(_, _, cb)
     cb(nil, nil)
@@ -184,7 +184,7 @@ describe("cancelling the picker", function()
   end)
 end)
 
-describe("an unrecognised type", function()
+describe("an unrecognized type", function()
   queue.clear()
   edit("src/main.lua")
   local msgs, restore = h.capture_notify()
@@ -195,7 +195,7 @@ describe("an unrecognised type", function()
     assert.same(0, queue.count())
   end)
 
-  it("names the type it did not recognise", function()
+  it("names the type it did not recognize", function()
     assert.is_true(h.notified(msgs, "unknown annotation type: nonsense"))
   end)
 end)

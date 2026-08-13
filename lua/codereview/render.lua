@@ -49,7 +49,7 @@ M.LAYOUTS = { "unified", "split" }
 ---default makes the result depend on insertion order, which changes as the view repaints.
 ---
 ---`span` sits above the line's own background, so the emphasis is visible at all, and
----below the syntax replay, so code colouring survives inside an emphasised span.
+---below the syntax replay, so code coloring survives inside an emphasized span.
 M.PRIORITY = { diff = 100, gutter = 110, span = 120, syntax = 150 }
 
 ---Stable identity for an annotatable line, independent of buffer position.
@@ -353,7 +353,7 @@ end
 ---takes a name is the one that escapes it.
 ---
 ---A literal takes a highlight group as chrome does, and for the reason the escape exists:
----most of what is worth colouring on this bar is a name -- the **target**, the base
+---most of what is worth coloring on this bar is a name -- the **target**, the base
 ---revision, a count carrying a configured glyph -- and the alternative is a caller writing
 ---the markers around one by hand, which is markup arriving from outside the one seam that
 ---decides what markup is. The escape is unchanged by it: the name is doubled, and the
@@ -380,8 +380,8 @@ function M.bar(segments)
   local out = {}
   for i, seg in ipairs(segments) do
     local text = seg.text
-    -- Escape by kind, colour whatever asked for it: the two are separate questions, and a
-    -- name that is coloured is still a name.
+    -- Escape by kind, color whatever asked for it: the two are separate questions, and a
+    -- name that is colored is still a name.
     if kind_of(seg) == "literal" then
       text = (text:gsub("%%", "%%%%"))
     end
@@ -493,7 +493,7 @@ function M.build(files, opts)
     local type_def = require("codereview.types").get(opts.types, item.type)
     local icon = type_def and type_def.icon or "•"
     -- An archived entry keeps its type's icon, because what kind of finding it was is still
-    -- worth knowing, and gives up that type's colour: severity is an instruction to act,
+    -- worth knowing, and gives up that type's color: severity is an instruction to act,
     -- and this one has already been acted on.
     local group = archived and "CodeReviewArchived" or (type_def and type_def.hl or "CodeReviewNote")
     local text_group = archived and "CodeReviewArchivedNote" or "CodeReviewNote"
@@ -696,7 +696,7 @@ function M.build(files, opts)
     if before then
       mark(before, row, 0, { line_hl_group = header_hl })
     end
-    -- Colour only the +N/-M inside the stat, not the note count that may follow it.
+    -- Color only the +N/-M inside the stat, not the note count that may follow it.
     local stat_col = #header - #right
     local plus_len = file.binary and 0 or #(("+%d"):format(file.added))
     if not file.binary then
