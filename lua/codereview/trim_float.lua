@@ -1,13 +1,10 @@
----The commits on the branch, read from inside the review.
+---The commits on the branch, read from inside the review, and the **trim** picked off them.
 ---
 ---A module of its own, in the shape of `queue_float.lua`: a float needs a buffer, a window
----and keys, and none of the review view's mutable state. The repository to ask about is
----handed in as a plain string, so nothing here reads the view -- which is what keeps this
----module out of the cycle `view` and `annotate` already sit in.
----
----**Nothing here picks a row yet.** When a key that acts on one arrives it arrives the way
----the queue float's keys did: the view hands itself in and the float runs its exported
----actions, rather than requiring `view` for them.
+---and keys, and none of the review view's mutable state. What it acts through is handed in
+----- the view module for the one action `<CR>` runs, and the repository and the commit the
+---branch starts at as plain values -- so nothing here reads the view, which is what keeps
+---this module out of the cycle `view` and `annotate` already sit in.
 ---
 ---What a row carries is the short sha, the subject and the relative date. Not the author --
 ---you are reading your own branch. Not the added and deleted counts -- they cost a second
@@ -28,13 +25,22 @@ end
 ---disturb the diff's, the tree's or the queue float's.
 local NS_TRIM = vim.api.nvim_create_namespace("codereview_trim")
 
----One column to the left of every row, reserved so a later change can mark a row there
----without moving anything beside it. Nothing draws in it yet.
+---One column to the left of every row, where the row the current **trim** starts at is
+---called out. Blank on every other row, so nothing beside it moves when one is marked.
 local GUTTER = " "
+
+---What that column holds on the row the review currently starts at.
+local MARK = "▸"
 
 ---Two spaces between the sha and the subject, and at least two between the subject and the
 ---date, so the three read as three columns rather than as one sentence.
 local GAP = "  "
+
+---The top row, which removes the trim.
+---
+---Above the commits rather than below them: it is the state a review opens in, and a
+---reviewer widening a long branch back out should not have to walk to the bottom to do it.
+local ALL = "All commits"
 
 ---Turn the commits into the float's rows.
 ---
@@ -46,9 +52,10 @@ local GAP = "  "
 ---any width in either ruler, and the two part company at the first accented character.
 ---@param commits CRCommit[]
 ---@param width integer Columns the float has to draw into
+---@param at integer Which commit the review starts at; 0 for none, which is `ALL`
 ---@return { lines: string[], marks: table[] }
-local function build(commits, width)
-  local lines, marks = {}, {}
+local function build(commits, width, at)
+  local lines, marks = { GUTTER .. ALL }, {}
   -- Padded to the widest sha in the listing. git abbreviates to whatever the repository
   -- needs, and it needs more of them on a big one, so the column cannot be assumed.
   local sha_width = 0
@@ -58,21 +65,25 @@ local function build(commits, width)
   local indent = #GUTTER + sha_width + #GAP
   local body = math.max(8, width - indent - #GUTTER)
 
-  for _, commit in ipairs(commits) do
+  for i, commit in ipairs(commits) do
     local when = commit.when or ""
     local room = body - (when ~= "" and vim.fn.strdisplaywidth(when) + #GAP or 0)
     local subject = render.truncate(commit.subject, math.max(8, room))
-    local head = GUTTER .. ("%-" .. sha_width .. "s"):format(commit.sha) .. GAP .. subject
+    local gutter = i == at and MARK or GUTTER
+    local head = gutter .. ("%-" .. sha_width .. "s"):format(commit.sha) .. GAP .. subject
     if when ~= "" then
       head = head .. (" "):rep(math.max(#GAP, room - vim.fn.strdisplaywidth(subject) + #GAP)) .. when
     end
 
     lines[#lines + 1] = head
     local row = #lines - 1
+    if i == at then
+      marks[#marks + 1] = { row = row, col = 0, opts = { end_col = #MARK, hl_group = "CodeReviewTrimMark" } }
+    end
     marks[#marks + 1] = {
       row = row,
-      col = #GUTTER,
-      opts = { end_col = #GUTTER + #commit.sha, hl_group = "CodeReviewQueueIndex" },
+      col = #gutter,
+      opts = { end_col = #gutter + #commit.sha, hl_group = "CodeReviewQueueIndex" },
     }
     if when ~= "" then
       marks[#marks + 1] = {
@@ -88,19 +99,20 @@ end
 
 --- The float --------------------------------------------------------------------
 
----List the commits on the branch, newest first.
+---List the commits on the branch, newest first, and trim the review to the one picked.
 ---
 ---Refuses rather than opening onto one unusable row: a branch whose `HEAD` is the merge
 ---base has done no work of its own, which is an ordinary state and not a failure, and a
 ---float holding nothing a reviewer can act on would leave them wondering which of the two
 ---had gone wrong.
 ---
----The cursor opens on the newest commit, which is where a fresh window puts it and where the
----row a reviewer wants nearly always is, so reading this list costs no movement. Nothing
----places it there, because nothing yet would want it anywhere else.
+---The cursor opens on the row the review currently starts at, so reading this list costs no
+---movement -- on `ALL` while the whole branch is in scope, which is the row that says so.
+---@param view table The view module, which `<CR>` runs the trim through
 ---@param root string The repository the branch belongs to
-function M.open(root)
-  local commits, err = git.branch_commits(root)
+---@param base string Where the branch starts: the review's own scope identity
+function M.open(view, root, base)
+  local commits, err = git.branch_commits(root, base)
   if not commits then
     info(err or "could not read the commits on this branch")
     return
@@ -108,6 +120,19 @@ function M.open(root)
   if #commits == 0 then
     info("This branch has no commits of its own — its HEAD is the merge base")
     return
+  end
+
+  -- Which row the review starts at, read back out of the stored trim rather than off the
+  -- scope's pre-image. The two agree, but only the stored trim tells a review trimmed to the
+  -- oldest commit from a review that was never trimmed at all -- one review, two rows, and
+  -- the cursor belongs on a different one in each.
+  local trim = require("codereview.state").trim(root)
+  local at = 0
+  for i, commit in ipairs(commits) do
+    if trim and commit.before == trim then
+      at = i
+      break
+    end
   end
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -128,7 +153,7 @@ function M.open(root)
     title_pos = "center",
     -- Only what works. A key that is not built is not advertised: a footer offering one is
     -- a promise the float cannot keep.
-    footer = " q close ",
+    footer = " ⏎ review from here · q close ",
     footer_pos = "center",
   })
   -- The rows are fitted to a width they know, so that every one of them stays one row.
@@ -136,12 +161,15 @@ function M.open(root)
   -- reviewer counting rows against commits would find one too many.
   vim.wo[win].wrap = false
 
-  local painted = build(commits, vim.api.nvim_win_get_width(win))
+  local painted = build(commits, vim.api.nvim_win_get_width(win), at)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, painted.lines)
   vim.bo[buf].modifiable = false
   for _, m in ipairs(painted.marks) do
     pcall(vim.api.nvim_buf_set_extmark, buf, NS_TRIM, m.row, m.col, m.opts)
   end
+  -- Placed rather than left where a fresh window puts it, which is row one: that is the
+  -- right row only while nothing is trimmed.
+  pcall(vim.api.nvim_win_set_cursor, win, { at + 1, 0 })
 
   local function close()
     if vim.api.nvim_win_is_valid(win) then
@@ -149,6 +177,18 @@ function M.open(root)
     end
   end
 
+  ---Apply the row under the cursor and close.
+  ---
+  ---Closed first, and then the trim: applying it repaints the review and puts the cursor
+  ---back in it, and a float still on screen would take that focus straight back off it.
+  local function pick()
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    local commit = commits[row - 1]
+    close()
+    view.trim_to(commit and commit.before or nil)
+  end
+
+  vim.keymap.set("n", "<CR>", pick, { buffer = buf, desc = "Review from this commit forward" })
   vim.keymap.set("n", "q", close, { buffer = buf, desc = "Close the commit list" })
   vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Close the commit list" })
 end

@@ -76,6 +76,15 @@ inside the view to cycle between them in place.
 Files are marked reviewed **against their git blob**, so a mark stops meaning anything
 once the file changes underneath it.
 
+**A branch review can be trimmed to the commits you have not read.** Press `gc`, move to the
+oldest commit you still want to read, and press `<CR>`: the review draws again from that
+commit forward, and the scope label says so — `branch vs origin/master · last 4`. The commit
+you pick is **in** the diff. The top row of the list is "All commits", which gives the whole
+branch back, and so does the bottom row. Uncommitted and untracked work stay in the review
+under every trim, because a trim has one end and it is the start. Your reviewed marks survive
+one: a file the commits you dropped never changed keeps its mark, and a file that has moved
+since you marked it loses one whether you trimmed or not. The trim lasts for the session.
+
 **`since-batch` is the one to reach for while an agent is working.** Submitting records a
 snapshot of the working tree, and this scope diffs against it — so what you get is the
 agent's response to your review, without the work you already had in flight when you sent
@@ -615,7 +624,7 @@ worth a look before we ship this
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
 | `gb` | Read the last dispatched batch back |
-| `gc` | List the commits on the branch |
+| `gc` | List the commits on the branch, and trim the review to one |
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool — only bound with [`open_diff`](#adapters) wired |
@@ -663,7 +672,7 @@ is to stop looking at them, so the useful motion is "the next thing I have not d
 | `gp` | Dismiss the tree, landing back in the diff |
 | `gl` | Switch between the unified and split layouts |
 | `gb` | Read the last dispatched batch back |
-| `gc` | List the commits on the branch |
+| `gc` | List the commits on the branch, and trim the review to one |
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `q` | Close |
 
@@ -719,9 +728,16 @@ The listing is `--first-parent` from the merge base, so a merge is one row and t
 that arrived through it are not listed beside your own. There is **no limit on the rows**: a
 long branch keeps its oldest commits on screen, at the bottom of the list.
 
+`<CR>` trims the review to the row under the cursor: the review draws again from that commit
+forward, and that commit is **in** the diff. The top row is "All commits" and removes the
+trim; the bottom row means the same thing, because the oldest commit resolves to the merge
+base and not to its own parent. The row your review currently starts at is marked with `▸`,
+and the cursor opens on it — on "All commits" while the whole branch is in the review.
+
 | Key | Action |
 | --- | --- |
-| `q` / `<Esc>` | Close |
+| `<CR>` | Review from this commit forward |
+| `q` / `<Esc>` | Close, changing nothing |
 
 Two cases open nothing and say why in one sentence: `gc` outside a branch review, where
 there is no branch behind the diff to list, and `gc` on a branch whose `HEAD` is the merge

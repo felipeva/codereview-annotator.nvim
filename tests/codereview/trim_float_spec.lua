@@ -6,6 +6,10 @@
 -- compared against what git itself reports for the same range, because a hardcoded list of
 -- subjects says nothing about the *rule* that produced them.
 --
+-- What a pick *resolves to* is `trim_spec`'s, at the seam where the ref arithmetic is. What
+-- is here is the surface: the row a reviewer moves to, the row the float marks, and the key
+-- they press.
+--
 -- The fixture is `mkcommits`, whose history is the whole point of it: a branch of four
 -- commits, one of them a merge, over a merge base that is not the oldest commit's parent.
 -- Both rules this file pins are invisible without it -- see the script's own header.
@@ -13,10 +17,12 @@ local h = require("tests.helpers")
 
 h.ui(110, 40)
 local fixture = h.cd_fixture("mkcommits")
+local root = assert(vim.uv.fs_realpath(fixture))
 
 require("codereview").setup({ syntax = false })
 
 local codereview = require("codereview")
+local state = require("codereview.state")
 local view = require("codereview.view")
 
 --- What git says, which is what the float is judged against ---------------------
@@ -55,6 +61,31 @@ end
 ---@return string[]
 local function lines(buf)
   return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+end
+
+---The rows that stand for a commit: everything below the row that removes the trim.
+---@param buf integer
+---@return string[]
+local function commit_rows(buf)
+  local all = lines(buf)
+  return vim.list_slice(all, 2, #all)
+end
+
+---Which rows the float has marked, read off the column every row reserves for it.
+---
+---The column and not the glyph: what is being claimed is that one row is called out and the
+---rest are not, and naming the character would be this file reciting the implementation
+---back to itself.
+---@param buf integer
+---@return integer[] 1-based row numbers
+local function marked(buf)
+  local out = {}
+  for i, row in ipairs(lines(buf)) do
+    if row:sub(1, 1) ~= " " then
+      out[#out + 1] = i
+    end
+  end
+  return out
 end
 
 ---@param win integer
@@ -133,10 +164,17 @@ describe("gc inside a branch review", function()
   codereview.open()
   local review = assert(view.current(), "no review view opened")
   local win, buf = commits_by_key(review.win)
-  local rows = lines(buf)
+  local rows = commit_rows(buf)
 
   it("draws one row per commit on the branch's own line of work", function()
     assert.same(#first_parent, #rows, table.concat(rows, "\n"))
+  end)
+
+  -- The row that gives the whole branch back. It sits above the commits rather than below
+  -- them because it is the state the review opens in, and a reviewer removing a trim should
+  -- not have to walk a long branch to reach it.
+  it("puts the row that removes the trim above them all", function()
+    assert.is_truthy(lines(buf)[1]:find("All commits", 1, true), lines(buf)[1])
   end)
 
   it("lists them newest first", function()
@@ -193,8 +231,15 @@ describe("gc inside a branch review", function()
     assert.is_truthy(rows[#rows]:find("5 days ago", 1, true), rows[#rows])
   end)
 
-  it("opens the cursor on the first row", function()
+  -- With no trim in play the review starts at the merge base, which is what the top row
+  -- says -- so that is where the cursor belongs. The row it opens on with a trim *set* is
+  -- the case with teeth, and it is below.
+  it("opens the cursor on the row that removes the trim", function()
     assert.same(1, vim.api.nvim_win_get_cursor(win)[1])
+  end)
+
+  it("marks no row while the whole branch is in the review", function()
+    assert.same({}, marked(buf), table.concat(lines(buf), "\n"))
   end)
 
   it("says how many commits are listed", function()
@@ -241,26 +286,117 @@ describe("the keys on the float", function()
     assert.same(review, view.current())
   end)
 
-  -- Picking a row is a feature that is not built. What must not happen is `<CR>` doing
-  -- something *else* -- closing the float, or moving the review off the scope it is on.
-  it("picks nothing on <CR>", function()
+  -- Closing without applying: looking at the commit list has to be safe, so the two keys
+  -- that close it leave the review reading exactly what it was reading.
+  it("leaves the review on the scope it was on", function()
     local win = commits_by_key(review.win)
-    local scope = assert(view.current()).scope.name
-    h.feed("<CR>")
-    assert.is_true(vim.api.nvim_win_is_valid(win), "<CR> closed the float")
-    assert.same(scope, assert(view.current()).scope.name)
-    vim.api.nvim_win_close(win, true)
+    local label = assert(view.current()).scope.label
+    h.feed("q")
+    assert.is_false(vim.api.nvim_win_is_valid(win))
+    assert.same(label, assert(view.current()).scope.label)
   end)
 
-  it("advertises the key that closes it, and nothing that does not work yet", function()
+  it("advertises both the key that applies a trim and the key that closes it", function()
     local win = commits_by_key(review.win)
     local footer = chrome(win, "footer")
     h.feed("q")
     assert.is_truthy(footer:find("q close", 1, true), footer)
-    assert.is_nil(footer:find("⏎", 1, true), footer)
+    assert.is_truthy(footer:find("⏎", 1, true), footer)
   end)
 
   codereview.close()
+end)
+
+--- Picking a row ----------------------------------------------------------------
+
+-- What a pick *resolves to* is `trim_spec`'s. What is here is that the key reaches it: the
+-- float closes, and the review behind it is reading something narrower than it was.
+describe("<CR> on a commit", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local before = review.scope.label
+  local files_before = #review.files
+
+  local win = commits_by_key(review.win)
+  -- The newest commit, which is the row directly under "All commits".
+  vim.api.nvim_win_set_cursor(win, { 2, 0 })
+  h.feed("<CR>")
+
+  it("closes the float", function()
+    assert.is_false(vim.api.nvim_win_is_valid(win))
+  end)
+
+  it("leaves the review open, and on the branch", function()
+    assert.same("branch", assert(view.current()).scope.name)
+  end)
+
+  it("draws the diff again, narrower than it was", function()
+    assert.is_true(#assert(view.current()).files < files_before)
+  end)
+
+  it("says on the label that the review is trimmed", function()
+    assert.are_not.same(before, assert(view.current()).scope.label)
+    assert.is_truthy(assert(view.current()).scope.label:find("last 1", 1, true))
+  end)
+end)
+
+-- Finding the row the trim starts at is the whole reason the cursor is placed at all, and a
+-- fresh window already opens on row one -- so this block sets a trim that is *not* the top
+-- row before it looks. Asserted from anywhere else, the case passes against a float that
+-- places the cursor nowhere.
+describe("the float opened with a trim already set", function()
+  local review = assert(view.current(), "the review closed")
+  local at = #first_parent -- the oldest commit, which is the last row of the listing
+  local win, buf = commits_by_key(review.win)
+  vim.api.nvim_win_set_cursor(win, { at + 1, 0 })
+  h.feed("<CR>")
+
+  local reopened, rebuf = commits_by_key(assert(view.current()).win)
+
+  it("really is trimmed to a row other than the first", function()
+    assert.is_true(at > 1, "the fixture has too few commits for this claim")
+    assert.is_truthy(assert(view.current()).scope.label:find(("last %d"):format(at), 1, true))
+  end)
+
+  it("marks the row the trim starts at, and only that one", function()
+    assert.same({ at + 1 }, marked(rebuf), table.concat(lines(rebuf), "\n"))
+  end)
+
+  it("marks the commit the reviewer picked", function()
+    local row = lines(rebuf)[at + 1]
+    assert.is_truthy(row:find(first_parent[at].subject, 1, true), row)
+  end)
+
+  it("opens the cursor on it", function()
+    assert.same(at + 1, vim.api.nvim_win_get_cursor(reopened)[1])
+  end)
+
+  h.feed("q")
+end)
+
+-- The top row and the last row mean the same review, and this is the surface a reviewer goes
+-- back through to say so.
+describe("<CR> on the row that removes the trim", function()
+  local review = assert(view.current(), "the review closed")
+  local win = commits_by_key(review.win)
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  h.feed("<CR>")
+  local after = assert(view.current())
+
+  it("gives the whole branch back", function()
+    assert.is_nil(after.scope.label:find("last", 1, true), after.scope.label)
+  end)
+
+  it("leaves nothing marked when the float is opened again", function()
+    local reopened, rebuf = commits_by_key(after.win)
+    assert.same({}, marked(rebuf), table.concat(lines(rebuf), "\n"))
+    assert.same(1, vim.api.nvim_win_get_cursor(reopened)[1])
+    h.feed("q")
+  end)
+
+  codereview.close()
+  state.set_trim(root, nil)
 end)
 
 --- From the file tree -----------------------------------------------------------
@@ -369,6 +505,41 @@ describe("gc on a branch with no commits of its own", function()
   vim.cmd("cd " .. vim.fn.fnameescape(here))
 end)
 
+--- One answer to where the branch starts ---------------------------------------
+
+-- The list is drawn against the review's own **scope** identity and never against a base
+-- worked out a second time. The two agree until something moves the default branch, which a
+-- `git fetch` in another window does -- and a list that re-derived would then be listing a
+-- branch the diff behind it is not reading.
+--
+-- The ref is moved onto the branch's own line of work, which is what pulls the merge base
+-- forward, and it is put back before the block ends.
+describe("the default branch moving under an open review", function()
+  local was = assert(h.git_lines(fixture, { "rev-parse", "master" })[1])
+  local onto = first_parent[#first_parent - 1].sha
+
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  h.git_lines(fixture, { "branch", "-f", "master", onto })
+
+  local _, buf = commits_by_key(review.win)
+  local rows = commit_rows(buf)
+  h.feed("q")
+
+  it("really did move the merge base out from under it", function()
+    local now = h.git_lines(fixture, { "merge-base", "master", "HEAD" })[1]
+    assert.are_not.same(base, now)
+    assert.is_true(#log({ "--first-parent", now .. "..HEAD" }) < #first_parent)
+  end)
+
+  it("lists the commits the review is reading, and not the ones the moved ref would give", function()
+    assert.same(#first_parent, #rows, table.concat(rows, "\n"))
+  end)
+
+  h.git_lines(fixture, { "branch", "-f", "master", was })
+  codereview.close()
+end)
+
 --- No cap ----------------------------------------------------------------------
 
 -- The oldest commits on a long branch have to stay reachable, which is the one thing this
@@ -385,7 +556,7 @@ describe("a branch longer than a capped list would show", function()
   codereview.open()
   local review = assert(view.current(), "no review view opened")
   local win, buf = commits_by_key(review.win)
-  local rows = lines(buf)
+  local rows = commit_rows(buf)
 
   it("grew the branch past any cap worth writing", function()
     assert.same(#first_parent + FILLER, #log({ "--first-parent", base .. "..HEAD" }))

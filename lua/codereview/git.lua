@@ -95,6 +95,22 @@ function M.merge_base(a, b, root)
   return line({ "merge-base", a, b }, root)
 end
 
+---How many commits `from` is behind `HEAD` on the branch's own line of work.
+---
+---What the scope label reports as `last N`, derived rather than remembered: a reviewer who
+---commits again after trimming has one more commit in their review than they picked, and a
+---number stored at pick time would keep saying the old one.
+---
+---`--first-parent` for the reason the listing is: a merge is one commit, and counting what
+---arrived through it would report a number no row of the commit list adds up to.
+---@param from string
+---@param root string
+---@return integer|nil nil when `from` names no commit this repository has
+function M.count_commits(from, root)
+  local out = line({ "rev-list", "--count", "--first-parent", from .. "..HEAD" }, root)
+  return out and tonumber(out) or nil
+end
+
 ---A commit object recording the working tree as it stands, minted and nothing else.
 ---
 ---`git stash create` writes the commit and prints its sha; that is the whole of what it
@@ -154,10 +170,11 @@ end
 ---side is a file on disk.
 ---
 ---Every scope also carries an identity: the ref that tells the view which scope it reads
----progress for. Today it is `before` in each of them. That is what the progress key has
----always held, so a key written before this field existed still finds its reviewed marks.
----It is a field of its own because the two can move apart. If a scope moves its pre-image,
----the identity does not move with it, and the reviewer keeps the marks they made.
+---progress for. It is `before` in every scope but a trimmed `branch`, which is what the
+---progress key has always held, so a key written before this field existed still finds its
+---reviewed marks. It is a field of its own because the two do move apart, and `branch` is
+---where: a **trim** moves the pre-image up the branch and the identity stays at the merge
+---base, so the reviewer keeps every mark they made on the review they are narrowing.
 ---@param spec string
 ---@param root string
 ---@return CRScope|nil, string|nil err
@@ -227,15 +244,31 @@ function M.resolve_scope(spec, root)
     if not base then
       return nil, ("no merge base with %s"):format(branch)
     end
+
+    -- The **trim**, read here rather than taken as an argument -- the shape `since-batch`
+    -- already has, and for the reason recorded for it: handing the value in would put the
+    -- one scope that needs it into every caller of scope resolution, and scope resolution
+    -- is exactly what has to stay one function. A trim naming a commit this repository does
+    -- not have is not a trim, and the whole branch is the answer; saying so out loud belongs
+    -- with the trim that outlives a session, which is where a rewritten commit can reach.
+    local trim = require("codereview.state").trim(root)
+    local kept = trim and M.count_commits(trim, root)
+
     return {
       name = "branch",
-      label = ("branch vs %s"):format(branch),
-      args = { base },
-      before = base,
+      -- Short, because the winbar is width-constrained and the summary is what a narrow
+      -- pane gives up first. It is also the only thing that stops a trim from being a trap.
+      label = kept and ("branch vs %s · last %d"):format(branch, kept) or ("branch vs %s"):format(branch),
+      args = { kept and trim or base },
+      -- The parent of the oldest commit still being read, so that commit is in the diff.
+      before = kept and trim or base,
+      -- Both of these follow from a trim having one end, and it is the start: the work in
+      -- the tree is on the other side of the review and no trim reaches it.
       after = nil,
       untracked = true,
-      -- The merge base, which is what says *this branch*. A scope that starts at a later
-      -- commit is the same branch review, and it reads the same progress back.
+      -- The merge base, which is what says *this branch*, and it does not move when the
+      -- pre-image does. A trimmed review is the same branch review and reads the same
+      -- progress back, which is what leaves a reviewer's marks where they left them.
       identity = base,
     }
   end
@@ -509,6 +542,7 @@ end
 ---@field sha string      Short sha, abbreviated by git to whatever this repository needs
 ---@field when string     How long ago it was authored, in git's own words
 ---@field subject string  The commit's first line
+---@field before string   What a review **trimmed** to this commit reads from
 
 ---Every commit the branch carries, newest first.
 ---
@@ -519,21 +553,20 @@ end
 ---**There is no limit.** A limit would put the oldest commits on a long branch out of reach,
 ---which is the one thing a list a reviewer picks from must never do.
 ---
----The merge base is resolved here rather than taken from a scope. What a reviewer is being
----shown is the branch, and a scope's pre-image is free to be something narrower than the
----branch -- so reading it would quietly shorten the list the moment it was.
+---The base is handed in and never derived here. The one answer to *where does this branch
+---start* is the scope's own identity, and a second derivation can disagree with it: a
+---`git fetch` in another window moves the default branch, and the list would then be drawn
+---against a base the review on screen is not using. What must **not** be handed in is the
+---scope's pre-image, which is exactly what a trim narrows -- reading that would shorten the
+---list every time a reviewer trimmed, and take the rows they need to widen it again away.
+---
+---Each commit carries what a trim starting at it reads from: its own parent, so the commit
+---is in the diff -- except the oldest, which reads from the base. On a branch with merges
+---those are different commits, and only the base means *all of it*.
 ---@param root string
+---@param base string Where the branch starts: the scope's identity
 ---@return CRCommit[]|nil commits, string|nil err
-function M.branch_commits(root)
-  local branch = M.default_branch(root)
-  if not branch then
-    return nil, "could not determine the default branch"
-  end
-  local base = M.merge_base(branch, "HEAD", root)
-  if not base then
-    return nil, ("no merge base with %s"):format(branch)
-  end
-
+function M.branch_commits(root, base)
   -- The fields are separated by a unit separator, and the subject comes last. A subject is
   -- one line and can hold anything else at all, including whatever a friendlier separator
   -- would be built out of -- so the one field that could contain the delimiter is the one
@@ -541,7 +574,7 @@ function M.branch_commits(root)
   local out, err = run({
     "log",
     "--first-parent",
-    "--format=%h%x1f%ar%x1f%s",
+    "--format=%h%x1f%p%x1f%ar%x1f%s",
     base .. "..HEAD",
     -- A long branch's log is closer to a diff than to a metadata query.
   }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
@@ -551,10 +584,23 @@ function M.branch_commits(root)
 
   local commits = {}
   for _, entry in ipairs(vim.split(out, "\n", { trimempty = true })) do
-    local sha, when, subject = entry:match("^(%S+)\31(.-)\31(.*)$")
+    local sha, parents, when, subject = entry:match("^(%S+)\31(.-)\31(.-)\31(.*)$")
     if sha then
-      commits[#commits + 1] = { sha = sha, when = when, subject = subject }
+      commits[#commits + 1] = {
+        sha = sha,
+        -- The *first* parent, which is the one the listing walks. A merge names two, and
+        -- the second one is the branch that arrived rather than the branch being read.
+        before = parents:match("^%S+") or base,
+        when = when,
+        subject = subject,
+      }
     end
+  end
+  -- The oldest listed commit's parent is off the end of the range, and on a branch with
+  -- merges it is not the merge base. Picking the last row means the whole branch, so what
+  -- it reads from is the base itself.
+  if #commits > 0 then
+    commits[#commits].before = base
   end
   return commits, nil
 end

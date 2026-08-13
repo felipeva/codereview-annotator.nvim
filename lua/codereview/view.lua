@@ -1628,11 +1628,14 @@ function M.review_queue()
   queue_float.open(M)
 end
 
----List the commits on the branch, from inside a review.
+---List the commits on the branch, from inside a review, and trim it to the one picked.
 ---
----The surface is `trim_float`'s, and the repository is handed to it rather than looked up:
----the review already knows which one it is reading, and a second answer to that question is
----a second chance to answer it differently.
+---The surface is `trim_float`'s, and both the repository and the commit the branch starts at
+---are handed to it rather than looked up: the review already knows both, and a second answer
+---to either question is a second chance to answer it differently -- a `git fetch` in another
+---window moves the default branch, and a list derived a second time would then be drawn
+---against a base this review is not reading. The **identity** is what is handed over and
+---never the pre-image, because the pre-image is exactly what a trim narrows.
 ---
 ---What stays here is the one refusal only the view can make. Which **scope** is on screen
 ---is this module's own state, and a commit list is about a branch: on `staged`, `unstaged`,
@@ -1647,7 +1650,26 @@ function M.commit_list()
     info(("Commits are listed for a branch review — this review is %s"):format(v.scope.label))
     return
   end
-  trim_float.open(v.root)
+  trim_float.open(M, v.root, v.scope.identity)
+end
+
+---Read the branch review from `before` forward, or from the merge base with nothing passed.
+---
+---Set and then applied through `set_scope`, which is the same entry point a **scope** change
+---goes through, because that path already re-reads the diff, invalidates the syntax caches
+---and seeds the per-scope progress table. A path of its own would eventually forget one of
+---the three, and which one it forgot would be invisible until a reviewer met it.
+---
+---Nothing here re-reads the trim to draw anything: resolution does that, so the label and
+---the diff are answering out of the same store on the same pass.
+---@param before string|nil nil removes the trim
+function M.trim_to(before)
+  local v = M.current()
+  if not v then
+    return
+  end
+  require("codereview.state").set_trim(v.root, before)
+  M.set_scope("branch")
 end
 
 ---Read the last dispatched **batch** back, from inside a review.
