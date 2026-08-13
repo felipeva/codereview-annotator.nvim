@@ -31,7 +31,7 @@ change there is felt through.
 | `queue.lua` | The queue itself — module-level, not per-view, so reopening a view scatters nothing | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named, and how a winbar is assembled from typed segments | pure |
-| `state.lua` | Persisted review progress, and the blob comparisons over it — staleness, and touchedness kept in a function of its own | stateful (disk) |
+| `state.lua` | Persisted review progress, the blob comparisons over it — staleness, and touchedness kept in a function of its own — and each branch's **trim**, checked against `HEAD` before it is handed back | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, one row per commit, the row a **trim** starts at, and the pick that applies one | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalisation, labels, and the directive that earns a type its keystroke | pure |
@@ -59,9 +59,12 @@ Forcing the two apart costs more than it returns.
 
 `git` and `state` are the second, and much the smaller: `state` mints a snapshot and hashes
 blobs through `git`, and `git` reads the newest snapshot back out of the archive to resolve
-the `since-batch` scope. Function-local on both sides, as above. The alternative is handing
-the snapshot in from outside, which would put the one scope that needs it into every caller
-of `resolve_scope` — and scope resolution is exactly what must stay one function.
+the `since-batch` scope. The **trim** rides the same edge in both directions — `git` reads the
+branch's stored trim to resolve `branch`, and `state` asks `git` which branch that is and
+whether `HEAD` still descends from what it stored. Function-local on both sides, as above. The
+alternative is handing the snapshot in from outside, which would put the one scope that needs
+it into every caller of `resolve_scope` — and scope resolution is exactly what must stay one
+function.
 
 `delivery` and `composer` are the third, and the smallest. A **preamble** is composed at
 submit time, so the submit has to reach whichever composer is wired — and the plugin's own

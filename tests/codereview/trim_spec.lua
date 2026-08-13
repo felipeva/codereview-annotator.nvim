@@ -541,3 +541,202 @@ describe("cycling scope from a trimmed review", function()
 end)
 
 codereview.close()
+
+--- The trim a session leaves behind -----------------------------------------------
+
+-- Everything below is about what reached the disk, which no assertion made in the process
+-- that wrote it can settle -- the same reason `state_spec` is two processes. `trim_child`
+-- trims, exits, and this process reads the branch back.
+--
+-- A second copy of the fixture, because the one above has been committed into and trimmed
+-- through by every block in this file: a claim about what a *fresh* repository's store
+-- hands back must not be answerable out of what this process already did to it.
+local kept = h.fixture("mkcommits")
+local kept_root = assert(vim.uv.fs_realpath(kept))
+local kept_base = assert(h.git_lines(kept, { "merge-base", "master", "HEAD" })[1], "no merge base")
+
+-- The second branch, cut at the first one's tip: two readings of the same commits, which is
+-- what "each branch keeps its own" needs and what neither branch in the fixture can offer.
+-- `lexer` has one commit of its own, so every trim on it resolves to the merge base -- which
+-- is the review it already was, and says nothing about anything.
+h.git_lines(kept, { "branch", "second" })
+
+-- The whole branch, as the fixture's own commits leave it. Written out rather than derived,
+-- because it is what "the full branch opened" means below.
+local WHOLE = { "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }
+
+---Run a Neovim of its own over the kept fixture, sharing this process's throwaway
+---`XDG_STATE_HOME` and nothing else. `--clean` so no user config, and no minimal_init, can
+---hand it a state directory of another.
+---@param mode "write"|"read"
+---@return vim.SystemCompleted
+local function spawn(mode)
+  local proc = vim.system({
+    vim.v.progpath,
+    "--clean",
+    "-l",
+    vim.fs.joinpath(h.root, "tests", "codereview", "trim_child.lua"),
+  }, {
+    cwd = kept,
+    text = true,
+    env = { XDG_STATE_HOME = vim.env.XDG_STATE_HOME, FIXTURE = kept, MODE = mode },
+  })
+  return proc:wait(60000)
+end
+
+---Check a branch out and resolve the review over it again, which is what a reviewer coming
+---back to a branch does.
+---@param name string
+local function checkout(name)
+  h.git_lines(kept, { "checkout", "-q", name })
+  view.set_scope("branch")
+end
+
+local writer = spawn("write")
+
+describe("the process that trimmed two branches", function()
+  it("exits cleanly", function()
+    assert.same(0, writer.code, (writer.stderr or "") .. (writer.stdout or ""))
+  end)
+end)
+
+vim.cmd("cd " .. vim.fn.fnameescape(kept))
+codereview.open()
+
+describe("a branch trimmed in the session before", function()
+  local W = assert(view.current(), "the review view did not open on the kept fixture")
+
+  it("opens where the reading stopped, and not on the whole branch", function()
+    assert.same({ "README.md" }, paths(W.files))
+  end)
+
+  it("says on the winbar that the review is trimmed", function()
+    assert.is_truthy(h.winbar(W.win):find("last 1", 1, true), h.winbar(W.win))
+  end)
+end)
+
+describe("the other branch over the same commits", function()
+  checkout("second")
+  local W = assert(view.current())
+
+  it("opens at its own trim and not at the first branch's", function()
+    assert.same({ "README.md", "src/config_spec.lua", "src/lexer.lua" }, paths(W.files))
+  end)
+
+  it("counts its own commits on the winbar", function()
+    assert.is_truthy(h.winbar(W.win):find("last 3", 1, true), h.winbar(W.win))
+  end)
+end)
+
+describe("the first branch checked out again", function()
+  checkout("feature")
+
+  it("brings its own trim back, untouched by the branch beside it", function()
+    assert.same({ "README.md" }, paths(assert(view.current()).files))
+  end)
+end)
+
+-- A rebase, an amend and a force-push all end in one place: the commit the trim was picked
+-- off is no longer in `HEAD`'s history. A squash is the shortest way to put a fixture there,
+-- and it leaves the merge base where it was, so the full branch is the branch it always was.
+describe("a branch whose commits were rewritten under its trim", function()
+  h.git_lines(kept, { "checkout", "-q", "second" })
+  h.git_lines(kept, { "reset", "--soft", kept_base })
+  h.git_lines(kept, { "commit", "-q", "-m", "feat: the branch, rebased into one commit" })
+
+  local msgs, restore = h.capture_notify()
+  view.set_scope("branch")
+  restore()
+  local W = assert(view.current())
+
+  it("opens the full branch", function()
+    assert.same(WHOLE, paths(W.files))
+  end)
+
+  it("says the trim was lost", function()
+    assert.is_true(h.notified(msgs, "trim was lost"), vim.inspect(msgs))
+  end)
+
+  it("says nothing about a trim on the winbar", function()
+    assert.is_nil(h.winbar(W.win):find("last", 1, true), h.winbar(W.win))
+  end)
+
+  -- Scope resolution runs on every open, every scope change and every trim, and a sentence
+  -- a reviewer meets on each of them is noise.
+  it("says it once, and not again on the next resolve", function()
+    local again, stop = h.capture_notify()
+    view.set_scope("branch")
+    stop()
+    assert.is_false(h.notified(again, "trim was lost"), vim.inspect(again))
+    assert.same(WHOLE, paths(assert(view.current()).files))
+  end)
+end)
+
+describe("the branch beside the one that was rewritten", function()
+  checkout("feature")
+
+  it("kept its own trim through the other branch's rewrite", function()
+    assert.same({ "README.md" }, paths(assert(view.current()).files))
+  end)
+end)
+
+-- What a `git gc` after a rebase leaves behind, and the one case no session can reach on its
+-- own: the commit was there when the trim was picked and this repository has nothing under
+-- that name now. One fact for the reviewer, so one sentence -- the same one.
+describe("a stored trim naming a commit this repository does not have", function()
+  local msgs, restore = h.capture_notify()
+  state.set_trim(kept_root, ("0"):rep(40))
+  view.set_scope("branch")
+  restore()
+
+  it("opens the full branch", function()
+    assert.same(WHOLE, paths(assert(view.current()).files))
+  end)
+
+  it("says the trim was lost, in the sentence a rewritten commit says", function()
+    assert.is_true(h.notified(msgs, "trim was lost"), vim.inspect(msgs))
+  end)
+end)
+
+describe("a trim on a detached HEAD", function()
+  -- Set from a known state rather than from whatever the block above left: this branch has
+  -- no trim, so nothing below can be satisfied by one that was already there.
+  state.set_trim(kept_root, nil)
+  h.git_lines(kept, { "checkout", "-q", "--detach", "feature" })
+  view.set_scope("branch")
+
+  local msgs, restore = h.capture_notify()
+  trim_by_key("docs: write the readme")
+  restore()
+
+  it("trims the review, so the feature is not simply absent", function()
+    assert.same({ "README.md" }, paths(assert(view.current()).files))
+  end)
+
+  it("says the trim is not kept", function()
+    assert.is_true(h.notified(msgs, "not kept"), vim.inspect(msgs))
+  end)
+
+  it("says it once, and not again on the next trim", function()
+    local again, stop = h.capture_notify()
+    trim_by_key("test: cover the config reader")
+    stop()
+    assert.is_false(h.notified(again, "not kept"), vim.inspect(again))
+    assert.same({ "README.md", "src/config_spec.lua", "src/lexer.lua" }, paths(assert(view.current()).files))
+  end)
+
+  -- The claim a reviewer can see: the session after this one opens the whole branch.
+  local reader = spawn("read")
+
+  it("is gone in the session after it", function()
+    local out = (reader.stdout or "") .. (reader.stderr or "")
+    assert.is_truthy(out:find("paths: " .. table.concat(WHOLE, ","), 1, true), out)
+  end)
+
+  it("never became the trim of the branch that was checked out", function()
+    checkout("feature")
+    assert.same(WHOLE, paths(assert(view.current()).files))
+  end)
+end)
+
+codereview.close()

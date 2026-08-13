@@ -83,7 +83,14 @@ you pick is **in** the diff. The top row of the list is "All commits", which giv
 branch back, and so does the bottom row. Uncommitted and untracked work stay in the review
 under every trim, because a trim has one end and it is the start. Your reviewed marks survive
 one: a file the commits you dropped never changed keeps its mark, and a file that has moved
-since you marked it loses one whether you trimmed or not. The trim lasts for the session.
+since you marked it loses one whether you trimmed or not.
+
+**A trim is kept for the branch**, so the next session opens where your reading stopped, and
+each branch keeps its own — trimming one says nothing about another. It is checked before it
+is used: a rebase, an amend or a force-push leaves it naming a commit the branch no longer
+holds, and then it is dropped, the full branch opens, and a sentence says the trim was lost.
+On a detached `HEAD` there is no branch name to keep it under, so the trim works for the
+session and one message says it is not kept.
 
 **`since-batch` is the one to reach for while an agent is working.** Submitting records a
 snapshot of the working tree, and this scope diffs against it — so what you get is the
@@ -741,7 +748,8 @@ and the cursor opens on it — on "All commits" while the whole branch is in the
 
 Two cases open nothing and say why in one sentence: `gc` outside a branch review, where
 there is no branch behind the diff to list, and `gc` on a branch whose `HEAD` is the merge
-base, which has no commits of its own.
+base, which has no commits of its own. A third opens and works: on a detached `HEAD` the
+list is there and the trim applies, and one message says it is not kept.
 
 ## Configuration
 

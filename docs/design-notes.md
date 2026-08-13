@@ -262,6 +262,17 @@ recomputed from `origin/HEAD` a second time: a `git fetch` in another window mov
 branch, and a surface that re-derives the base then draws against a base the review is not
 using. That is why `git.branch_commits` takes the base and no longer resolves one.
 
+**A stored trim is checked on every read, and dropping it is what keeps the sentence to one.**
+The two tempting shortcuts are one shortcut: memoise the branch's trim for the session, and
+latch the sentence beside it. The memo is wrong because a reviewer can rebase in another
+window with the review open — the trim then names a commit that was rewritten, and resolution
+reads it from memory without ever asking `HEAD` about it again, which is the exact failure the
+check exists to refuse. The latch is unnecessary once the failing trim is removed from the
+document as well as from the answer: the next read finds nothing to fail, so the sentence
+cannot repeat, and there is no key to invalidate when the reviewer moves to another branch.
+What it costs is a `symbolic-ref` and a document read per branch resolve, which is what
+`state.restore` already spends on every scope change.
+
 **Keying progress on the pre-image fails silently rather than loudly.** The per-scope progress
 key is `name .. ":" .. identity`. Spelled with `before` it agrees with the plugin for every
 scope that carries no trim, so it reads correctly everywhere until a trimmed branch review is

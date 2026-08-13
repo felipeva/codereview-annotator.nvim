@@ -19,7 +19,9 @@ picks the oldest commit they still want to read, and the commits before it leave
 The word is subtractive, which is what the reviewer does: they remove commits from a whole
 that is there by default. "Trimmed to four commits" and "reset the trim" both read
 correctly, and the verb and the noun are one word. A trim has one end, and it is the start —
-so uncommitted and untracked work stay in the review under every trim. Said of a **branch**
+so uncommitted and untracked work stay in the review under every trim. Kept per branch, and
+dropped when its commit leaves the branch: a trim belongs to one reading of one branch, and a
+rewritten commit is not that reading. Said of a **branch**
 scope only: the working-tree scopes have no commits to take. A modifier on that scope and
 never a scope of its own, because a sixth name would have to answer what it means with
 nothing picked, and because `gs` is a key held down and must not get a new stop. Not
