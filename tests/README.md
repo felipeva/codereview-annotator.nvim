@@ -610,6 +610,14 @@ so the out-of-core language path is still checked locally without ever failing C
   Eight other call sites resolve `branch` with nothing set, and each spec process gets a state
   directory and a fixture of its own, so they stay correct — but a `branch` scope behaving
   oddly should send the reader to the stored trim before anywhere else.
+- **"The full branch opened" cannot red on its own for a trim naming a commit that is gone.**
+  The store drops such a trim and says so, but `resolve_scope` also refuses a count it cannot
+  take — the guard #140 left — so the whole branch opens whether or not anything checked the
+  trim. `trim_spec` keeps that case because it is the claim a reviewer can see; the teeth are
+  in the sentence beside it, which reds the moment the check goes. Measured: deleting the
+  check reds the sentence alone, and deleting the check *and* the count guard reds both. Same
+  shape as "the commit list's opening row can only be measured from a row that is not the
+  top".
 - **"The trim was not written" cannot be read off a detached `HEAD` alone.** A trim set while
   `HEAD` is detached is kept in memory and never filed, and it is also never *read* from the
   document — so a later process opening the same detached checkout finds the whole branch
