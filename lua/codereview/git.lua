@@ -357,7 +357,7 @@ function M.diff(scope, root, context)
   return run(args, { cwd = root, timeout = DIFF_TIMEOUT_MS })
 end
 
----Paths git is not tracking, honouring .gitignore.
+---Paths git is not tracking, honoring .gitignore.
 ---@param root string
 ---@return string[]
 function M.untracked_files(root)

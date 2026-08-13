@@ -6,7 +6,7 @@
 -- decoration -- it is the same fact `x` resolves against, so an entry whose extent is
 -- visible is an entry that cannot be dropped by accident.
 --
--- Rows and highlight *groups*, never colours: what a colorscheme resolves a group to is
+-- Rows and highlight *groups*, never colors: what a colorscheme resolves a group to is
 -- deliberately not covered anywhere in this suite.
 local h = require("tests.helpers")
 
@@ -234,7 +234,7 @@ describe("an entry with an inlined diff block and a multi-line note", function()
   end)
 
   -- The bar glyph is multibyte, and extmark columns are byte offsets. A highlight placed at
-  -- the display column instead lands inside the glyph and paints nothing recognisable --
+  -- the display column instead lands inside the glyph and paints nothing recognizable --
   -- the same trap the diff's change bar records in the design notes.
   it("highlights the bar by byte offset, not by display column", function()
     assert.is_true(#BAR > vim.fn.strdisplaywidth(BAR), "the bar under test is not multibyte")
@@ -495,7 +495,7 @@ describe("submitting from the float", function()
   end)
 
   -- The invariant the float's window handle is recorded for, restated here because this is
-  -- the keystroke that has to honour it: a batch that has gone must not be left on screen.
+  -- the keystroke that has to honor it: a batch that has gone must not be left on screen.
   it("leaves no float listing a batch that has already gone", function()
     assert.is_false(vim.api.nvim_win_is_valid(win))
   end)

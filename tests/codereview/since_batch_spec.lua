@@ -1,7 +1,7 @@
 -- The since-batch scope inside a review view: the claim that nothing about it is second
 -- class.
 --
--- Every case here asserts a behaviour some *other* spec owns for every other scope --
+-- Every case here asserts a behavior some *other* spec owns for every other scope --
 -- syntax, navigation, collapse, reviewed marks, both layouts, capture -- because the way
 -- this scope fails is not by throwing: it is by being special-cased somewhere in the
 -- render or the view until it renders a little less than the others do.

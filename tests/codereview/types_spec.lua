@@ -9,9 +9,9 @@ local h = require("tests.helpers")
 local types = require("codereview.types")
 local config = require("codereview.config")
 
-describe("normalising a type list", function()
+describe("normalizing a type list", function()
   it("leaves a fully specified type alone", function()
-    local out = types.normalise({
+    local out = types.normalize({
       { name = "bug", key = "b", icon = "!", hl = "MyBug", label = "Blockers", directive = "fix" },
     })
     assert.same({
@@ -20,48 +20,48 @@ describe("normalising a type list", function()
   end)
 
   it("accepts the shipped defaults unchanged", function()
-    assert.same(types.defaults, types.normalise(types.defaults))
+    assert.same(types.defaults, types.normalize(types.defaults))
   end)
 
   it("does not mutate the list it was given", function()
     local input = { { name = "question", key = "q" } }
-    types.normalise(input)
+    types.normalize(input)
     assert.same({ { name = "question", key = "q" } }, input)
   end)
 
   it("fills label, icon and hl from the name alone", function()
-    local t = types.normalise({ { name = "question", key = "q" } })[1]
+    local t = types.normalize({ { name = "question", key = "q" } })[1]
     assert.same("Questions", t.label)
     assert.same("CodeReviewQuestion", t.hl)
     assert.same("●", t.icon)
   end)
 
   it("takes the default icon from the configured icons", function()
-    local t = types.normalise({ { name = "question", key = "q" } }, { icon = "◆" })[1]
+    local t = types.normalize({ { name = "question", key = "q" } }, { icon = "◆" })[1]
     assert.same("◆", t.icon)
   end)
 
   it("title-cases a multi-word name for the label and the group", function()
-    local t = types.normalise({ { name = "needs-info", key = "N" } })[1]
+    local t = types.normalize({ { name = "needs-info", key = "N" } })[1]
     assert.same("Needs Infos", t.label)
     assert.same("CodeReviewNeedsInfo", t.hl)
   end)
 
-  -- Naive pluralisation, minus the worst case. Anything English declines irregularly
+  -- Naive pluralization, minus the worst case. Anything English declines irregularly
   -- wants an explicit `label`, which is why one is easy to give.
   it("does not double an s on a name that is already plural", function()
-    assert.same("Notes", types.normalise({ { name = "notes", key = "N" } })[1].label)
+    assert.same("Notes", types.normalize({ { name = "notes", key = "N" } })[1].label)
   end)
 
   it("leaves directive unset when it was not given", function()
-    assert.is_nil(types.normalise({ { name = "question", key = "q" } })[1].directive)
+    assert.is_nil(types.normalize({ { name = "question", key = "q" } })[1].directive)
   end)
 end)
 
 describe("rejecting a type list", function()
   local function err(list)
-    local ok, msg = pcall(types.normalise, list)
-    assert.is_false(ok, "expected normalise to reject this list")
+    local ok, msg = pcall(types.normalize, list)
+    assert.is_false(ok, "expected normalize to reject this list")
     return msg
   end
 

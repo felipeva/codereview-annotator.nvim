@@ -14,10 +14,10 @@
 ---update, because the one thing that would go wrong is invisible until someone looks at an
 ---unfocused pane.
 ---
----**The blended colours are groups of this module, not colours in a window.** A group that
+---**The blended colors are groups of this module, not colors in a window.** A group that
 ---a **muted** window draws, that a **faded** file's row carries, or that a muted pane lights
 ---its **counterpart row** in, gets a twin here, named for the group it blends. The window
----that mutes links to that twin instead of holding a colour of its own, and the fade emits it
+---that mutes links to that twin instead of holding a color of its own, and the fade emits it
 ---in place of the group the row would carry, so one piece of arithmetic answers all three.
 ---See `M.blended` below.
 local M = {}
@@ -28,7 +28,7 @@ local LINKS = {
   CodeReviewAdd = "DiffAdd",
   CodeReviewDel = "DiffDelete",
   CodeReviewLineNr = "LineNr",
-  -- `Added`/`Removed`/`Changed` are standard Neovim groups and carry a foreground colour,
+  -- `Added`/`Removed`/`Changed` are standard Neovim groups and carry a foreground color,
   -- which is what a change bar and a `+12 -3` stat need.
   CodeReviewAddBar = "Added",
   CodeReviewDelBar = "Removed",
@@ -54,7 +54,7 @@ local LINKS = {
 
   -- Whether an archived entry's file has moved since its batch went. Deliberately *not*
   -- `CodeReviewStale`'s group: the two answer different questions about different entries,
-  -- and one colour for both is the merge the rule itself refuses. The unremarkable answer
+  -- and one color for both is the merge the rule itself refuses. The unremarkable answer
   -- takes the dimmest group there is -- a file the agent changed is what reading an agent's
   -- work expects -- and the one worth noticing takes the quietest diagnostic rather than a
   -- warning, because a file nothing happened to is not yet a problem.
@@ -67,7 +67,7 @@ local LINKS = {
   -- The **sticky header**'s own chrome. Everything else on that bar draws in a group it
   -- shares with the surface saying the same thing on the diff -- the stat in
   -- `CodeReviewStatAdd` and `CodeReviewStatDel`, the note count in `CodeReviewNoteCount`,
-  -- the untouched tally in `CodeReviewUntouched` -- because one colour has to mean one
+  -- the untouched tally in `CodeReviewUntouched` -- because one color has to mean one
   -- thing wherever a reviewer meets it.
   --
   -- The path is deliberately not here. It draws in the bar's own group, which is the
@@ -109,12 +109,12 @@ local LINKS = {
 -- cannot know how loud a type nobody has heard of should be.
 local TYPE_FALLBACK = "DiagnosticInfo"
 
--- What emphasises the characters that differ inside a changed line. `DiffText` is the
--- group every colorscheme already tunes for exactly that, so it is where the colour comes
+-- What emphasizes the characters that differ inside a changed line. `DiffText` is the
+-- group every colorscheme already tunes for exactly that, so it is where the color comes
 -- from -- but the background is *copied* rather than linked to, which is the one place
 -- this module departs from the pattern. A link would carry DiffText's foreground too, and
 -- the syntax replay sits at a higher priority: that foreground would lose to it wherever
--- treesitter painted and win wherever it did not, which is emphasis that changes colour
+-- treesitter painted and win wherever it did not, which is emphasis that changes color
 -- depending on whether the language has a parser installed. A background alone composes
 -- with the replay instead of fighting it, which is what keeps code readable inside a span.
 --
@@ -160,7 +160,7 @@ function M.groups()
   return out
 end
 
---- The blended colours ----------------------------------------------------------
+--- The blended colors ----------------------------------------------------------
 
 ---@alias CRBlendFamily "muted"|"faded"|"counterpart"
 
@@ -173,11 +173,11 @@ end
 ---defines starts with any of the prefixes, so a twin shadows none of them.
 ---
 ---**Three families, one blend.** A **muted** window, a **faded** file and the **counterpart
----row** a muted pane lights all pull the theme's own colours toward the same background, and
+---row** a muted pane lights all pull the theme's own colors toward the same background, and
 ---each has a strength of its own because each covers a very different amount of the screen:
 ---the window rule answers for the panes a reviewer is not in, the fade for every file but
 ---one, the counterpart row for a single row inside a window the muting already has. A second
----copy of the arithmetic is how any two of them would drift apart in colour, which is what
+---copy of the arithmetic is how any two of them would drift apart in color, which is what
 ---one family with a strength of its own avoids.
 ---
 ---**One member is enough to justify a family.** `counterpart` holds only `CursorLine`. The
@@ -204,7 +204,7 @@ end
 ---@type integer|nil
 local toward = nil
 
----What a blended colour is pulled toward, whichever family asks.
+---What a blended color is pulled toward, whichever family asks.
 ---
 ---A theme that gives `Normal` no background at all has the terminal's behind it. The only
 ---knowable fact about that background is which way the theme leans.
@@ -217,24 +217,24 @@ local function backdrop()
   return toward
 end
 
----Pull one colour toward another, channel by channel.
----@param colour integer 0xRRGGBB
+---Pull one color toward another, channel by channel.
+---@param color integer 0xRRGGBB
 ---@param target integer 0xRRGGBB
----@param strength number 0 keeps the colour. 1 replaces it with `target`.
+---@param strength number 0 keeps the color. 1 replaces it with `target`.
 ---@return integer
-local function blend(colour, target, strength)
+local function blend(color, target, strength)
   local out = 0
   for _, place in ipairs({ 65536, 256, 1 }) do
-    local from = math.floor(colour / place) % 256
+    local from = math.floor(color / place) % 256
     local to = math.floor(target / place) % 256
     out = out + math.floor(from + (to - from) * strength + 0.5) * place
   end
   return out
 end
 
----Write `family`'s twin of `group`, or report that `group` has no colour to blend.
+---Write `family`'s twin of `group`, or report that `group` has no color to blend.
 ---
----Only the true-colour attributes are blended. `ctermfg` and `ctermbg` are indices into a
+---Only the true-color attributes are blended. `ctermfg` and `ctermbg` are indices into a
 ---palette with no channels to pull, so they are copied without a change.
 ---@param family CRBlendFamily
 ---@param group string
@@ -253,9 +253,9 @@ end
 
 ---The group that holds `group` blended at `family`'s strength, computed once.
 ---
----**A group with no colour of its own gets no twin, and that is the feature.** A caller
+---**A group with no color of its own gets no twin, and that is the feature.** A caller
 ---that finds nothing here must draw `group` as it is. That keeps a colorscheme this plugin
----has never seen merely less muted, or merely less faded, instead of wrongly coloured.
+---has never seen merely less muted, or merely less faded, instead of wrongly colored.
 ---Nothing here reaches for a palette when a lookup is empty, and nothing must.
 ---
 ---An empty lookup is not remembered as done. A pass that somehow runs before the theme's
@@ -278,21 +278,21 @@ end
 
 ---Write every twin again, against the colorscheme that is active now.
 ---
----A twin holds colours the theme decides, and `:colorscheme` clears it with every other
+---A twin holds colors the theme decides, and `:colorscheme` clears it with every other
 ---global group. So `apply` writes the twins again wherever it writes the links again. A
----caller that links to a twin needs no part of this: a link holds a name and not a colour,
+---caller that links to a twin needs no part of this: a link holds a name and not a color,
 ---and a link inside a highlight namespace survives `:colorscheme`.
 ---
 ---Every twin is written again rather than dropped. The diff on screen still carries
----extmarks that name the capture groups the old theme resolved, and those colours must be
+---extmarks that name the capture groups the old theme resolved, and those colors must be
 ---right before anything parses again.
 ---
----A group that loses its colour to the new theme keeps its twin, as a link back to itself.
+---A group that loses its color to the new theme keeps its twin, as a link back to itself.
 ---The window then draws that group at full brightness, which is what a group with no twin
 ---gets. A link that reaches no definition draws nothing at all, so every twin a caller
 ---already links to must stay a definition -- and a mark already emitted in a twin's name is
 ---the same case as a namespace linking to one.
-local function recolour_twins()
+local function recolor_twins()
   toward = nil
   for family, known in pairs(twins) do
     for group, twin in pairs(known) do
@@ -310,7 +310,7 @@ function M.apply()
   apply_spans()
 
   -- A configured type names a group this module cannot know about, so without this a
-  -- custom type renders with no colour at all. After LINKS and with `default = true`, so
+  -- custom type renders with no color at all. After LINKS and with `default = true`, so
   -- the built-in types keep their severity mapping and a user's own group is left alone.
   for _, t in ipairs(require("codereview.config").get().types) do
     vim.api.nvim_set_hl(0, t.hl, { link = TYPE_FALLBACK, default = true })
@@ -322,7 +322,7 @@ function M.apply()
   end
   -- Last, because a twin blends what the links above resolve to. With no review open there
   -- are no twins and this costs one empty loop per family.
-  recolour_twins()
+  recolor_twins()
 end
 
 ---Re-link after a colorscheme change, since `nvim_set_hl` definitions are cleared by

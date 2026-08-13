@@ -26,7 +26,7 @@ lines, selections, hunks or whole files with a type; the annotations queue up;
 submit them as one batch. See |codereview-layouts|.
 
 Requires Neovim 0.12 or newer and `git`. Treesitter parsers are optional --
-files without one fall back to flat diff colours.
+files without one fall back to flat diff colors.
 
 ==============================================================================
 2. COMMANDS                                            *codereview-commands*
@@ -163,7 +163,7 @@ entry, gy copies the batch, <C-t> routes, <C-s> submits, <C-a> submits under a
 open -- it takes nothing out of the queue, so every row it is listing is
 still true.
 
-A jump closes the float and centres the line the annotation is about,
+A jump closes the float and centers the line the annotation is about,
 expanding the file first if it was collapsed. The queue is shared with the
 capture path and the float opens with or without a review, so some entries
 have nowhere to go: a bare note has no file at all, there may be no review
@@ -175,7 +175,7 @@ In the last-batch float (`gb`, or |:CodeReviewLastBatch| from anywhere): q and
 <Esc> close, and that is the whole of it. `x` and <C-s> are bound only to say why they do nothing,
 so the queue float's muscle memory gets a sentence rather than |E21| against a
 |nomodifiable| buffer. An annotation is drawn there exactly as the queue float
-draws one -- the reserved gutter, the bar in its type's colour, the code it
+draws one -- the reserved gutter, the bar in its type's color, the code it
 inlined and its note -- so the two read as one family; what is missing is
 every key that would change something. A |codereview-preamble| is drawn above
 them all, as prose rather than as an entry: no gutter and no bar, because it
@@ -278,9 +278,9 @@ the opposite pane holding its place so the two stay aligned.
 
 The panes are held together with |scrollbind| and |cursorbind|, which are
 window-local. |scrollopt| is global and is deliberately not touched, so
-vertical movement is synchronised and horizontal scrolling is not.
+vertical movement is synchronized and horizontal scrolling is not.
 
-One behavioural difference, and only one: a visual range cannot span both
+One behavioral difference, and only one: a visual range cannot span both
 images, because the two runs live in different windows and cannot be in one
 selection. Pure-addition and pure-deletion ranges work, and annotating the
 hunk header captures both images inlined -- so what a split range cannot
@@ -298,7 +298,7 @@ Which pane the cursor lands in follows the line's side: a deleted line lands
 in the left pane, an added or context line in the right. Switching back is
 unambiguous, since one anchor has one row. A cursor on filler has no
 counterpart in the unified layout at all, so it falls back to that file's
-header. The landing line is centred, because the row moved structurally and
+header. The landing line is centered, because the row moved structurally and
 an exact scroll offset carried across would mean nothing.
 
 Nothing else changes. Reviewed marks, expanded state, the queue, the current
@@ -338,9 +338,9 @@ ambiguous. All of them come from `icons` (|codereview-config|) and all of them
 are plain Unicode -- no Nerd Font is needed anywhere in this plugin. The bar
 does not name the review itself.
 
-It is coloured, in groups of the plugin's own that are default links into your
+It is colored, in groups of the plugin's own that are default links into your
 colorscheme: added counts green and removed counts red, the note count in the
-colour notes carry on the diff, the target accented, the separators dimmed,
+color notes carry on the diff, the target accented, the separators dimmed,
 and the path left in the bar's own group, which makes it the brightest thing
 on the left. See |codereview-highlights|. A pane without focus mutes its bar
 with everything else in it.
@@ -357,12 +357,12 @@ segment.
 What changed inside a line                                 *codereview-spans*
 
 Where a deletion and an addition are two versions of the same line, the spans
-that actually differ are emphasised inside them. The rest of the line keeps
+that actually differ are emphasized inside them. The rest of the line keeps
 its ordinary deletion or addition background, so the emphasis means something
 by contrast: >
     ▌20 │ -const cfg = load()
     ▌20 │ +const cfg = loadConfig()
-                           ^^^^^^ emphasised
+                           ^^^^^^ emphasized
 <
 On by default; switch it off with `spans = false`, validated at
 |codereview.setup()| like the other settings. With it off no span work is
@@ -379,8 +379,8 @@ them against.
 Granularity is characters, not tokens, so an edit inside an identifier is
 pointed at precisely rather than widened to the whole word, and a
 whitespace-only change is visible rather than mysterious. Where the two lines
-share so little that emphasising the change would emphasise nearly all of both
--- more than 60% of the longer line -- the pair is left plainly coloured: that
+share so little that emphasizing the change would emphasize nearly all of both
+-- more than 60% of the longer line -- the pair is left plainly colored: that
 is a replacement rather than an edit.
 
 Spans are computed when the diff is parsed, not when it is drawn, so a resize,
@@ -396,25 +396,25 @@ See |codereview-highlights| for the two groups it draws with.
 The pane you are not in                                  *codereview-muted*
 
 A review holds up to three windows -- the two panes and the file tree -- and
-the pane that does not have focus is *muted*: its colours pulled toward the
+the pane that does not have focus is *muted*: its colors pulled toward the
 background, so which window your next keystroke acts on is on screen rather
 than something you press a key to find out. Every pane goes on drawing a
 |cursorline|; the muted one draws it in a group of its own
 (|codereview-counterpart|).
 
 The file tree is never muted. It is the map of the review, so it draws in
-your colorscheme's own colours whichever window has focus, and the row for
+your colorscheme's own colors whichever window has focus, and the row for
 the file you are reading stays lit. Moving into the tree still mutes the
 panes -- both of them in the split layout, the one of them in the unified
 layout -- so the rule above holds of the panes and says nothing about the
 tree.
 
 Muting is a window-local highlight namespace holding a variant of every group
-in play, each computed by blending that group's colours toward `Normal`'s
-background. So the colours are your colorscheme's, blended -- never a palette
+in play, each computed by blending that group's colors toward `Normal`'s
+background. So the colors are your colorscheme's, blended -- never a palette
 of the plugin's own -- and a group it cannot know about is left at full
 brightness rather than guessed at: an unfamiliar theme degrades to less
-muting and never to wrong colours. The set is recomputed when you change
+muting and never to wrong colors. The set is recomputed when you change
 colorscheme.
 
 The bright window is the review window focus was last in, not the window with
@@ -429,7 +429,7 @@ review behind them looks exactly as you left it.
 The file you are not in                                  *codereview-faded*
 
 Every file in the review except the one the cursor is in is *faded*: the
-colours of its rows pulled toward the background, so the file you are reading
+colors of its rows pulled toward the background, so the file you are reading
 has a boundary and the file you just left stops competing with it. Crossing
 into another file moves the fade with the cursor. The unit is the file and
 never the hunk, so moving from one hunk to the next inside one file changes
@@ -441,7 +441,7 @@ than to hide the map. Its hunk headers fade with its body.
 
 The fade changes which highlight group each mark carries and nothing else, so
 faded code keeps its syntax structure instead of flattening to one tone, and
-the order things are drawn in is exactly what it was. The colours are the
+the order things are drawn in is exactly what it was. The colors are the
 muting's arithmetic on your own colorscheme, at a strength of its own, and a
 group the plugin cannot know about is left bright -- the same rule as above.
 A cursor in no file fades nothing.
@@ -464,7 +464,7 @@ is a filler (|codereview-layouts|) -- a pure addition -- the lit blank row is
 what says nothing existed there before, which is the case this exists for.
 
 Which row is lit stays Neovim's business, because the panes are cursorbound.
-Only which colour it is lit in is the plugin's: nothing is drawn onto the diff
+Only which color it is lit in is the plugin's: nothing is drawn onto the diff
 and no extmark is added. It follows the muting, so a pane at full brightness
 lights its row at full strength and the file tree is untouched -- the tree is
 not cursorbound, and its lit row names the file you are reading.
@@ -507,13 +507,13 @@ that group in the submitted payload:
 <
     name        required -- what annotate() takes, and what an entry stores
     key         required -- pressed after the `a` prefix, so `q` binds `aq`
-    label       defaults to the name, title-cased and pluralised
+    label       defaults to the name, title-cased and pluralized
     icon        defaults to `icons.annotated`
-    hl          defaults to CodeReview<Name>, linked so it has colour
+    hl          defaults to CodeReview<Name>, linked so it has color
     directive   optional -- the heading is then just "## Questions (3)"
 
 Order is the order groups appear in the payload, most actionable first.
-Pluralisation is naive, so an irregular name wants an explicit `label`.
+Pluralization is naive, so an irregular name wants an explicit `label`.
 
 A list that cannot work is rejected at |codereview.setup()| naming the entry
 that caused it: a missing or duplicated `name` or `key`, a `key` of "a" (which
@@ -548,12 +548,12 @@ the window that asked. For an |codereview-immediate-send| it is that note's own
 target, and rerouting it leaves the batch pointing where it was.
 
 `@` references another file, through |codereview-opt-pick_file|. It is written
-into the note before the picker opens, so cancelling leaves the character you
+into the note before the picker opens, so canceling leaves the character you
 typed -- and it only opens a picker where a word begins, so an email address in
 a note is an email address.
 
 Either way you are left writing where the picker left off: past the reference
-and the space after it, or past the `@` if you cancelled, and back in insert
+and the space after it, or past the `@` if you canceled, and back in insert
 mode. A picker takes focus and insert mode with it, and asking for a reference
 mid-sentence is not asking to stop writing.
 
@@ -971,7 +971,7 @@ Defaults: >
 <
 `max_syntax_bytes` bounds the one operation with a real performance cliff.
 Files above it, files with no parser, and binary files all fall back to flat
-diff colours individually -- never the whole view.
+diff colors individually -- never the whole view.
 
 `spans` switches the intra-line emphasis (|codereview-spans|). It is on by
 default. On a 12,000-line diff it lengthens opening a review by roughly a
@@ -985,14 +985,14 @@ nothing drawn, nothing tallied and no `git` spent judging. `gA` overrides it
 for the rest of the session, in both directions, and writes nothing here.
 
 `muted` mutes the pane that does not have focus (|codereview-muted|); the
-file tree is never muted. `strength` is how far a colour is pulled toward the
+file tree is never muted. `strength` is how far a color is pulled toward the
 background, from 0 to 1. Coarse the same way: off is nothing muted, nothing
 computed and no highlight namespace attached to any window.
 
 `faded` fades every file except the one the cursor is in (|codereview-faded|).
 `strength` is the same number for a different rule, and gentler by default
 because the fade covers every file but one where the muting covers a window.
-Coarse the same way: off is nothing emitted, no colour computed, and the diff
+Coarse the same way: off is nothing emitted, no color computed, and the diff
 drawn exactly as it was before this existed.
 
 `counterpart` lights the row opposite your cursor in a muted pane
@@ -1047,9 +1047,9 @@ Two are not links. The intra-line spans (|codereview-spans|) take `DiffText`'s
 <
 A foreground there would sit beneath the treesitter replay, which is drawn at
 a higher priority -- so it would lose wherever a parser had painted and win
-wherever one had not, which is emphasis that changes colour depending on which
+wherever one had not, which is emphasis that changes color depending on which
 languages you have installed. A background alone composes with the replay, and
-that is what keeps code readable inside an emphasised span. Both are still
+that is what keeps code readable inside an emphasized span. Both are still
 `default = true`, so overriding either works the same way as the rest.
 
 Three more families are computed, and none is yours to set. A **muted**
@@ -1061,10 +1061,10 @@ carries a twin named `CodeReviewFaded.` plus the same, blended at
 (|codereview-counterpart|) is a family of one member: >
     CodeReviewCounterpart.CursorLine
 <
-blended at `counterpart.strength`. Each holds the group's own colours pulled
+blended at `counterpart.strength`. Each holds the group's own colors pulled
 that far toward the background, and each is written again on every colorscheme
 change, so a definition of your own is overwritten. Set the strength, or the
-group the twin is named for, instead. A group the active theme gives no colour
+group the twin is named for, instead. A group the active theme gives no color
 of its own gets no twin in any of the three, and is drawn at full brightness.
 
 ==============================================================================

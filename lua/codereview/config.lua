@@ -21,7 +21,7 @@ M.defaults = {
   ---column; `split` draws the before-image and the after-image as two panes side by side.
   ---Unified is the default, so upgrading the plugin does not change how a review looks.
   layout = "unified", ---@type "unified"|"split"
-  ---Emphasise the characters that differ inside a deletion and its replacement, so the eye
+  ---Emphasize the characters that differ inside a deletion and its replacement, so the eye
   ---lands on the change instead of on the line. On by default: it is a refinement of a
   ---rendering everyone already has rather than a mode to opt into, and it is what every
   ---comparable review tool does. It lengthens opening a large review by roughly a third and
@@ -41,14 +41,14 @@ M.defaults = {
   ---the archive existed. `gA` overrides this while a session lasts, in both directions, and
   ---never writes here -- see `M.archived` below.
   archived = true, ---@type boolean
-  ---Draw every **pane** that does not have focus **muted**: its colours pulled toward the
+  ---Draw every **pane** that does not have focus **muted**: its colors pulled toward the
   ---background, so the pane with focus is the bright one and a reviewer never has to press
   ---a key to find out where they are. Every pane goes on lighting the row its cursor is on;
-  ---which colour a muted one lights it in is `counterpart` below.
+  ---which color a muted one lights it in is `counterpart` below.
   ---
   ---**The file tree is never muted, and its row stays lit.** The tree is the map of the
   ---review, and a muted map is harder to read for nothing in return: a tree looks nothing
-  ---like a diff, so no colour is needed to tell the two apart. Focus landing in the tree
+  ---like a diff, so no color is needed to tell the two apart. Focus landing in the tree
   ---still mutes the panes, so the rule above stays true of them.
   ---
   ---On by default, and coarse the way `archived` is: off is nothing muted, nothing
@@ -56,12 +56,12 @@ M.defaults = {
   ---dimming plugin or own taste should win. There is no keymap beside it; one can be added
   ---if the switch proves too blunt.
   ---
-  ---`strength` is how far toward the background a colour is pulled, from 0 (not at all) to
-  ---1 (all the way). One number rather than a palette, because the colours it works on are
-  ---the active colorscheme's -- an unrecognised theme is muted in its own colours or, for a
+  ---`strength` is how far toward the background a color is pulled, from 0 (not at all) to
+  ---1 (all the way). One number rather than a palette, because the colors it works on are
+  ---the active colorscheme's -- an unrecognized theme is muted in its own colors or, for a
   ---group the plugin cannot know about, left bright rather than replaced.
   muted = { enabled = true, strength = 0.5 }, ---@type { enabled: boolean, strength: number }
-  ---Draw every file except the one the cursor is in **faded**: the colours of its rows
+  ---Draw every file except the one the cursor is in **faded**: the colors of its rows
   ---pulled toward the background, so the file being read has a visible boundary and the
   ---file just left stops competing with it. The unit is the file and never the hunk, so a
   ---cursor moving from one hunk to the next inside one file changes nothing on screen.
@@ -70,15 +70,15 @@ M.defaults = {
   ---header is the one row that names the file, and this exists to help a reviewer find a
   ---place rather than to hide the map.
   ---
-  ---On by default, and coarse the way `muted` is: off is nothing emitted, no colour
+  ---On by default, and coarse the way `muted` is: off is nothing emitted, no color
   ---computed, and the diff drawn exactly as it was before this existed. There is no keymap
   ---beside it.
   ---
   ---`strength` is its own, and deliberately gentler than `muted.strength`: the fade covers
   ---every file but one, where the window rule covers the panes a reviewer is not in, and a
   ---blend that reads as quiet over a pane reads as washed out over a whole review. Both
-  ---numbers pull the active colorscheme's own colours, so an unrecognised theme fades in
-  ---its own colours or, for a group the plugin cannot know about, stays bright.
+  ---numbers pull the active colorscheme's own colors, so an unrecognized theme fades in
+  ---its own colors or, for a group the plugin cannot know about, stays bright.
   faded = { enabled = true, strength = 0.35 }, ---@type { enabled: boolean, strength: number }
   ---Light the row the cursor is on in a **muted** pane as well -- the **counterpart row** --
   ---in a group of its own rather than in the one the pane with focus uses. A reviewer
@@ -89,7 +89,7 @@ M.defaults = {
   ---addition there is no row to count to.
   ---
   ---Which row is lit stays Neovim's business, because the panes are cursorbound. Only which
-  ---colour it is lit in is this. Nothing is emitted onto the diff and no extmark is added.
+  ---color it is lit in is this. Nothing is emitted onto the diff and no extmark is added.
   ---
   ---On by default, and coarse the way `muted` is: off is a lit row in the pane with focus
   ---only -- nothing computed, and no group of its own defined -- which is what a review
@@ -191,7 +191,7 @@ M.options = vim.deepcopy(M.defaults)
 ---@return CRType[]
 local function resolve_types(options)
   local types = require("codereview.types")
-  return types.normalise(options.types or types.defaults, { icon = options.icons.annotated })
+  return types.normalize(options.types or types.defaults, { icon = options.icons.annotated })
 end
 
 ---Reject a layout the render has no rendering for.
@@ -257,7 +257,7 @@ end
 ---
 ---In the same voice as the switches above. A number outside 0..1 is not a stronger effect
 ---but an arithmetic accident: past 1 the blend overshoots the background and comes back out
----the other side, which is a colour nobody asked for rather than a louder version of one.
+---the other side, which is a color nobody asked for rather than a louder version of one.
 ---@param name string
 ---@param value any
 local function validate_strength(name, value)

@@ -67,13 +67,13 @@ in `EDITOR_GROUPS`; every group the bar asks for is in `LINKS`, which is what `h
 derives the muted set from, so a bar group added anywhere else is one a muted pane leaves
 bright. `split_spec` reads two cells of one bar for exactly this reason: one inside the path,
 which carries no group of the plugin's own and is where the muting is proven, and one on the
-file's added count, which carries one and is where the colour is.
+file's added count, which carries one and is where the color is.
 
 **The path is the one thing on the bar left in the bar's own group**, and that is what makes
 it the brightest thing on the left rather than any group being brighter: the icon and the
 chevron in front of it are quiet, the separators quieter still, and everything else carries
 the group the surface saying the same thing on the diff carries — the stat, the note count
-and the untouched tally are the diff's own groups, not a second set for the bar. One colour,
+and the untouched tally are the diff's own groups, not a second set for the bar. One color,
 one meaning, wherever a reviewer meets it.
 
 **Every name on the winbar is escaped, per segment, and the bar is padded by hand in display
@@ -83,8 +83,8 @@ The rule is the same one the wholesale escape held: the bar carries a path a rev
 repository chose, and a `%f` in one would be read as a statusline item and expanded into
 something else. What moved is where it is applied, so that a caller cannot pass a path
 unescaped by accident: a segment has to say which kind it is, and the kind that takes a name
-is the kind that escapes it. **Escaping is by kind and colouring is not** — either kind may
-carry a highlight group, because most of what is worth colouring on this bar is a name: the
+is the kind that escapes it. **Escaping is by kind and coloring is not** — either kind may
+carry a highlight group, because most of what is worth coloring on this bar is a name: the
 **target**, the base revision, a count carrying a glyph a host configured. The alternative is
 a caller writing the markers around a name by hand, which is markup arriving from outside the
 one seam that decides what markup is. The statusline's `%=` would now be possible, and would
@@ -97,7 +97,7 @@ a bar padded by `#` lands a dozen columns short of the pane while every ASCII as
 the suite still passes; the renamed file is what catches it. The mirror of that is a
 highlight marker: `%#Group#` is characters in the string and no columns at all on the
 screen, so a bar measured with its markers in drifts the other way, by the width of every
-one of them. That half stopped being hypothetical the moment the bar was coloured: a
+one of them. That half stopped being hypothetical the moment the bar was colored: a
 hundred-column bar is now some two hundred and fifty characters, so a ruler counting the
 string overshoots by more than the pane is wide. Both are why the padding is arithmetic
 rather than `%=` — the fitting rule has to know how many columns the path may keep, which is
@@ -123,9 +123,9 @@ emitted, so the buffer and the anchor map stay small on a large review, and ther
 mechanism instead of two.
 
 **The intra-line span groups set a background and no foreground.** They sit at a priority
-band above the line's own diff colour and below the treesitter replay, so a foreground there
+band above the line's own diff color and below the treesitter replay, so a foreground there
 would lose to the replay wherever a parser had painted and win wherever one had not —
-emphasis that changes colour depending on which languages the reader has installed. A
+emphasis that changes color depending on which languages the reader has installed. A
 background alone composes with the replay, which is what keeps code readable inside a span.
 It is also why the two groups copy `DiffText`'s background instead of linking to it: a link
 would carry the foreground along.
@@ -147,7 +147,7 @@ directly avoids both quirks.
 each line as a sequence of *characters*. The obvious implementation — splitting a Lua string
 with a pattern — splits by byte, passes every ASCII test in the suite, and corrupts the first
 accented, CJK or emoji line it meets: `é` and `è` share their leading byte, so a byte-wise
-diff emphasises a trailing byte alone, which is a boundary inside a character and a
+diff emphasizes a trailing byte alone, which is a boundary inside a character and a
 rendering error rather than a cosmetic one. Correctness costs about 6 ms across 6,000 line
 pairs, so there is no performance argument for the other one. `src/nonl.md` in `mkfixture`
 is the only fixture line that can fail this, and it is there on purpose.
@@ -462,7 +462,7 @@ The `untouched` segment is read off the view rather than computed by the winbar,
 only drops it when the archive has been *written* since the last verdict — which turning the
 switch off is not. So a toggle that merely repaints leaves the number on the bar while
 nothing it counts is on the diff, which is the one state this feature's coarseness exists to
-refuse. `view.toggle_archived` runs the judgement itself, and that is also where the two
+refuse. `view.toggle_archived` runs the judgment itself, and that is also where the two
 `git` invocations behind the number are skipped when the answer is "nothing drawn".
 
 **`git stash create` mints a commit and does nothing else.** No ref moves, the index is not
@@ -552,7 +552,7 @@ almost no highlights of its own — and the tree is never muted now, so there is
 there for it to do.
 
 **That namespace holds links, and the link is what makes the blend reachable.** Each entry
-names the group that holds the blended colour — `CodeReviewMuted.` plus the group it blends,
+names the group that holds the blended color — `CodeReviewMuted.` plus the group it blends,
 so `@keyword` becomes `CodeReviewMuted.@keyword`. A group name with `@` and dots in it is
 legal, and only a name that *starts* with `@` gets the treesitter fallback chain. Three
 facts here were measured, not assumed:
@@ -562,14 +562,14 @@ facts here were measured, not assumed:
 - `:colorscheme` clears every global group, the blended ones with the rest, but it leaves
   the namespace's links alone. So a theme change is the groups' problem and the namespace
   needs no part of it. What the window rule does on `ColorScheme` is one more pass, for a
-  group the new theme gives a colour to at last.
+  group the new theme gives a color to at last.
 - **A link that reaches no definition draws nothing at all.** It does not fall back to the
   global group, which is what a namespace with no entry does. So a group with no blend must
   have *no* entry in the namespace, and a blend the new theme cannot compute keeps its
   group as a link back to the group it blends. Either way that group draws bright. An entry
   that points at a group the theme wiped draws a hole.
 
-**A highlight namespace colours a whole window, so it cannot colour one part of one.** That
+**A highlight namespace colors a whole window, so it cannot color one part of one.** That
 is the whole reason the two quiet states are two mechanisms rather than one. A **muted**
 window's unit *is* the window, so it is a namespace: attach it and every group the window
 draws is answered at once, including the groups the plugin cannot enumerate. A **faded**
@@ -588,16 +588,16 @@ the archive key nor the muting owns it: `muted_spec` presses the key with an arc
 really on the diff, and injecting a namespace reset or a `cursorline` clear onto that path is
 what gives the case its teeth.
 
-**A muted pane still lights a row, and the namespace is what makes it another colour.** The
+**A muted pane still lights a row, and the namespace is what makes it another color.** The
 panes are cursorbound, so Neovim already lights the row opposite the one being read; what was
-missing was a colour of its own for it. `cursorline` therefore stays set in every pane, and
+missing was a color of its own for it. `cursorline` therefore stays set in every pane, and
 the namespace links `CursorLine` to the **counterpart row**'s blend rather than to the
 muting's — a third family, holding that one member, because the alternative is a second copy
 of the blend arithmetic written where the row is lit. Nothing is emitted onto the diff, and a
-namespace could not have done it any other way: it colours a whole window, so *one row,
+namespace could not have done it any other way: it colors a whole window, so *one row,
 differently* has to be a group that window already draws that row in.
 
-**`line_hl_group` wins over `CursorLine`.** Measured, with `CursorLine` set to a colour
+**`line_hl_group` wins over `CursorLine`.** Measured, with `CursorLine` set to a color
 nothing else on screen holds: the cell on the cursor's own row printed the line background
 instead. So a row carrying one of its own — every added and deleted line, every file and hunk
 header — prints it whether or not the cursor is on that row, and a lit row can only be seen on
@@ -605,11 +605,11 @@ a context line, a **pad** or a **filler**. That is as true of the focused pane's
 counterpart row, and it has been since the plugin drew its first diff. It costs the
 counterpart row nothing in the case it exists for, because the row opposite a pure addition is
 a filler and a filler is blank. It is also why the painted cell proving the counterpart row is
-read on a context line: a reading taken on an added row prints the same colour lit or unlit,
+read on a context line: a reading taken on an added row prints the same color lit or unlit,
 and says nothing about either.
 
 **The fade renames a mark. It does not add one, and it does not change the priority order.**
-One grey foreground laid over a faded file at a priority above the syntax replay is the
+One gray foreground laid over a faded file at a priority above the syntax replay is the
 obvious shape and the wrong one: it wins where a parser painted and loses where none did, so
 the result changes with the parsers a reader happens to have installed. This project already
 refused that shape once, for the intra-line **span** emphasis, which is why those groups set

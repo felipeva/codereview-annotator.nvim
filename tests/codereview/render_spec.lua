@@ -168,7 +168,7 @@ end)
 -- Archived entries on the diff: what has already been reported, drawn beneath the code it
 -- was about so a reviewer who keeps going while an agent works does not report it twice.
 --
--- Everything here is asserted through extmark metadata and highlight *groups*. The colours
+-- Everything here is asserted through extmark metadata and highlight *groups*. The colors
 -- a colorscheme resolves those to are deliberately not tested, and never have been.
 describe("archived entries", function()
   local V = view.current()
@@ -263,8 +263,8 @@ describe("archived entries", function()
 
   -- Every group here is a `default = true` link into whatever colorscheme is active, which
   -- is the rule every other group in `hl.lua` follows and the only reason overriding one
-  -- works. Asserted as a link to a defined group, never as a resolved colour.
-  it("links those groups into the colorscheme rather than defining colours", function()
+  -- works. Asserted as a link to a defined group, never as a resolved color.
+  it("links those groups into the colorscheme rather than defining colors", function()
     for _, group in ipairs({ "CodeReviewArchived", "CodeReviewArchivedNote" }) do
       local def = vim.api.nvim_get_hl(0, { name = group })
       assert.is_truthy(def.link, ("%s is not a link: %s"):format(group, vim.inspect(def)))
@@ -378,7 +378,7 @@ describe("the winbar assembly", function()
     assert.same("%%#CodeReviewAdd#x", render.bar({ render.literal("%#CodeReviewAdd#x") }))
   end)
 
-  -- A name can be coloured too, and the escape is unchanged by it: the bar's coloured
+  -- A name can be colored too, and the escape is unchanged by it: the bar's colored
   -- pieces are largely names -- a **target**'s short name, a base revision, a count carrying
   -- a glyph a host configured -- and the alternative is a caller writing the markers around
   -- one by hand, which is exactly what having a kind per segment refuses.
@@ -460,10 +460,10 @@ describe("the winbar assembly", function()
     assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
   end)
 
-  -- The same claim for a coloured *name*, which is the case the bar actually needs: the
+  -- The same claim for a colored *name*, which is the case the bar actually needs: the
   -- escape and the marker have to compose, so that what Neovim draws is the name as it
   -- stands, in the group asked for, and no wider than the ruler said.
-  it("colours a name without letting the escape reach the screen", function()
+  it("colors a name without letting the escape reach the screen", function()
     local segments = { render.literal("src/50% done.lua", "DiffAdd") }
     local drawn = vim.api.nvim_eval_statusline(render.bar(segments), { highlights = true })
     assert.same("src/50% done.lua", drawn.str)
@@ -625,7 +625,7 @@ describe("the sticky header with room for the whole summary", function()
     assert.is_nil(group_of("src/nonl.md"))
   end)
 
-  it("colours the file's own added and removed counts apart", function()
+  it("colors the file's own added and removed counts apart", function()
     local file = V.files[assert(h.file_index(V, "src/nonl.md"))]
     assert.same("CodeReviewStatAdd", group_of(("+%d"):format(file.added)))
     assert.same("CodeReviewStatDel", group_of(("-%d"):format(file.removed)))
@@ -639,8 +639,8 @@ describe("the sticky header with room for the whole summary", function()
   -- Every group here is a `default = true` link into whatever colorscheme is active, which
   -- is what makes a theme change the theme's problem -- and what gives the bar **muted**
   -- twins for free, since `hl.groups()` derives the muted set from the same table. Asserted
-  -- as a link to a defined group, never as a resolved colour.
-  it("links the bar's own groups into the colorscheme rather than defining colours", function()
+  -- as a link to a defined group, never as a resolved color.
+  it("links the bar's own groups into the colorscheme rather than defining colors", function()
     for _, group in ipairs({ "CodeReviewBarIcon", "CodeReviewBarSep", "CodeReviewBarTarget", "CodeReviewBarRev" }) do
       local def = vim.api.nvim_get_hl(0, { name = group })
       assert.is_truthy(def.link, ("%s is not a link: %s"):format(group, vim.inspect(def)))
@@ -650,7 +650,7 @@ describe("the sticky header with room for the whole summary", function()
 
   -- The theme's problem, proven rather than asserted of the links: a colorscheme clears every
   -- global definition, and the bar has to come back linked into the new one.
-  it("comes back in the new theme's colours when the colorscheme changes", function()
+  it("comes back in the new theme's colors when the colorscheme changes", function()
     vim.cmd("colorscheme blue")
     local def = vim.api.nvim_get_hl(0, { name = "CodeReviewBarSep" })
     assert.is_truthy(def.link, vim.inspect(def))
@@ -696,7 +696,7 @@ end)
 
 describe("the sticky header on a pane that has to choose", function()
   local V = view.current()
-  view.toggle_panel() -- back, so the after pane has a neighbour to give columns to
+  view.toggle_panel() -- back, so the after pane has a neighbor to give columns to
 
   local function bar()
     return h.winbar(V.win)

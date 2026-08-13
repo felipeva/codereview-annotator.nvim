@@ -7,7 +7,7 @@
 -- file the collapse of a deletion above it has not shifted, proves nothing: the row would
 -- have survived a toggle that carried it across unchanged, which is the bug.
 --
--- The window is deliberately short enough that the diff does not fit in it. Centring is
+-- The window is deliberately short enough that the diff does not fit in it. Centering is
 -- unobservable in a window taller than its buffer, and the assertion would pass with `zz`
 -- deleted.
 local h = require("tests.helpers")
@@ -394,7 +394,7 @@ describe("a collapsed file's header", function()
 end)
 
 describe("the landing line", function()
-  it("is far enough down that centring is observable at all", function()
+  it("is far enough down that centering is observable at all", function()
     in_layout("unified")
     local V = current()
     local row = side_row(V.render, "src/untracked.lua", "add")
@@ -404,14 +404,14 @@ describe("the landing line", function()
     )
   end)
 
-  it("is centred", function()
+  it("is centered", function()
     in_layout("unified")
     start_on("src/untracked.lua", "add")
     view.toggle_layout()
 
     local win = vim.api.nvim_get_current_win()
     local was = topline(win)
-    -- Centred is exactly "a `zz` here would change nothing".
+    -- Centered is exactly "a `zz` here would change nothing".
     vim.api.nvim_win_call(win, function()
       vim.cmd("normal! zz")
     end)
@@ -431,7 +431,7 @@ describe("the landing line", function()
 end)
 
 -- Putting a row on screen runs the same view command in both panes, and the toggle's
--- centring shares that with every jump. Asserted here rather than in `split_spec`, whose
+-- centering shares that with every jump. Asserted here rather than in `split_spec`, whose
 -- window is taller than the whole diff: nothing scrolls there, so nothing can come apart.
 describe("a jump in a window shorter than the diff", function()
   it("leaves both panes on the same row and the same top line", function()

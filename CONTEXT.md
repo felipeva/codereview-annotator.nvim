@@ -47,12 +47,12 @@ _side_: a diff line's side is already add/del/ctx, and one word must not do two 
 _Avoid_: side, column, window
 
 **Muted**:
-Said of a **pane** that does not have focus: its colours pulled toward the background through
+Said of a **pane** that does not have focus: its colors pulled toward the background through
 a highlight namespace of its own, so the pane with focus is the bright one and a reviewer
 never has to press a key to find out where they are. A muted pane still lights the row its
-cursor is on — see **counterpart row**, the one colour in it that the muting does not answer
+cursor is on — see **counterpart row**, the one color in it that the muting does not answer
 for. Said of a pane and never of the file
-tree: the tree is never muted, it draws in the active colorscheme's own colours under every
+tree: the tree is never muted, it draws in the active colorscheme's own colors under every
 focus, and focus landing in it mutes the panes instead. Never said of a file, and never of
 anything drawn *on* the diff. Not _dimmed_: an archived **entry** is already drawn dimmed on
 the diff, and one word must not do two jobs — the same collision that kept _side_ reserved
@@ -60,10 +60,10 @@ for a diff line's add/del/ctx when the split layout needed a word for its window
 _faded_ either: that is the file the cursor is not in. The three are different mechanisms as
 well as different statements: dimming is a highlight group the render chooses per entry,
 fading is the group a mark carries, muting is every group at once in one window.
-_Avoid_: dimmed, greyed, faded, inactive
+_Avoid_: dimmed, grayed, faded, inactive
 
 **Faded**:
-Said of a file the cursor is not in: the colours of its rows pulled toward the background, so
+Said of a file the cursor is not in: the colors of its rows pulled toward the background, so
 the file being read has a visible boundary and the file just left stops competing with it.
 Said of a *file* and never of a window or of an **entry**, and the unit is the file and never
 the **hunk** — a cursor crossing from one hunk to the next inside one file changes nothing on
@@ -72,7 +72,7 @@ Drawn by changing which group a mark carries, never by a foreground laid over th
 foreground above the syntax replay would win where a parser painted and lose where none did.
 Not _muted_, which is a **pane** without focus, and not _dimmed_, which is an archived entry.
 The blend is the muting's, at a strength of its own.
-_Avoid_: muted, dimmed, greyed, inactive, unfocused
+_Avoid_: muted, dimmed, grayed, inactive, unfocused
 
 **Filler**:
 A blank row emitted in one pane where the other has no counterpart — a pure addition, a
@@ -83,7 +83,7 @@ _Avoid_: padding, spacer
 **Counterpart row**:
 The row in a **muted** pane opposite the one the cursor is on, lit with a group of its own so
 it reads as secondary to the focused pane's. The panes are cursorbound, so which row it is
-stays Neovim's business and only which colour it is lit in is the plugin's — nothing is
+stays Neovim's business and only which color it is lit in is the plugin's — nothing is
 emitted onto the diff for it and no mark is added. Where the opposite row is a **filler**,
 the lit blank row is what says *nothing existed here before*, which is the case it exists
 for. Said of a row in a pane and never of the file tree's lit row: the tree is not
@@ -103,7 +103,7 @@ beside it.
 _Avoid_: breadcrumb, pinned header, floating header
 
 **Span**:
-The run of characters within a paired line that differs from its counterpart, emphasised so
+The run of characters within a paired line that differs from its counterpart, emphasized so
 the eye lands on the change rather than on the line. Not _range_: a **range** is already a
 span of *lines* an annotation covers, and one word must not do two jobs — the same collision
 that kept _side_ reserved for a diff line's add/del/ctx when the split layout needed a word

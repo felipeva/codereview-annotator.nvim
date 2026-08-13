@@ -10,7 +10,7 @@ Anything with a feature or design decision behind it runs through the skill chai
 in order. Do not skip to code.
 
 1. **`/to-spec`** — synthesises the conversation into a spec and publishes it to the issue
-   tracker (a GitHub issue here) labelled `ready-for-agent`. It does not interview; it
+   tracker (a GitHub issue here) labeled `ready-for-agent`. It does not interview; it
    works from what has already been discussed, so do that discussion first. It stops once
    on the way to put its test seams to you.
 2. **`/to-tickets`** — breaks the spec into **tickets**: tracer-bullet vertical slices, each

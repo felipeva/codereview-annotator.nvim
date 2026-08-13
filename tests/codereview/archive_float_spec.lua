@@ -13,7 +13,7 @@
 -- a loop can otherwise leave a previous batch's bare note in reach of the next one's stamp.
 -- Clearing is what keeps every case below a statement about the batch it dispatched.
 --
--- Rows, window chrome and highlight *groups*, never colours.
+-- Rows, window chrome and highlight *groups*, never colors.
 local h = require("tests.helpers")
 
 h.ui(100, 30)
@@ -359,7 +359,7 @@ describe("how an entry says where it was", function()
     assert.same("deleted", text[row]:sub(tag.col + 1, tag.end_col))
   end)
 
-  it("draws the code it inlined inside the same bar, in the diff's own colours", function()
+  it("draws the code it inlined inside the same bar, in the diff's own colors", function()
     local first, last = extent(buf, 1)
     local rows = {}
     for row = first, last do

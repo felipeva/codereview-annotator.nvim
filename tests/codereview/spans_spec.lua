@@ -1,8 +1,8 @@
--- Emphasising what changed inside a changed line.
+-- Emphasizing what changed inside a changed line.
 --
 -- Two seams, both pure, both asserted without a window. The parser decides *what* is
--- emphasised -- the pairing, unequal runs, the suppression threshold, character
--- boundaries -- and hangs spans on the lines it emphasises. The render decides *how* they
+-- emphasized -- the pairing, unequal runs, the suppression threshold, character
+-- boundaries -- and hangs spans on the lines it emphasizes. The render decides *how* they
 -- are drawn: the priority band, background-only groups, byte offsets past the gutter, and
 -- the same row in both panes.
 --
@@ -33,7 +33,7 @@ local git = require("codereview.git")
 local render = require("codereview.render")
 local config = require("codereview.config")
 
---- The parser: what is emphasised ----------------------------------------------
+--- The parser: what is emphasized ----------------------------------------------
 
 ---A one-hunk diff of `body`, each entry already carrying its `+`/`-`/space marker.
 ---@param body string[]
@@ -59,10 +59,10 @@ local function parse(body)
   return diff.parse(text, { spans = true })[1].hunks[1].lines
 end
 
----The text each of a line's spans covers -- what a reviewer actually sees emphasised.
+---The text each of a line's spans covers -- what a reviewer actually sees emphasized.
 ---@param ln CRLine
 ---@return string[]
-local function emphasised(ln)
+local function emphasized(ln)
   local out = {}
   for _, s in ipairs(ln.spans or {}) do
     out[#out + 1] = ln.text:sub(s.col + 1, s.end_col)
@@ -91,22 +91,22 @@ describe("a deletion and its replacement", function()
     "+local cfg = load_config()",
   })
 
-  it("emphasises the characters that differ", function()
-    assert.same({ "_config" }, emphasised(lines[3]))
+  it("emphasizes the characters that differ", function()
+    assert.same({ "_config" }, emphasized(lines[3]))
   end)
 
-  it("emphasises nothing that both lines share", function()
-    assert.same({}, emphasised(lines[2]))
+  it("emphasizes nothing that both lines share", function()
+    assert.same({}, emphasized(lines[2]))
   end)
 
   -- Both sides, so a reviewer sees what an identifier was as well as what it became. The
-  -- trailing `a` the two names happen to share is not emphasised on either: granularity is
+  -- trailing `a` the two names happen to share is not emphasized on either: granularity is
   -- characters, not tokens, and widening a span to the enclosing identifier would be
   -- pointing at something that did not change.
-  it("emphasises what a rename was as well as what it became", function()
+  it("emphasizes what a rename was as well as what it became", function()
     local del, add = unpack(parse({ "-local cfg = alpha()", "+local cfg = omega()" }))
-    assert.same({ "alph" }, emphasised(del))
-    assert.same({ "omeg" }, emphasised(add))
+    assert.same({ "alph" }, emphasized(del))
+    assert.same({ "omeg" }, emphasized(add))
   end)
 
   it("leaves a context line alone", function()
@@ -115,35 +115,35 @@ describe("a deletion and its replacement", function()
 end)
 
 describe("where an edit sits in the line", function()
-  it("emphasises several separate edits", function()
+  it("emphasizes several separate edits", function()
     local del, add = unpack(parse({ "-local a = 1; local b = 2", "+local a = 9; local b = 8" }))
-    assert.same({ "1", "2" }, emphasised(del))
-    assert.same({ "9", "8" }, emphasised(add))
+    assert.same({ "1", "2" }, emphasized(del))
+    assert.same({ "9", "8" }, emphasized(add))
   end)
 
-  it("emphasises an edit at the very start", function()
+  it("emphasizes an edit at the very start", function()
     local del, add = unpack(parse({ "-xfoo(bar)", "+yfoo(bar)" }))
-    assert.same({ "x" }, emphasised(del))
-    assert.same({ "y" }, emphasised(add))
+    assert.same({ "x" }, emphasized(del))
+    assert.same({ "y" }, emphasized(add))
     assert.same(0, add.spans[1].col)
   end)
 
-  it("emphasises an edit at the very end", function()
+  it("emphasizes an edit at the very end", function()
     local _, add = unpack(parse({ "-# no trailing newline", "+# no trailing newline CHANGED" }))
-    assert.same({ " CHANGED" }, emphasised(add))
+    assert.same({ " CHANGED" }, emphasized(add))
     assert.same(#add.text, add.spans[1].end_col)
   end)
 
   -- A re-indentation is otherwise the one change a reviewer cannot see at all.
-  it("emphasises a whitespace-only change", function()
+  it("emphasizes a whitespace-only change", function()
     local _, add = unpack(parse({ "-  return x", "+    return x" }))
-    assert.same({ "  " }, emphasised(add))
+    assert.same({ "  " }, emphasized(add))
   end)
 end)
 
 describe("which lines pair", function()
   -- The i-th deletion of a run with the i-th addition of the run that follows it. Pairing
-  -- them the other way round would emphasise the identifier as well as the number, so this
+  -- them the other way round would emphasize the identifier as well as the number, so this
   -- fails rather than merely looking different if the rule changes.
   local lines = parse({
     "-local alpha = 1",
@@ -154,10 +154,10 @@ describe("which lines pair", function()
 
   it("pairs the i-th deletion with the i-th addition", function()
     assert.same({ { "1" }, { "2" }, { "3" }, { "4" } }, {
-      emphasised(lines[1]),
-      emphasised(lines[2]),
-      emphasised(lines[3]),
-      emphasised(lines[4]),
+      emphasized(lines[1]),
+      emphasized(lines[2]),
+      emphasized(lines[3]),
+      emphasized(lines[4]),
     })
   end)
 
@@ -171,8 +171,8 @@ describe("which lines pair", function()
     -- The lone deletion above the context line has nothing to pair with; the pair below it
     -- is unaffected by it.
     assert.is_nil(after_ctx[1].spans)
-    assert.same({ "2" }, emphasised(after_ctx[3]))
-    assert.same({ "4" }, emphasised(after_ctx[4]))
+    assert.same({ "2" }, emphasized(after_ctx[3]))
+    assert.same({ "4" }, emphasized(after_ctx[4]))
   end)
 
   it("leaves the surplus of a longer addition run unpaired", function()
@@ -183,8 +183,8 @@ describe("which lines pair", function()
       "+local beta = 4",
       "+local gamma = 5",
     })
-    assert.same({ "3" }, emphasised(runs[3]))
-    assert.same({ "4" }, emphasised(runs[4]))
+    assert.same({ "3" }, emphasized(runs[3]))
+    assert.same({ "4" }, emphasized(runs[4]))
     assert.is_nil(runs[5].spans)
   end)
 
@@ -196,29 +196,29 @@ describe("which lines pair", function()
       "+local alpha = 3",
       "+local beta = 4",
     })
-    assert.same({ "1" }, emphasised(runs[1]))
-    assert.same({ "2" }, emphasised(runs[2]))
+    assert.same({ "1" }, emphasized(runs[1]))
+    assert.same({ "2" }, emphasized(runs[2]))
     assert.is_nil(runs[3].spans)
   end)
 end)
 
 describe("suppression", function()
-  -- The threshold is a judgement, recorded in `diff.lua` with the diffs it was read off.
+  -- The threshold is a judgment, recorded in `diff.lua` with the diffs it was read off.
   -- These two cases sit either side of it by construction, so moving it in either
   -- direction reds one of them.
-  it("emphasises a pair that still shares most of its characters", function()
+  it("emphasizes a pair that still shares most of its characters", function()
     local del, add = pair_at(9, 11)
-    assert.same({ ("b"):rep(11) }, emphasised(del))
-    assert.same({ ("c"):rep(11) }, emphasised(add))
+    assert.same({ ("b"):rep(11) }, emphasized(del))
+    assert.same({ ("c"):rep(11) }, emphasized(add))
   end)
 
-  it("leaves a pair sharing almost nothing plainly coloured", function()
+  it("leaves a pair sharing almost nothing plainly colored", function()
     local del, add = pair_at(7, 13)
     assert.is_nil(del.spans)
     assert.is_nil(add.spans)
   end)
 
-  it("leaves a line replaced wholesale plainly coloured", function()
+  it("leaves a line replaced wholesale plainly colored", function()
     local del, add = unpack(parse({
       "-  pcall(vim.api.nvim_win_set_cursor, V.win, { 1, 0 })",
       "+  place(1)",
@@ -228,7 +228,7 @@ describe("suppression", function()
   end)
 
   -- An empty line has nothing to point at, and everything on the other side is new.
-  it("emphasises nothing opposite an empty line", function()
+  it("emphasizes nothing opposite an empty line", function()
     local del, add = unpack(parse({ "-", "+local x = 1" }))
     assert.is_nil(del.spans)
     assert.is_nil(add.spans)
@@ -236,7 +236,7 @@ describe("suppression", function()
 end)
 
 describe("characters, not bytes", function()
-  -- é and è share their first byte, as do 🎉 and 🎈. A diff taken over bytes emphasises
+  -- é and è share their first byte, as do 🎉 and 🎈. A diff taken over bytes emphasizes
   -- the trailing byte alone -- a boundary inside a character, which is a rendering error
   -- rather than a cosmetic one -- and every assertion here is one such a diff fails.
   local del, add = unpack(parse({
@@ -244,12 +244,12 @@ describe("characters, not bytes", function()
     '+local name = "new"  -- cafè 日本語 🎈',
   }))
 
-  it("emphasises whole characters on the deletion", function()
-    assert.same({ "old", "é", "🎉" }, emphasised(del))
+  it("emphasizes whole characters on the deletion", function()
+    assert.same({ "old", "é", "🎉" }, emphasized(del))
   end)
 
-  it("emphasises whole characters on the addition", function()
-    assert.same({ "new", "è", "🎈" }, emphasised(add))
+  it("emphasizes whole characters on the addition", function()
+    assert.same({ "new", "è", "🎈" }, emphasized(add))
   end)
 
   it("never puts a boundary inside a multibyte character", function()
@@ -264,9 +264,9 @@ describe("characters, not bytes", function()
     end
   end)
 
-  it("emphasises an edit adjacent to multibyte text", function()
+  it("emphasizes an edit adjacent to multibyte text", function()
     local _, add_ = unpack(parse({ "-日本語のテキスト", "+日本語のテキスト!" }))
-    assert.same({ "!" }, emphasised(add_))
+    assert.same({ "!" }, emphasized(add_))
     -- Nine characters in, which is 24 bytes in: a byte-wise offset would land inside 卜.
     assert.same(24, add_.spans[1].col)
   end)
@@ -319,9 +319,9 @@ describe("the fixture's own multibyte line", function()
     add = ln.side == "add" and ln or add
   end
 
-  it("emphasises whole characters as git delivered them", function()
-    assert.same({ "é", "🎉" }, emphasised(assert(del)))
-    assert.same({ "CHANGED ", "è", "🎈" }, emphasised(assert(add)))
+  it("emphasizes whole characters as git delivered them", function()
+    assert.same({ "é", "🎉" }, emphasized(assert(del)))
+    assert.same({ "CHANGED ", "è", "🎈" }, emphasized(assert(add)))
   end)
 
   it("lands every boundary on a character", function()
@@ -469,15 +469,15 @@ describe("both panes", function()
 
   -- `src/nonl.md`, not `src/main.lua`: main's edit is a pure insertion, so its deletion
   -- carries no spans at all and this case would be asserting the after pane twice. nonl's
-  -- pair is the fixture's only one that emphasises something on both sides.
+  -- pair is the fixture's only one that emphasizes something on both sides.
   it("shows the emphasis in both panes on the same row", function()
     local row = paired_row("src/nonl.md")
-    assert.is_true(#span_marks(after, row) > 0, "nothing emphasised in the after pane")
-    assert.is_true(#span_marks(before, row) > 0, "nothing emphasised in the before pane")
+    assert.is_true(#span_marks(after, row) > 0, "nothing emphasized in the after pane")
+    assert.is_true(#span_marks(before, row) > 0, "nothing emphasized in the before pane")
   end)
 
   -- One pairing rule, so a layout toggle cannot change which characters are called out.
-  it("emphasises the same characters as the unified layout", function()
+  it("emphasizes the same characters as the unified layout", function()
     ---@param rendered CRRender
     ---@param into table
     local function collect_by_key(rendered, into)
@@ -486,7 +486,7 @@ describe("both panes", function()
           local file = files[a.file]
           local ln = file.hunks[a.hunk].lines[a.line]
           if ln.spans then
-            into[render.line_key(file.path, ln)] = emphasised(ln)
+            into[render.line_key(file.path, ln)] = emphasized(ln)
           end
         end
       end
@@ -513,12 +513,12 @@ describe("the highlight groups", function()
     end)
   end
 
-  it("takes its background from the group colourschemes tune for changed text", function()
+  it("takes its background from the group colorschemes tune for changed text", function()
     local want = vim.api.nvim_get_hl(0, { name = "DiffText", link = false })
     assert.same(want.bg, vim.api.nvim_get_hl(0, { name = "CodeReviewAddSpan", link = false }).bg)
   end)
 
-  it("follows a colourscheme change mid-session", function()
+  it("follows a colorscheme change mid-session", function()
     local before_bg = vim.api.nvim_get_hl(0, { name = "CodeReviewAddSpan", link = false }).bg
     vim.cmd("colorscheme vim")
     local now = vim.api.nvim_get_hl(0, { name = "CodeReviewAddSpan", link = false })
@@ -603,7 +603,7 @@ describe("changing scope", function()
     view.set_scope("staged")
     local V = view.current()
     -- The staged scope is a pure addition, so there is nothing to pair and nothing to
-    -- emphasise -- which is only meaningful because the branch scope did emphasise things.
+    -- emphasize -- which is only meaningful because the branch scope did emphasize things.
     assert.same(
       { "src/routes.lua" },
       vim.tbl_map(function(f)
@@ -621,7 +621,7 @@ describe("what an annotation records", function()
   -- ADR-0002 read one step further: an entry does not record how it was captured, and it
   -- must not record how it was drawn either.
 
-  ---The row holding a file's replacement line -- the emphasised one, not the context row
+  ---The row holding a file's replacement line -- the emphasized one, not the context row
   ---above it, or this would be capturing on a line the feature never touches.
   ---@param V CRView
   ---@return integer
@@ -642,7 +642,7 @@ describe("what an annotation records", function()
     return entry, payload.render(queue.all(), V.root, { types = config.get().types })
   end
 
-  it("captured on a line that is emphasised", function()
+  it("captured on a line that is emphasized", function()
     local V = view.current()
     assert.is_true(#span_marks(V.render, replacement_row(V)) > 0)
   end)

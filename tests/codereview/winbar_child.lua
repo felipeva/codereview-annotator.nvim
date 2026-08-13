@@ -10,18 +10,18 @@
 --
 -- `WinBarNC` is what a non-current window's bar draws in whether or not anything is muted,
 -- which is exactly why the control reading matters: with muting off the same cell must come
--- back at `WinBarNC`'s own colour. Muted and unmuted differing is the claim; a bar that
--- ignored the namespace would return the second colour in both runs.
+-- back at `WinBarNC`'s own color. Muted and unmuted differing is the claim; a bar that
+-- ignored the namespace would return the second color in both runs.
 --
 -- The three constraints are `muted_child.lua`'s, for the reasons measured there: exactly one
 -- `nvim__inspect_cell` call per process, because only the first is honest; an 80x24 grid,
--- because that is what a headless Neovim keeps whatever `columns` says; and colours whose
+-- because that is what a headless Neovim keeps whatever `columns` says; and colors whose
 -- channels are all even, so a half-strength blend toward a black background has no rounding
 -- in it.
 --
 -- `CELL` chooses which cell that is: the path, which carries no group of the plugin's own
 -- and is the reading the muting is proven with, or the file's added count, which carries
--- one and is the reading the *colour* is proven with. Neither can stand in for the other:
+-- one and is the reading the *color* is proven with. Neither can stand in for the other:
 -- the path says the bar recedes with its pane, and the count says a group of the plugin's
 -- reaches the screen at all.
 --
@@ -37,11 +37,11 @@ local fixture = assert(vim.env.FIXTURE, "FIXTURE is not set")
 vim.cmd("cd " .. vim.fn.fnameescape(fixture))
 
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
--- The two groups a winbar can draw in, given distinct colours so the reading says which one
+-- The two groups a winbar can draw in, given distinct colors so the reading says which one
 -- it came from as well as how bright it was.
 vim.api.nvim_set_hl(0, "WinBar", { fg = 0xeeee00, bg = 0x006600 })
 vim.api.nvim_set_hl(0, "WinBarNC", { fg = 0xee0000, bg = 0x004400 })
--- What `CodeReviewStatAdd` links into, given a colour of its own that is neither of the
+-- What `CodeReviewStatAdd` links into, given a color of its own that is neither of the
 -- two above -- so a cell drawn in it cannot be confused with a cell that took the bar's own
 -- foreground. A `%#Group#` sets the foreground and leaves the bar's background showing
 -- through, which is why only the foreground here differs from `WinBar`'s.

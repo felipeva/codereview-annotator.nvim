@@ -67,7 +67,7 @@ describe("a whole-file buffer annotation", function()
     assert.is_true(entry.stale)
   end)
 
-  it("stops travelling as a reference", function()
+  it("stops traveling as a reference", function()
     assert.is_nil(render():find("@src/fresh.lua", 1, true), render())
   end)
 end)

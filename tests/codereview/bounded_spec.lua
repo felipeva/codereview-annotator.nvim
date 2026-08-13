@@ -3,7 +3,7 @@
 --
 -- Every claim here needs a diff genuinely taller than the window and the margin around it.
 -- A bounding assertion made on a diff that fits on screen passes with the bounding deleted,
--- which is the failure `tests/README.md` already records twice -- "centring is unobservable
+-- which is the failure `tests/README.md` already records twice -- "centering is unobservable
 -- in a window taller than its buffer", and "a filter test needs a fixture only that filter
 -- can reject". So this is the one spec that builds `mkbig`, small enough to build in a
 -- fraction of a second and still eight times taller than everything one paint can reach,
@@ -194,7 +194,7 @@ describe("a paint of a diff taller than the window", function()
     assert.is_true(groups.CodeReviewAddBar, "no added line carries the change bar")
     assert.is_true(groups.CodeReviewDelBar, "no deleted line carries the change bar")
     assert.is_true(groups.CodeReviewLineNr, "no row carries its line number")
-    assert.is_true(groups.CodeReviewAddSpan, "nothing inside a changed line is emphasised")
+    assert.is_true(groups.CodeReviewAddSpan, "nothing inside a changed line is emphasized")
   end)
 end)
 

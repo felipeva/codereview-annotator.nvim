@@ -73,7 +73,7 @@ end
 ---
 ---By subject rather than by index: which row of the listing a commit sits on moves the
 ---moment anything below adds one, and every claim here is about a commit a reviewer would
----recognise by what it says.
+---recognize by what it says.
 ---@param subject string
 ---@return { sha: string, subject: string } commit, integer kept
 local function commit_named(subject)

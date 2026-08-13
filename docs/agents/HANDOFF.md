@@ -65,7 +65,7 @@ Decisions worth not re-litigating, and the four things that changed along the wa
 - **The rename fixture is three lines, not two.** git compares whole lines, so a two-line
   file with one line rewritten lands at 47% similarity — under the 50% default — and the
   rename silently degrades into an add plus a delete.
-- **git config is neutralised** in both the fixture scripts and `minimal_init.lua`
+- **git config is neutralized** in both the fixture scripts and `minimal_init.lua`
   (`GIT_CONFIG_GLOBAL=/dev/null`). Inherited settings change what a fixture *means*:
   `diff.renames = false` breaks the rename case, and `commit.gpgsign` makes building a
   fixture depend on a gpg agent — which no CI runner has.
@@ -119,7 +119,7 @@ post-image). Do not start this alongside anything else.
 - **The gitsigns diff base is gone.** The host's `claude_review.start()` also called
   `gitsigns.change_base(merge_base, true)`, which made `]h`/`[h` walk branch-relative hunks
   in ordinary buffers. The plugin never touched gitsigns, so the cutover removed that with
-  nothing replacing it. Deliberate, but it is the one behaviour the cutover lost — if `]h`
+  nothing replacing it. Deliberate, but it is the one behavior the cutover lost — if `]h`
   feels wrong outside a review, this is why.
 - **The local delivery path still needs claudecode.nvim.** `util.claude.deliver` falls back
   to `deliver_local` when no target is chosen, and that requires `claudecode`. Picking a

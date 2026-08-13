@@ -144,7 +144,7 @@ local function build_queue(items, opts)
     end
     lines[#lines + 1] = heading
     -- Painted rather than inherited. The float used to set `filetype=markdown` and take
-    -- whatever the `##` and `>` prefixes happened to attract, which coloured its chrome by
+    -- whatever the `##` and `>` prefixes happened to attract, which colored its chrome by
     -- accident and an entry's annotation type not at all.
     mark(#lines, 0, { end_col = #label, hl_group = "CodeReviewTitle" })
     if #heading > #label then
@@ -189,7 +189,7 @@ local function build_queue(items, opts)
       end
 
       -- The code an entry carries travels inside its bar. `+`/`-` already say which side a
-      -- line is, so they are drawn in the colours the diff gives them.
+      -- line is, so they are drawn in the colors the diff gives them.
       if entry.inline and entry.lines then
         for _, code in ipairs(entry.lines) do
           local text = indent .. render.truncate(code, body)

@@ -22,12 +22,12 @@ vim.o.lines = 24
 local fixture = assert(vim.env.FIXTURE, "FIXTURE is not set")
 vim.cmd("cd " .. vim.fn.fnameescape(fixture))
 
--- Colours the arithmetic is exact on: every channel is even, so a blend halfway to a black
--- background is a colour with no rounding in it.
+-- Colors the arithmetic is exact on: every channel is even, so a blend halfway to a black
+-- background is a color with no rounding in it.
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 vim.api.nvim_set_hl(0, "DiffAdd", { bg = 0x004400 })
 vim.api.nvim_set_hl(0, "@keyword", { fg = 0xee0000 })
--- The row a **pane** lights. A colour of its own, and its channels divide by four, so the
+-- The row a **pane** lights. A color of its own, and its channels divide by four, so the
 -- muting's half and the counterpart row's quarter are both exact and neither can be mistaken
 -- for the other: 0x004488 comes out 0x002244 muted and 0x003366 as a counterpart row.
 vim.api.nvim_set_hl(0, "CursorLine", { bg = 0x004488 })

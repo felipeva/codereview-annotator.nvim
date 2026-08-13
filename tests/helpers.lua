@@ -168,12 +168,12 @@ end
 ---reported as an absence rather than by name because that name is `WinBar` in the pane with
 ---focus and `WinBarNC` in the other one. A case naming it answers differently depending on
 ---where the cursor was, which is a case that reds for a reason that has nothing to do with
----colour. What is read is the group stacked *on top of* the bar's own, which is exactly the
+---color. What is read is the group stacked *on top of* the bar's own, which is exactly the
 ---question every caller is asking.
 ---
 ---Read through the same parser `M.winbar` uses, so a marker that landed one segment out is
 ---visible here. What this cannot say is that the cell on the screen took that group's
----colour. Only a painted cell can, and `split_spec` reads two.
+---color. Only a painted cell can, and `split_spec` reads two.
 ---@param win integer
 ---@param needle string
 ---@return string|nil
@@ -209,7 +209,7 @@ end
 
 ---The highlight groups the virtual lines on a view's diff are drawn in, as a set.
 ---
----What tells a queued annotation from an archived one without reading a colour: an entry
+---What tells a queued annotation from an archived one without reading a color: an entry
 ---drawn out of the queue carries its annotation type's group, and one drawn out of the
 ---archive carries the archive's own.
 ---@param view CRView

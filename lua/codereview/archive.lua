@@ -279,7 +279,7 @@ local function build(entries, opts)
       end
 
       -- The code an entry carried travels inside its bar, exactly as it did in the payload.
-      -- `+`/`-` already say which side a line is, so they keep the diff's own colours.
+      -- `+`/`-` already say which side a line is, so they keep the diff's own colors.
       if entry.inline and entry.lines then
         for _, code in ipairs(entry.lines) do
           local text = indent .. render.truncate(code, body)
