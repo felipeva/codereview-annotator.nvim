@@ -1663,10 +1663,27 @@ end
 ---
 ---Nothing here re-reads the trim to draw anything: resolution does that, so the label and
 ---the diff are answering out of the same store on the same pass.
+---
+---**The build is attempted before anything is stored.** A set with a hole in it needs a tree
+---that never existed, and taking one commit out can need a commit that is staying -- the
+---formatter case is the likeliest of all, because a formatter touches the same lines every
+---other commit touched. Such a set is refused rather than approximated, and refused *here*,
+---so the store still holds what it held, the review on screen is the review that was there,
+---and the reviewer is a keystroke away from a selection that works. A refusal is an ordinary
+---answer to a reviewer asking for a tree that never existed, not a failure.
+---
+---The base handed to the check is the review's own **identity**, for the reason the commit
+---list is drawn from it: a second derivation of where this branch starts is a second chance
+---to answer it differently.
 ---@param skipped string[]|nil The commits to take out; nil removes the trim
 function M.trim_to(skipped)
   local v = M.current()
   if not v then
+    return
+  end
+  local refused = require("codereview.git").trim_refusal(v.root, v.scope.identity, skipped)
+  if refused then
+    info(refused)
     return
   end
   require("codereview.state").set_trim(v.root, skipped)

@@ -19,6 +19,7 @@ local BINARY_SNIFF_BYTES = 8000
 ---@param opts? { cwd?: string, timeout?: integer, ok_codes?: integer[] }
 ---@return string|nil stdout Raw, untrimmed -- diff output is whitespace-significant
 ---@return string|nil err
+---@return integer|nil code The exit status, for a caller that accepts more than one
 local function run(args, opts)
   opts = opts or {}
   local cmd = { "git" }
@@ -34,9 +35,9 @@ local function run(args, opts)
 
   if not vim.tbl_contains(opts.ok_codes or { 0 }, res.code) then
     local stderr = vim.trim(res.stderr or "")
-    return nil, stderr ~= "" and stderr or ("git exited %d"):format(res.code)
+    return nil, stderr ~= "" and stderr or ("git exited %d"):format(res.code), res.code
   end
-  return res.stdout or "", nil
+  return res.stdout or "", nil, res.code
 end
 
 ---Single-line queries, trimmed. Returns nil for both failure and empty output, since
@@ -196,38 +197,163 @@ function M.cycle(root)
   return names
 end
 
+--- The pre-image a trim reads from -----------------------------------------------
+
+---The subject on a commit object that exists because a review asked for a tree nothing on
+---the branch has. Never reachable from a ref, so this is all there is to read it by.
+local SYNTHESIZED = "codereview: synthesized pre-image"
+
+---The trees already built for a trim with a hole in it, by the whole of what built them.
+---
+---**The recorded trap about memoising a trim does not reach this, and the key is why.** That
+---trap is a stored *sha* going stale against a rewritten `HEAD`: a memo answers from memory
+---without ever asking `HEAD` again, which is the exact failure the ancestry check exists to
+---refuse. This key holds `HEAD` itself, beside the repository, the base and the set -- every
+---input the accumulation reads -- so any of them moving is a new key rather than a stale
+---answer. Nothing else is cached: not the trim, not its ancestry answer, not the resolved
+---scope.
+---
+---Without it, every scope cycle and every reopen pays the whole accumulation again, and a
+---pick pays it twice over: once to find out whether it can be assembled, once to resolve.
+local built = {}
+
+---@param root string
+---@param base string
+---@param skipped string[]
+---@return string|nil key nil when this repository has no `HEAD` to key on
+local function cache_key(root, base, skipped)
+  local head = line({ "rev-parse", "--verify", "--quiet", "HEAD" }, root)
+  if not head then
+    return nil
+  end
+  -- Sorted, because the same set stored in another order is the same set, and a key that
+  -- said otherwise would rebuild what it already holds.
+  local order = vim.deepcopy(skipped)
+  table.sort(order)
+  return table.concat({ root, base, head, table.concat(order, ",") }, "\31")
+end
+
+---Three-way merge one skipped commit onto the accumulation, and print the tree.
+---
+---`merge-tree` is the primitive for exactly this: a real three-way merge that writes a tree
+---and reports conflicts, touching no index, no working tree and no ref -- the stance
+---`snapshot` already takes with `stash create`. It is what sets the git 2.38 floor the
+---README states, and **only a trim with a hole in it ever reaches it**, so the floor gates
+---the new selections rather than the trim that already ships.
+---
+---**The exit status is the whole answer.** `--name-only` prints the tree object on the first
+---line and, when the merge conflicted, the conflicting paths on the lines below it, above
+---the blank line the informational messages sit under. Deciding instead by searching that
+---trailer for the word `CONFLICT` would be a search that reports a conflicting merge as
+---**clean** wherever the wording differs -- and the wording is a message written for a human,
+---not an interface, so it is free to differ across the versions above the floor. A false
+---negative there ships a review built from a tree that could not be assembled. The exit code
+---is what `all_ancestors` already leans on, for the same reason.
+---@param root string
+---@param ours string The accumulation so far, as a commit
+---@param commit string The skipped commit being applied
+---@return string|nil tree nil when the merge conflicted or git refused it
+---@return string[] conflicts The paths it conflicts in; empty when git refused outright
+---@return string|nil err What git said, when it refused outright
+local function merge_tree(root, ours, commit)
+  local out, err, code = run({
+    "merge-tree",
+    "--write-tree",
+    "--name-only",
+    -- The commit's own parent, so what is applied is what that commit did and nothing else.
+    "--merge-base=" .. commit .. "^",
+    ours,
+    commit,
+  }, { cwd = root, timeout = DIFF_TIMEOUT_MS, ok_codes = { 0, 1 } })
+  -- Anything but a clean merge or a conflicting one -- an unknown option on a git below the
+  -- floor, a bad object -- is what git said it was, reported through the same path.
+  if not out then
+    return nil, {}, err
+  end
+
+  local lines = vim.split(out, "\n", { plain = true })
+  if code == 0 then
+    local tree = vim.trim(lines[1] or "")
+    return tree ~= "" and tree or nil, {}, nil
+  end
+
+  local conflicts = {}
+  for i = 2, #lines do
+    if lines[i] == "" then
+      break
+    end
+    conflicts[#conflicts + 1] = lines[i]
+  end
+  return nil, conflicts, nil
+end
+
+---@class CRTrim
+---@field before string  The pre-image the review reads from
+---@field kept integer   How many of the branch's commits the trim leaves in the review
+---@field total integer  How many the branch has
+---@field hole boolean   Whether a commit was taken out with an older one left in
+
+---@param commit CRCommit
+---@param conflicts string[]
+---@param err string|nil
+---@return string
+local function refusal(commit, conflicts, err)
+  -- The skipped commit and the files, and no dependency commit: `merge-tree` reports the
+  -- files, and naming the kept commit that introduced the conflicting region would take a
+  -- heuristic pass of its own that can name the wrong commit confidently.
+  if #conflicts > 0 then
+    return ("Taking out %s %s conflicts in %s — the review is unchanged"):format(
+      commit.sha,
+      commit.subject,
+      table.concat(conflicts, ", ")
+    )
+  end
+  return ("Taking out %s %s could not be assembled — %s"):format(commit.sha, commit.subject, err or "git refused it")
+end
+
 ---What a **trim** leaves a branch review reading from.
 ---
 ---A trim is the commits taken out, so the review has to read from a tree that already holds
----every one of them and none of the commits kept. That tree is found by **anchoring on the
----leading run**: the commits the trim takes off the *start* of the branch, from the oldest
----up, for as far as the set matches the branch. The newest commit of that run is a real
----commit whose own tree is exactly that, so the answer is a commit that already exists and
----nothing is assembled.
+---every one of them and none of the commits kept. It is built in two parts.
 ---
+---It **anchors on the leading run**: the commits the trim takes off the *start* of the
+---branch, from the oldest up, for as far as the set matches the branch. The newest commit of
+---that run is a real commit whose own tree is exactly that, so nothing is assembled for it.
 ---With nothing in the run the anchor is the merge base: a trim that takes no commit out
 ---reads the branch whole. That is the *oldest row* of the commit list, and the anchor is why
 ---it needs no case of its own -- on a branch with a merge in it the oldest commit's parent
 ---is not the merge base, and a review reading from that parent draws a file the merge base
 ---already had as one the branch added.
 ---
+---**The anchor is the whole design and not an optimization.** Accumulating every skipped
+---commit from the merge base instead refuses two ordinary cases, both confirmed against a
+---real repository: a plain prefix trim reaching past a merge -- which is the shipped `gc`
+---flow on any branch with a merge in it -- and taking every commit out. Both collide, because
+---a merge's first-parent diff *adds* what the side branch brought while the merge base
+---already holds it.
+---
+---Above the run each skipped commit is **three-way merged onto the accumulation, oldest
+---first**, and a commit object is minted between steps because `merge-tree` merges commits
+---rather than trees. Only a set with a hole in it gets that far. **No ref is written**: the
+---synthesized commit is unreachable, which is the exposure `snapshot` already accepts, and
+---git's default prune window is two weeks -- an automatic collection cannot take a commit
+---minted minutes ago, and the cache re-mints on the next resolve if an explicit prune does.
+---
 ---The branch's commits are read back through `branch_commits`, which is the listing the
 ---reviewer picked off. One rule for which commits are on the branch, for the reason there is
 ---one rule for where it starts: a trim built from one listing and resolved against another
----is a trim that can stop resolving without either side changing.
----
----**Nothing above the run is applied here.** A pick takes out the commits older than the row
----it lands on, so every trim this version can store is a prefix and the run always covers
----the whole set. A set with a commit above the run is one this version cannot read, and it
----gives the whole branch back rather than a narrower reading than the reviewer asked for.
+---is a trim that can stop resolving without either side changing. A set holding a commit
+---that listing does not name is one this cannot read from, and it gives the whole branch
+---back rather than a narrower reading than the reviewer asked for.
 ---@param root string
 ---@param base string The merge base: where the branch starts
 ---@param skipped string[] The commits the trim takes out
----@return string|nil before nil when the set is not one this version can read from
+---@return CRTrim|nil trim nil when the set cannot be read from or cannot be built
+---@return string|nil refused The sentence a reviewer is told, when a merge conflicted
 local function pre_image(root, base, skipped)
   local commits = M.branch_commits(root, base)
   if not commits then
-    return nil
+    return nil, nil
   end
 
   local taken = {}
@@ -243,7 +369,69 @@ local function pre_image(root, base, skipped)
     end
     anchor, run = commits[i].id, run + 1
   end
-  return run == #skipped and anchor or nil
+
+  -- Derived from the listing rather than remembered, exactly as the `last N` count is: the
+  -- commit a reviewer makes after trimming is in the review, and in both of these numbers,
+  -- the moment it is made.
+  local trim = { kept = #commits - #skipped, total = #commits, hole = run < #skipped }
+  if not trim.hole then
+    trim.before = anchor
+    return trim, nil
+  end
+
+  local key = cache_key(root, base, skipped)
+  if key and built[key] then
+    trim.before = built[key]
+    return trim, nil
+  end
+
+  local acc, applied = anchor, run
+  -- Oldest first, from the row above the run down to the newest.
+  for i = #commits - run, 1, -1 do
+    local commit = commits[i]
+    if taken[commit.id] then
+      local tree, conflicts, err = merge_tree(root, acc, commit.id)
+      if not tree then
+        return nil, refusal(commit, conflicts, err)
+      end
+      acc = line({ "commit-tree", tree, "-p", acc, "-m", SYNTHESIZED }, root)
+      if not acc then
+        return nil, nil
+      end
+      applied = applied + 1
+    end
+  end
+  if applied ~= #skipped then
+    return nil, nil
+  end
+
+  if key then
+    built[key] = acc
+  end
+  trim.before = acc
+  return trim, nil
+end
+
+---Why a set of commits cannot leave this branch's review, or nil when it can.
+---
+---What a pick asks **before anything is stored**, so a refusal reaches the reviewer with the
+---float still open and the store holding what it held. It is not a seam of its own: it
+---answers out of the same builder scope resolution reads, and the tree it builds on the way
+---is the tree that resolve then finds in the cache.
+---
+---A set this cannot read from at all -- one holding a commit the branch does not list -- is
+---not a refusal. That is the shipped answer for a trim nothing can resolve: the whole branch
+---opens, and the reviewer is not told a sentence about a merge that was never attempted.
+---@param root string
+---@param base string The merge base: the review's own scope identity
+---@param skipped string[]|nil
+---@return string|nil refused
+function M.trim_refusal(root, base, skipped)
+  if not skipped then
+    return nil
+  end
+  local _, refused = pre_image(root, base, skipped)
+  return refused
 end
 
 ---Resolve a scope name, or any git revspec, into the refs the rest of the plugin needs.
@@ -335,17 +523,42 @@ function M.resolve_scope(spec, root)
     -- store drops a set holding a commit `HEAD` no longer descends from, and says so, so a
     -- commit this repository cannot read from never reaches the anchor below.
     local skipped = require("codereview.state").trim(root)
-    local anchor = skipped and pre_image(root, base, skipped)
-    -- A count the repository cannot take leaves the whole branch open rather than a review
-    -- narrowed by an answer nothing could work out.
-    local kept = anchor and M.count_commits(anchor, root)
-    local before = kept and anchor or base
+    -- Only the first answer, deliberately. A refusal belongs to the **pick**, which asks
+    -- before it stores anything and still has the reviewer in front of it; here a set that
+    -- cannot be built gives the whole branch back, which is what an unresolvable trim has
+    -- always done rather than a narrower reading than the reviewer asked for.
+    local trim
+    if skipped then
+      trim = pre_image(root, base, skipped)
+    end
+
+    -- Two spellings of one number, for two different questions. While the trim is a prefix
+    -- the review is the last N commits, and how far `HEAD` is from the pre-image is a
+    -- question git answers -- and a count the repository cannot take leaves the whole branch
+    -- open rather than a review narrowed by an answer nothing could work out. Under a hole
+    -- the review is not a run of commits at all, so there is no ref to count from and what
+    -- is left in is the size of the kept set.
+    local kept
+    if trim then
+      kept = trim.hole and trim.kept or M.count_commits(trim.before, root)
+    end
+    local before = kept and trim.before or base
+
+    -- Short, because the winbar is width-constrained and the summary is what a narrow pane
+    -- gives up first. The label is also the only thing that stops a trim from being a trap,
+    -- so it carries two forms: `last N` while the trim is a prefix, and `N of M` once it has
+    -- a hole in it or has taken the whole branch out. Neither of those is the last anything,
+    -- and a label must never claim a shape the reading does not have.
+    local label = ("branch vs %s"):format(branch)
+    if kept and (trim.hole or kept == 0) then
+      label = ("%s · %d of %d"):format(label, kept, trim.total)
+    elseif kept then
+      label = ("%s · last %d"):format(label, kept)
+    end
 
     return {
       name = "branch",
-      -- Short, because the winbar is width-constrained and the summary is what a narrow
-      -- pane gives up first. It is also the only thing that stops a trim from being a trap.
-      label = kept and ("branch vs %s · last %d"):format(branch, kept) or ("branch vs %s"):format(branch),
+      label = label,
       args = { before },
       -- What the commits the trim took out are already in, so the ones it kept are the diff.
       before = before,

@@ -14,17 +14,18 @@ whatever changed since the last **batch** went out, or any git revspec.
 _Avoid_: mode, filter, range (a range is a span of lines, see **Range**)
 
 **Trim**:
-The commits taken off the start of a **branch** scope. The default is none. The reviewer
-picks the oldest commit they still want to read, and the commits before it leave the review.
-The word is subtractive, which is what the reviewer does: they remove commits from a whole
-that is there by default. "Trimmed to four commits" and "reset the trim" both read
-correctly, and the verb and the noun are one word. A trim has one end, and it is the start —
-so uncommitted and untracked work stay in the review under every trim. Kept per branch, and
-dropped when its commit leaves the branch: a trim belongs to one reading of one branch, and a
-rewritten commit is not that reading. Said of a **branch**
+The commits taken out of a **branch** scope, however many and wherever they sit. The default
+is none, and they do not have to be next to each other: a trim can take one commit out of the
+middle and leave the commits older than it in the review. The word is subtractive, which is
+what the reviewer does: they remove commits from a whole that is there by default. "Trimmed
+to four commits" and "reset the trim" both read correctly, and the verb and the noun are one
+word. Uncommitted and untracked work stay in the review under every trim, because the
+post-image of a branch review is the working tree and no trim of any shape reaches it. Kept
+per branch, and dropped whole when any commit in it leaves the branch: a trim belongs to one
+reading of one branch, and a rewritten commit is not that reading. Said of a **branch**
 scope only: the working-tree scopes have no commits to take. A modifier on that scope and
 never a scope of its own, because a sixth name would have to answer what it means with
-nothing picked, and because `gs` is a key held down and must not get a new stop. Not
+nothing taken out, and because `gs` is a key held down and must not get a new stop. Not
 _filter_ and not _mode_: both are on **Scope**'s avoid list. Not _range_, which is the lines
 an annotation covers, and not _span_, which is the changed characters inside a paired line.
 Not _selection_ either: that is on **Range**'s avoid list, and reusing it invites the

@@ -22,7 +22,7 @@ change there is felt through.
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
 | `fade.lua` | The **faded** file rule: which rows one file's fade covers, and which group a faded row carries in place of its own | stateful (editor) |
-| `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes | stateful (git) |
+| `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes, and the pre-image a **trim** with a hole in it is built from | stateful (git) |
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
