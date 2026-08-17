@@ -318,6 +318,24 @@ is the whole answer, exactly as it is for `all_ancestors` behind a stored trim, 
 come from `--name-only`, which prints the tree object and then one path per line. Making the
 merge ignore its exit status reds six cases in `trim_spec`.
 
+**A merge cannot start a hole, and the rule is about where the merge sits rather than about
+the row.** Taking a merge out with a commit older than it left in always collides, by the
+same arithmetic that made the anchor necessary: the merge's first-parent diff *adds*
+everything the side branch brought, and the anchor already holds it. The collision also means
+nothing to the reviewer — merging the default branch moves the merge base forward, so what
+the merge brought is already outside the review, and the files `merge-tree` would name are
+files they did not write and cannot act on. So such a set is refused **before any merge is
+attempted**, with a sentence about merges and no file in it. Attempting it first and
+rewording what git said is the same answer with better prose.
+The rule is therefore **dynamic**: the same merge taken off the *start* of the branch, with
+every commit older than it taken off too, is inside the leading run — it assembles nothing,
+and it is the shipped `gc` flow on any branch with a merge in it. A skipped merge above the
+run is exactly a merge with a kept commit older than it, which is why no surface can grey the
+row out ahead of time. Measured, in `trim_spec`: asking the question of the whole skipped set
+rather than the part above the run reds the three cases written for a hole above a merge the
+trim takes off the start; asking it before a plain prefix has returned reds 32, the shipped
+prefix trim among them; and not asking it at all reds the two that are the sentence.
+
 **Keying progress on the pre-image fails silently rather than loudly.** The per-scope progress
 key is `name .. ":" .. identity`. Spelled with `before` it agrees with the plugin for every
 scope that carries no trim, so it reads correctly everywhere until a trimmed branch review is

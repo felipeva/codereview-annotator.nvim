@@ -311,6 +311,21 @@ local function refusal(commit, conflicts, err)
   return ("Taking out %s %s could not be assembled — %s"):format(commit.sha, commit.subject, err or "git refused it")
 end
 
+---What a reviewer is told when they take a merge out of the middle of a trim.
+---
+---**It names no file**, and that is the whole difference between this sentence and the one
+---above it. The files a merge collides in are every file the side branch brought: the
+---reviewer did not write them, did not ask about them, and can do nothing with a list of
+---them. What they can act on is the reason, and the reason is that the merge is not the
+---thing they think they are taking out: merging the default branch moves the merge base
+---forward, so everything that merge brought is already outside this review.
+---@param commit CRCommit
+---@return string
+local function merge_refusal(commit)
+  local named = ("Taking out the merge %s %s is not needed"):format(commit.sha, commit.subject)
+  return named .. ": a merge brings nothing the review does not already read — the review is unchanged"
+end
+
 ---What a **trim** leaves a branch review reading from.
 ---
 ---A trim is the commits taken out, so the review has to read from a tree that already holds
@@ -334,10 +349,28 @@ end
 ---
 ---Above the run each skipped commit is **three-way merged onto the accumulation, oldest
 ---first**, and a commit object is minted between steps because `merge-tree` merges commits
----rather than trees. Only a set with a hole in it gets that far. **No ref is written**: the
----synthesized commit is unreachable, which is the exposure `snapshot` already accepts, and
----git's default prune window is two weeks -- an automatic collection cannot take a commit
----minted minutes ago, and the cache re-mints on the next resolve if an explicit prune does.
+---rather than trees. Only a set with a hole in it gets that far, and a **merge** above the
+---run never gets that far at all: the rule below refuses it first. **No ref is written**:
+---the synthesized commit is unreachable, which is the exposure `snapshot` already accepts,
+---and git's default prune window is two weeks -- an automatic collection cannot take a
+---commit minted minutes ago, and the cache re-mints on the next resolve if an explicit
+---prune does.
+---
+---**A merge cannot start a hole**, and the refusal comes before any merge is attempted. A
+---merge above the run collides wholesale, for the same reason the anchor exists: its
+---first-parent diff *adds* everything the side branch brought, and the anchor already holds
+---it. Attempting it would answer the reviewer with a list of files they did not touch and
+---cannot act on, so what they are told instead is the reason -- and the reason is that the
+---merge brings this review nothing. Merging the default branch moves the merge base
+---forward, so what the merge brought is already outside the review: taking it out of the
+---middle is unnecessary as well as impossible.
+---
+---The rule is **dynamic**, which is the point of it. The same merge taken off the *start* of
+---the branch, with every commit older than it taken off too, is inside the run: it assembles
+---nothing and reads what a trim past a merge has always read. Only a merge with a kept
+---commit older than it is refused -- which is exactly a skipped merge above the run -- so the
+---same row is free or refused depending on what else the trim takes, and no surface can grey
+---it out ahead of time.
 ---
 ---The branch's commits are read back through `branch_commits`, which is the listing the
 ---reviewer picked off. One rule for which commits are on the branch, for the reason there is
@@ -349,7 +382,7 @@ end
 ---@param base string The merge base: where the branch starts
 ---@param skipped string[] The commits the trim takes out
 ---@return CRTrim|nil trim nil when the set cannot be read from or cannot be built
----@return string|nil refused The sentence a reviewer is told, when a merge conflicted
+---@return string|nil refused The sentence a reviewer is told, when the set is refused
 local function pre_image(root, base, skipped)
   local commits = M.branch_commits(root, base)
   if not commits then
@@ -377,6 +410,17 @@ local function pre_image(root, base, skipped)
   if not trim.hole then
     trim.before = anchor
     return trim, nil
+  end
+
+  -- A merge cannot start a hole, refused here rather than attempted -- see the header. The
+  -- walk is the accumulation's own: from the row above the run up to the newest, so the merge
+  -- named is the one the build would have met first. A merge *inside* the run is never
+  -- reached, which is what leaves a trim past a merge free while this one is refused.
+  for i = #commits - run, 1, -1 do
+    local commit = commits[i]
+    if taken[commit.id] and commit.merge then
+      return nil, merge_refusal(commit)
+    end
   end
 
   local key = cache_key(root, base, skipped)
@@ -421,7 +465,7 @@ end
 ---
 ---A set this cannot read from at all -- one holding a commit the branch does not list -- is
 ---not a refusal. That is the shipped answer for a trim nothing can resolve: the whole branch
----opens, and the reviewer is not told a sentence about a merge that was never attempted.
+---opens, and the reviewer is not told a sentence about a build that was never begun.
 ---@param root string
 ---@param base string The merge base: the review's own scope identity
 ---@param skipped string[]|nil
@@ -844,6 +888,7 @@ end
 ---@field id string       Full sha: what a **trim** that takes this commit out is stored as
 ---@field when string     How long ago it was authored, in git's own words
 ---@field subject string  The commit's first line
+---@field merge boolean   Whether it has a second parent: a **trim** cannot start a hole here
 
 ---Every commit the branch carries, newest first.
 ---
@@ -865,6 +910,11 @@ end
 ---by; the full sha is what a **trim** taking that commit out is stored as, because git
 ---abbreviates to whatever the repository needs at the moment it is asked, a repository
 ---grows, and a trim outlives the length it was picked at.
+---
+---Each one also says whether it is a **merge**, read off the parents this same listing
+---already knows: a merge cannot start a hole in a trim, and the rule that refuses one is a
+---rule about a row of *this* listing. Asked for separately it would be a second walk of the
+---branch and a second answer to which commits are on it.
 ---@param root string
 ---@param base string Where the branch starts: the scope's identity
 ---@return CRCommit[]|nil commits, string|nil err
@@ -876,7 +926,10 @@ function M.branch_commits(root, base)
   local out, err = run({
     "log",
     "--first-parent",
-    "--format=%h%x1f%H%x1f%ar%x1f%s",
+    -- `%P` is every parent, space-separated, so a second one is what says *merge*. It goes
+    -- after the two sha fields, which are matched as one word each and a parent list is not
+    -- one word, and before the subject, which is still the one field nothing is parsed after.
+    "--format=%h%x1f%H%x1f%P%x1f%ar%x1f%s",
     base .. "..HEAD",
     -- A long branch's log is closer to a diff than to a metadata query.
   }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
@@ -886,9 +939,15 @@ function M.branch_commits(root, base)
 
   local commits = {}
   for _, entry in ipairs(vim.split(out, "\n", { trimempty = true })) do
-    local sha, id, when, subject = entry:match("^(%S+)\31(%S+)\31(.-)\31(.*)$")
+    local sha, id, parents, when, subject = entry:match("^(%S+)\31(%S+)\31(.-)\31(.-)\31(.*)$")
     if sha then
-      commits[#commits + 1] = { sha = sha, id = id, when = when, subject = subject }
+      commits[#commits + 1] = {
+        sha = sha,
+        id = id,
+        when = when,
+        subject = subject,
+        merge = parents:find(" ", 1, true) ~= nil,
+      }
     end
   end
   return commits, nil
