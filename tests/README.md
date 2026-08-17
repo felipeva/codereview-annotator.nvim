@@ -71,7 +71,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
 | `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched; then the sets with a **hole** in them, which read from a pre-image that is built — the commit taken out of the middle, two that are not next to each other, the prefix reaching past the merge that must assemble nothing, the whole branch taken out, the commit no set can be built without, the same one succeeding beside what it depends on, the refs and the working tree the build must not touch, and the second resolve that finds the tree already built — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, where `gs` goes from it, and the pick that is refused — the sentence naming the commit and the file and no dependency, the store still holding the trim that was there, the review still on screen, and the same commit picked again beside the one it depends on; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
-| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the row that removes the trim, the row a trim is marked on, the cursor's opening row, the keys, `gc` from the diff and from the tree, and the two refusals that open nothing |
+| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the box on every row and the two directions `<Space>` moves it, the top row taking the whole branch in and out, the boxes a stored trim opens on, the cursor's opening row, `<CR>` applying a prefix and applying a set with a hole in it, the pick that is refused with the float left open on the row, the keys the footer names and the ones it does not, the rows still one each in a float too narrow to hold them whole, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
@@ -598,13 +598,26 @@ so the out-of-core language path is still checked locally without ever failing C
   only pair that changes something on each side.
 - **The commit list's opening row can only be measured from a row that is not the top.** A
   fresh window puts the cursor on row 1, so `trim_float_spec`'s "opens the cursor on the row
-  that removes the trim" — the case made with no **trim** set — is satisfied by placing it
-  there, by placing it nowhere, and by deleting every line that could place it. It was
-  measured as toothless while it was the only such case, and it is kept because it is the
-  claim a reviewer can see. What gives the rule teeth is the block below it, which trims to
-  the *oldest* row and only then reopens the float: deleting the `nvim_win_set_cursor` in
-  `trim_float.lua` reds that block and nothing else in the suite. Same trap as "a filter test
+  that takes the whole branch in or out" — the case made with no **trim** set — is satisfied
+  by placing it there, by placing it nowhere, and by deleting every line that could place it.
+  It was measured as toothless while it was the only such case, and it is kept because it is
+  the claim a reviewer can see. What gives the rule teeth are the two blocks that reopen the
+  float over a trim that is already set: one lands the cursor on the second row, and the one
+  that takes a commit out with the older ones left in lands it on the *last* row, which is as
+  far from a fresh window's as this fixture reaches. Deleting the `nvim_win_set_cursor` in
+  `trim_float.lua` reds those and nothing else in the suite. Same trap as "a filter test
   needs a fixture only that filter can reject".
+- **A box a spec reads has to be read as a column, and which spelling means *in* has to be
+  learned rather than written down.** `trim_float_spec` takes the box column's width from
+  where the sha starts on a row, and takes the checked spelling off a float opened over a
+  review with nothing taken out of it — where every box says *in* by definition. Writing the
+  character down instead would leave the file asserting the float's implementation against
+  itself, and would red on a change of glyph that no reviewer would call a defect.
+  `trim_spec`'s own driver learns it the same way, because it presses `<Space>` to build a
+  reading and cannot know which rows to press without it. `trim_child.lua` needs none of
+  that, and says why: neither branch it trims has been trimmed before, so every box it meets
+  is checked — which it asserts rather than assumes, because a box that started the other way
+  would build the wrong reading for the process that reads it back.
 - **A trim is a hidden input to branch scope resolution, and it now reaches the disk.**
   `git.resolve_scope("branch", …)` reads `state.trim(root)`, which reads the repository's
   state document keyed by the branch checked out at that moment — so a spec that sets one and
