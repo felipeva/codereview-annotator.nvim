@@ -10,7 +10,7 @@
 -- is here is the surface: the row a reviewer moves to, the row the float marks, and the key
 -- they press.
 --
--- The fixture is `mkcommits`, whose history is the whole point of it: a branch of four
+-- The fixture is `mkcommits`, whose history is the whole point of it: a branch of five
 -- commits, one of them a merge, over a merge base that is not the oldest commit's parent.
 -- Both rules this file pins are invisible without it -- see the script's own header.
 local h = require("tests.helpers")
@@ -128,12 +128,12 @@ end
 -- corresponding rule observable at all. Without the guards, a listing that dropped
 -- `--first-parent` and a listing that kept it are the same listing.
 describe("the history this spec reads", function()
-  it("puts four commits on the branch's own line of work", function()
-    assert.same(4, #first_parent, vim.inspect(subjects(first_parent)))
+  it("puts five commits on the branch's own line of work", function()
+    assert.same(5, #first_parent, vim.inspect(subjects(first_parent)))
   end)
 
   it("holds one more commit than that in the same range", function()
-    assert.same(5, #everything, vim.inspect(subjects(everything)))
+    assert.same(6, #everything, vim.inspect(subjects(everything)))
   end)
 
   it("brought that one in through the merge, so first-parent listing can be seen at all", function()
