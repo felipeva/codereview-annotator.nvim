@@ -237,13 +237,22 @@ end
 
 --- The trim ---------------------------------------------------------------------
 
----The **trim** on a branch's review: the ref the review reads from, which is the parent of
----the oldest commit the reviewer still wants to read.
+---The **trim** on a branch's review: the commits it takes out, by full sha.
 ---
----A ref rather than a count or a commit, because that is what a scope needs: `before` has to
----be something the diff, the blob hashing and the highlighter's whole-file fetch can all
----read content out of, and none of them can read a marker. It is the *parent* of the picked
----commit, so the commit picked is in the diff and the ref needs no arithmetic at open time.
+---The commits **taken out** and never the commits kept, so a commit made after a trim is in
+---the review the moment it is made. That is the same reason the `last N` count is derived
+---rather than remembered: anything about the review recorded at pick time keeps describing
+---the branch as it was then.
+---
+---A set and not the ref the review reads from, which is what this held before it was a set.
+---What a trim leaves a review reading is worked out from the set when the **scope** is
+---resolved, because the two answer different questions -- one is what the reviewer chose,
+---the other is where that lands on this branch today -- and a second copy of the second one
+---in the document is a second thing that has to stay true through every commit, rebase and
+---checkout.
+---
+---Full shas, because an abbreviation is not an identity: git picks its length from the size
+---of the repository, and a trim outlives the size it was stored at.
 ---
 ---**Kept in the state document, keyed by branch name**, beside the reviewed marks it is a
 ---review of. A review spans days, so a reviewer who trimmed on Monday opens the same branch
@@ -275,27 +284,32 @@ local said_detached = {}
 
 ---@param root string
 ---@param branch string
----@param before string|nil nil removes it
-local function store_trim(root, branch, before)
+---@param skipped string[]|nil nil removes it
+local function store_trim(root, branch, skipped)
   local data = M.load(root)
   data.trims = data.trims or {}
-  data.trims[branch] = before
+  data.trims[branch] = skipped
   M.save(root, data)
 end
 
 ---The branch's trim, checked before it is handed back.
 ---
----**The check is the point of storing it at all.** The commit has to still be one `HEAD`
----descends from; a rebase, an amend or a force-push leaves it naming a commit that was
----rewritten, and a review that quietly resolves against one of those is worse than no trim.
----A trim that fails is dropped from the document as well as from this answer, which is what
----makes the sentence a reviewer reads a single sentence rather than one per resolve: there
----is nothing left to fail the next time.
+---**The check is the point of storing it at all.** Every commit in the set has to still be
+---one `HEAD` descends from; a rebase, an amend or a force-push leaves the set holding a
+---commit that was rewritten, and a review that quietly resolves around one of those is worse
+---than no trim.
+---
+---**Any commit failing it drops the whole set.** A rebase rewrote the reading, not one row
+---of it: keeping the commits that survived would leave the review narrowed by a selection
+---the reviewer never made, and which parts of a rewritten history are still the same reading
+---is a claim nothing here can make. A trim that fails is dropped from the document as well
+---as from this answer, which is what makes the sentence a reviewer reads a single sentence
+---rather than one per resolve: there is nothing left to fail the next time.
 ---
 ---Checked on every read rather than once per session, because the history can be rewritten
 ---while a review is open -- a reviewer rebases in another window and comes back to the diff.
 ---@param root string
----@return string|nil before nil when the whole branch is in the review
+---@return string[]|nil skipped nil when the whole branch is in the review
 function M.trim(root)
   local git = require("codereview.git")
   local branch = git.current_branch(root)
@@ -304,27 +318,27 @@ function M.trim(root)
   end
 
   local stored = (M.load(root).trims or {})[branch]
-  if not stored or git.is_ancestor(stored, root) then
+  if not stored or git.all_ancestors(stored, root) then
     return stored
   end
   store_trim(root, branch, nil)
-  info("The trim was lost — its commit is not in this branch any more, so the full branch is open")
+  info("The trim was lost — a commit it took out is not in this branch any more, so the full branch is open")
   return nil
 end
 
 ---@param root string
----@param before string|nil nil removes the trim
-function M.set_trim(root, before)
+---@param skipped string[]|nil The commits to take out; nil removes the trim
+function M.set_trim(root, skipped)
   local branch = require("codereview.git").current_branch(root)
   if not branch then
-    session_trims[root] = before
-    if before and not said_detached[root] then
+    session_trims[root] = skipped
+    if skipped and not said_detached[root] then
       said_detached[root] = true
       info("HEAD is detached — this trim is not kept for the next session")
     end
     return
   end
-  store_trim(root, branch, before)
+  store_trim(root, branch, skipped)
 end
 
 --- The archive ------------------------------------------------------------------

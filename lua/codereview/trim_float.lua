@@ -122,16 +122,24 @@ function M.open(view, root, base)
     return
   end
 
-  -- Which row the review starts at, read back out of the stored trim rather than off the
-  -- scope's pre-image. The two agree, but only the stored trim tells a review trimmed to the
-  -- oldest commit from a review that was never trimmed at all -- one review, two rows, and
-  -- the cursor belongs on a different one in each.
-  local trim = require("codereview.state").trim(root)
+  -- Which row the review starts at: the oldest commit the trim did not take out, read back
+  -- out of the stored trim rather than off the scope's pre-image. The two agree, but only
+  -- the stored trim tells a review trimmed to the oldest commit from a review that was never
+  -- trimmed at all -- one review, two rows, and the cursor belongs on a different one in
+  -- each.
+  local skipped = require("codereview.state").trim(root)
   local at = 0
-  for i, commit in ipairs(commits) do
-    if trim and commit.before == trim then
-      at = i
-      break
+  if skipped then
+    local taken = {}
+    for _, sha in ipairs(skipped) do
+      taken[sha] = true
+    end
+    -- From the oldest row up, which is the end of a listing drawn newest first.
+    for i = #commits, 1, -1 do
+      if not taken[commits[i].id] then
+        at = i
+        break
+      end
     end
   end
 
@@ -179,13 +187,25 @@ function M.open(view, root, base)
 
   ---Apply the row under the cursor and close.
   ---
+  ---What a pick applies is the commits it takes **out**: everything older than the row it
+  ---lands on, which on `ALL` is nothing at all. The commits kept are never spelled out, so a
+  ---commit made after this pick is in the review without the reviewer coming back here.
+  ---
   ---Closed first, and then the trim: applying it repaints the review and puts the cursor
   ---back in it, and a float still on screen would take that focus straight back off it.
   local function pick()
-    local row = vim.api.nvim_win_get_cursor(win)[1]
-    local commit = commits[row - 1]
+    -- The listing starts one row below `ALL`, so the cursor's row is the commit's place in
+    -- it plus one -- and row one is `ALL`, which is no commit and takes nothing out.
+    local starts_at = vim.api.nvim_win_get_cursor(win)[1] - 1
+    local skipped
+    if commits[starts_at] then
+      skipped = {}
+      for i = starts_at + 1, #commits do
+        skipped[#skipped + 1] = commits[i].id
+      end
+    end
     close()
-    view.trim_to(commit and commit.before or nil)
+    view.trim_to(skipped)
   end
 
   vim.keymap.set("n", "<CR>", pick, { buffer = buf, desc = "Review from this commit forward" })

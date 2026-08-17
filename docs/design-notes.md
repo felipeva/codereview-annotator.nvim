@@ -265,13 +265,22 @@ using. That is why `git.branch_commits` takes the base and no longer resolves on
 **A stored trim is checked on every read, and dropping it is what keeps the sentence to one.**
 The two tempting shortcuts are one shortcut: memoise the branch's trim for the session, and
 latch the sentence beside it. The memo is wrong because a reviewer can rebase in another
-window with the review open — the trim then names a commit that was rewritten, and resolution
+window with the review open — the trim then holds a commit that was rewritten, and resolution
 reads it from memory without ever asking `HEAD` about it again, which is the exact failure the
 check exists to refuse. The latch is unnecessary once the failing trim is removed from the
 document as well as from the answer: the next read finds nothing to fail, so the sentence
 cannot repeat, and there is no key to invalidate when the reviewer moves to another branch.
-What it costs is a `symbolic-ref` and a document read per branch resolve, which is what
-`state.restore` already spends on every scope change.
+What it costs is a `symbolic-ref`, a document read and one `rev-list` per branch resolve — one
+process for the whole set and not one per commit, which is what keeps the check affordable on
+a trim that took a long branch's worth of commits out. `state.restore` already spends the
+document read on every scope change.
+
+**Any commit failing that check drops the whole set.** A trim is the commits taken out, and a
+rebase rewrote the reading rather than one row of it: keeping the commits that still resolve
+would leave the review narrowed by a selection the reviewer never made, and which parts of a
+rewritten history are still the same reading is a claim nothing here can make. It is also what
+keeps the sentence one sentence — a set that survives in part fails again on the next read,
+one commit at a time.
 
 **Keying progress on the pre-image fails silently rather than loudly.** The per-scope progress
 key is `name .. ":" .. identity`. Spelled with `before` it agrees with the plugin for every

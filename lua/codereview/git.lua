@@ -95,30 +95,44 @@ function M.merge_base(a, b, root)
   return line({ "merge-base", a, b }, root)
 end
 
----Whether `HEAD` still descends from `commit`.
+---Whether `HEAD` still descends from every one of them.
 ---
 ---What a stored **trim** is checked with before a review reads from it. A rebase, an amend
----and a force-push all end in the same place: the commit the trim was picked off is not in
----this branch any more, and a diff against one of those is a diff nobody asked for.
+---and a force-push all end in the same place: a commit the trim took out is not in this
+---branch any more, and a review resolved from one of those is a review nobody asked for.
 ---
----One answer out of two failures, deliberately. `merge-base --is-ancestor` exits 1 when the
----commit is real and off this line of work, and 128 when the repository has nothing under
----that name at all -- which is what a `git gc` after a rebase leaves a stored trim naming.
----Both mean *not a commit this review can read from*, and the reviewer has one thing to be
----told either way. The exit code is the whole answer, so an empty stdout is a yes here and
----only `nil` is a no.
----@param commit string
+---**One process for the whole set**, because a trim holds as many commits as the reviewer
+---took out and this runs on every read. `rev-list` walks the commits it is given and
+---excludes everything `HEAD` reaches, so a count of nothing left over is the one answer that
+---means *all of them* -- and asking per commit would spend a process per row of a listing
+---the reviewer is free to take the whole of.
+---
+---One answer out of two failures, deliberately. A commit that is real and off this line of
+---work is counted, and a commit this repository has nothing under at all -- which is what a
+---`git gc` after a rebase leaves a stored trim naming -- makes `rev-list` exit non-zero
+---instead. Both mean *not commits this review can read from*, and the reviewer has one thing
+---to be told either way.
+---
+---An empty set asks nothing: a trim that takes no commit out has no commit that can fail.
+---@param commits string[]
 ---@param root string
 ---@return boolean
-function M.is_ancestor(commit, root)
-  return run({ "merge-base", "--is-ancestor", commit, "HEAD" }, { cwd = root }) ~= nil
+function M.all_ancestors(commits, root)
+  if #commits == 0 then
+    return true
+  end
+  local args = { "rev-list", "--count" }
+  vim.list_extend(args, commits)
+  vim.list_extend(args, { "--not", "HEAD" })
+  return line(args, root) == "0"
 end
 
 ---How many commits `from` is behind `HEAD` on the branch's own line of work.
 ---
----What the scope label reports as `last N`, derived rather than remembered: a reviewer who
----commits again after trimming has one more commit in their review than they picked, and a
----number stored at pick time would keep saying the old one.
+---What the scope label reports as `last N`, counted from what a **trim** leaves the review
+---reading from. Derived rather than remembered: a reviewer who commits again after trimming
+---has one more commit in their review than they picked, and a number stored at pick time
+---would keep saying the old one.
 ---
 ---`--first-parent` for the reason the listing is: a merge is one commit, and counting what
 ---arrived through it would report a number no row of the commit list adds up to.
@@ -180,6 +194,56 @@ function M.cycle(root)
     end
   end
   return names
+end
+
+---What a **trim** leaves a branch review reading from.
+---
+---A trim is the commits taken out, so the review has to read from a tree that already holds
+---every one of them and none of the commits kept. That tree is found by **anchoring on the
+---leading run**: the commits the trim takes off the *start* of the branch, from the oldest
+---up, for as far as the set matches the branch. The newest commit of that run is a real
+---commit whose own tree is exactly that, so the answer is a commit that already exists and
+---nothing is assembled.
+---
+---With nothing in the run the anchor is the merge base: a trim that takes no commit out
+---reads the branch whole. That is the *oldest row* of the commit list, and the anchor is why
+---it needs no case of its own -- on a branch with a merge in it the oldest commit's parent
+---is not the merge base, and a review reading from that parent draws a file the merge base
+---already had as one the branch added.
+---
+---The branch's commits are read back through `branch_commits`, which is the listing the
+---reviewer picked off. One rule for which commits are on the branch, for the reason there is
+---one rule for where it starts: a trim built from one listing and resolved against another
+---is a trim that can stop resolving without either side changing.
+---
+---**Nothing above the run is applied here.** A pick takes out the commits older than the row
+---it lands on, so every trim this version can store is a prefix and the run always covers
+---the whole set. A set with a commit above the run is one this version cannot read, and it
+---gives the whole branch back rather than a narrower reading than the reviewer asked for.
+---@param root string
+---@param base string The merge base: where the branch starts
+---@param skipped string[] The commits the trim takes out
+---@return string|nil before nil when the set is not one this version can read from
+local function pre_image(root, base, skipped)
+  local commits = M.branch_commits(root, base)
+  if not commits then
+    return nil
+  end
+
+  local taken = {}
+  for _, sha in ipairs(skipped) do
+    taken[sha] = true
+  end
+
+  -- Up from the oldest commit, which is the end of a listing drawn newest first.
+  local anchor, run = base, 0
+  for i = #commits, 1, -1 do
+    if not taken[commits[i].id] then
+      break
+    end
+    anchor, run = commits[i].id, run + 1
+  end
+  return run == #skipped and anchor or nil
 end
 
 ---Resolve a scope name, or any git revspec, into the refs the rest of the plugin needs.
@@ -268,21 +332,26 @@ function M.resolve_scope(spec, root)
     -- already has, and for the reason recorded for it: handing the value in would put the
     -- one scope that needs it into every caller of scope resolution, and scope resolution
     -- is exactly what has to stay one function. What comes back is already checked: the
-    -- store drops a trim `HEAD` no longer descends from and says so, so a commit this
-    -- repository cannot read from never reaches the arithmetic below.
-    local trim = require("codereview.state").trim(root)
-    local kept = trim and M.count_commits(trim, root)
+    -- store drops a set holding a commit `HEAD` no longer descends from, and says so, so a
+    -- commit this repository cannot read from never reaches the anchor below.
+    local skipped = require("codereview.state").trim(root)
+    local anchor = skipped and pre_image(root, base, skipped)
+    -- A count the repository cannot take leaves the whole branch open rather than a review
+    -- narrowed by an answer nothing could work out.
+    local kept = anchor and M.count_commits(anchor, root)
+    local before = kept and anchor or base
 
     return {
       name = "branch",
       -- Short, because the winbar is width-constrained and the summary is what a narrow
       -- pane gives up first. It is also the only thing that stops a trim from being a trap.
       label = kept and ("branch vs %s · last %d"):format(branch, kept) or ("branch vs %s"):format(branch),
-      args = { kept and trim or base },
-      -- The parent of the oldest commit still being read, so that commit is in the diff.
-      before = kept and trim or base,
-      -- Both of these follow from a trim having one end, and it is the start: the work in
-      -- the tree is on the other side of the review and no trim reaches it.
+      args = { before },
+      -- What the commits the trim took out are already in, so the ones it kept are the diff.
+      before = before,
+      -- Both of these follow from how far a trim reaches: it takes commits out, and the
+      -- post-image is the working tree, so the work in the tree is on the other side of the
+      -- review and no trim of any shape reaches it.
       after = nil,
       untracked = true,
       -- The merge base, which is what says *this branch*, and it does not move when the
@@ -559,9 +628,9 @@ end
 
 ---@class CRCommit
 ---@field sha string      Short sha, abbreviated by git to whatever this repository needs
+---@field id string       Full sha: what a **trim** that takes this commit out is stored as
 ---@field when string     How long ago it was authored, in git's own words
 ---@field subject string  The commit's first line
----@field before string   What a review **trimmed** to this commit reads from
 
 ---Every commit the branch carries, newest first.
 ---
@@ -579,9 +648,10 @@ end
 ---scope's pre-image, which is exactly what a trim narrows -- reading that would shorten the
 ---list every time a reviewer trimmed, and take the rows they need to widen it again away.
 ---
----Each commit carries what a trim starting at it reads from: its own parent, so the commit
----is in the diff -- except the oldest, which reads from the base. On a branch with merges
----those are different commits, and only the base means *all of it*.
+---Each commit carries both spellings of its name. The abbreviation is what a row is read
+---by; the full sha is what a **trim** taking that commit out is stored as, because git
+---abbreviates to whatever the repository needs at the moment it is asked, a repository
+---grows, and a trim outlives the length it was picked at.
 ---@param root string
 ---@param base string Where the branch starts: the scope's identity
 ---@return CRCommit[]|nil commits, string|nil err
@@ -593,7 +663,7 @@ function M.branch_commits(root, base)
   local out, err = run({
     "log",
     "--first-parent",
-    "--format=%h%x1f%p%x1f%ar%x1f%s",
+    "--format=%h%x1f%H%x1f%ar%x1f%s",
     base .. "..HEAD",
     -- A long branch's log is closer to a diff than to a metadata query.
   }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
@@ -603,23 +673,10 @@ function M.branch_commits(root, base)
 
   local commits = {}
   for _, entry in ipairs(vim.split(out, "\n", { trimempty = true })) do
-    local sha, parents, when, subject = entry:match("^(%S+)\31(.-)\31(.-)\31(.*)$")
+    local sha, id, when, subject = entry:match("^(%S+)\31(%S+)\31(.-)\31(.*)$")
     if sha then
-      commits[#commits + 1] = {
-        sha = sha,
-        -- The *first* parent, which is the one the listing walks. A merge names two, and
-        -- the second one is the branch that arrived rather than the branch being read.
-        before = parents:match("^%S+") or base,
-        when = when,
-        subject = subject,
-      }
+      commits[#commits + 1] = { sha = sha, id = id, when = when, subject = subject }
     end
-  end
-  -- The oldest listed commit's parent is off the end of the range, and on a branch with
-  -- merges it is not the merge base. Picking the last row means the whole branch, so what
-  -- it reads from is the base itself.
-  if #commits > 0 then
-    commits[#commits].before = base
   end
   return commits, nil
 end
