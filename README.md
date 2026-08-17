@@ -227,6 +227,12 @@ touched. The plugin says so, names the commit and the files it collides in, and 
 list open with your cursor on the row. Nothing is stored, and the review behind it does not
 move. Uncheck the commit it named as well, and the pick goes through.
 
+A merge is the one case that is not about files. Unchecking a merge while a commit older
+than it stays checked is refused with a sentence about merges, because everything that merge
+brought is already outside your review: merging the default branch moves the merge base
+forward. Unchecking the same merge with every commit older than it also unchecked is an
+ordinary trim past the merge, and it is not refused at all.
+
 Uncommitted and untracked work stay in the review under every trim. A branch review reads to
 the working tree, and no trim reaches that end of it.
 
