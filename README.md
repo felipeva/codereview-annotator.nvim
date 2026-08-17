@@ -93,7 +93,7 @@ to close the review.
 | `gp` | Show or hide the file tree |
 | `gl` | Switch between the unified and split layouts |
 | `gb` | Read the last dispatched batch back |
-| `gc` | List the commits on the branch, and trim the review to one |
+| `gc` | List the commits on the branch, and check the ones to review |
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool ([`open_diff`](#adapters) only) |
@@ -204,15 +204,34 @@ mark, the mark stops meaning anything.
 
 ### Trim a branch review
 
-A branch review can start at any commit you choose. Press `gc` to list the commits on the
-branch, newest first. Move to the oldest commit you still want to read, and press `<CR>`.
+A branch review can read any set of the branch's commits. Press `gc` to list them, newest
+first. Every row carries a checkbox saying whether that commit is in your review. `<Space>`
+toggles the row under the cursor, both ways, and `<CR>` applies the boxes and closes the list.
 
-The review draws again from that commit forward, and the commit you pick is **in** the diff.
-The scope label says so: `branch vs origin/master · last 4`. The top row of the list is "All
-commits", which gives the whole branch back, and the bottom row does the same.
+Uncheck the oldest commits and the review starts further up the branch. The scope label says
+so: `branch vs origin/master · last 4`. Uncheck one commit in the middle — a formatter run, a
+mechanical rename — and the commits older than it stay in the review. The label says that
+differently, because the reading is no longer a run of commits: `branch vs origin/master ·
+4 of 5`.
 
-The list marks the row your review starts at with `▸`, and the cursor opens on that row. With
-the whole branch in the review, the cursor opens on "All commits".
+The top row is "All commits", and it works both ways. Check it and the whole branch is back
+in the review. Uncheck it and every commit leaves, which is a review of your uncommitted work
+alone, labelled `0 of 5`.
+
+The cursor opens on the reading you already have: the oldest commit still in your review, or
+"All commits" while the whole branch is in it.
+
+Some sets cannot be read. Taking a commit out can need a commit you are keeping — a formatter
+run is the likeliest case of all, because it touched the same lines every other commit
+touched. The plugin says so, names the commit and the files it collides in, and leaves the
+list open with your cursor on the row. Nothing is stored, and the review behind it does not
+move. Uncheck the commit it named as well, and the pick goes through.
+
+A merge is the one case that is not about files. Unchecking a merge while a commit older
+than it stays checked is refused with a sentence about merges, because everything that merge
+brought is already outside your review: merging the default branch moves the merge base
+forward. Unchecking the same merge with every commit older than it also unchecked is an
+ordinary trim past the merge, and it is not refused at all.
 
 Uncommitted and untracked work stay in the review under every trim. A branch review reads to
 the working tree, and no trim reaches that end of it.

@@ -101,6 +101,8 @@ Buffer-local, inside the review view:
     gp               Show or hide the file tree
     gl               Switch between the unified and split layouts
     gb               Read the last dispatched batch back
+    gc               List the commits on the branch and check the ones to
+                     review -- see |codereview-commits|
     gA               Show or hide archived entries, for the rest of the
                      session -- see |codereview-archived|
     <CR>             Open the real file here, in a new tab
@@ -146,6 +148,8 @@ In the file tree:                                         *codereview-tree*
     gp               Dismiss the tree, landing back in the diff
     gl               Switch between the unified and split layouts
     gb               Read the last dispatched batch back
+    gc               List the commits on the branch and check the ones to
+                     review -- see |codereview-commits|
     gA               Show or hide archived entries, for the rest of the
                      session -- see |codereview-archived|
     q                Close the review
@@ -159,6 +163,28 @@ and each directory carries a reviewed tally for its subtree.
 from there on, for the rest of that review. Dismissing it from inside the tree
 hands focus back to the diff. Collapsed directories belong to the review, not
 to the tree, so they are exactly as you left them when it comes back.
+
+The commit list                                        *codereview-commits*
+
+`gc` opens it over a branch review, and it lists the branch's commits newest
+first, one row each: >
+    <Space>          Take the commit under the cursor in or out
+    <CR>             Apply the boxes and close
+    q <Esc>          Close, applying nothing
+<
+Every row carries a box, so what is in the review is stated on each row rather
+than inferred from one mark -- and the commits you keep do not have to be next
+to each other. Uncheck one commit in the middle and the commits older than it
+stay in the review.
+
+The top row is "All commits" and it works both ways: checked it puts the whole
+branch back in the review, unchecked it takes every commit out, which leaves a
+review of your uncommitted work alone. Your cursor opens on the oldest commit
+still in the review, or on that top row while the whole branch is in it.
+
+A set that cannot be assembled is refused with the list still open and your
+cursor still on the row. Nothing is stored, and the review behind the list is
+the review that was there.
 
 In the queue float: <CR> jumps to the annotation under the cursor, x drops an
 entry, gy copies the batch, <C-t> routes, <C-s> submits, <C-a> submits under a

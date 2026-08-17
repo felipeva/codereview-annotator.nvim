@@ -38,8 +38,22 @@ commits that arrived through it are not listed beside your own. There is no limi
 rows, so a long branch keeps its oldest commits at the bottom of the list.
 
 The list does not show the author, because it is your own branch. It does not show the added
-and deleted counts, because they cost a second pass over the whole branch. The subject is
-what you recognize.
+and deleted counts, because they cost a second pass over the whole branch.
+
+**Every row carries a box, and no row carries a mark.** What is in the review is stated on
+each row rather than inferred from one mark on one row, because a set with a hole in it is a
+set no single mark can state. The box column takes its columns from the subject, and from
+neither the sha nor the date: a cut sha is a sha you cannot match against `git log`.
+
+**The row that takes the whole branch in or out sits above the commits.** It is the state a
+review opens in, and widening a narrowed review back out must not cost a walk to the bottom
+of a long branch. It works both ways from that one row: checked is the whole branch, and
+unchecked is a review of your uncommitted work alone.
+
+**A pick that cannot be built is refused while the list is still open.** That is the one
+moment the refusal is worth anything, because unchecking the commit it named is your next
+keystroke. Nothing is stored, so a refused pick leaves the review reading exactly what it
+was reading.
 
 **Two cases open nothing, and say why in one sentence.** The first is `gc` outside a branch
 review, where there is no branch behind the diff to list. The second is `gc` on a branch

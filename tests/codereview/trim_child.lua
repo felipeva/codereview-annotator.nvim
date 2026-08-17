@@ -38,18 +38,29 @@ local function paths()
   end, assert(view.current(), "no review view open").files)
 end
 
----Trim the open review to the row that says `subject`, exactly as a reviewer does it: `gc`
----in the diff, the cursor on that row, `<CR>`.
+---Read the open review from the row that says `subject` forward, exactly as a reviewer does
+---it: `gc` in the diff, `<Space>` on every commit older than that row to take it out, and
+---`<CR>` to apply the boxes.
+---
+---Every box is checked when the list opens, because neither branch here has been trimmed
+---before this process runs -- so what this presses is exactly the difference. Asserted
+---rather than assumed, because a box that started the other way would silently build the
+---wrong reading for the process that reads it back.
 ---@param subject string
 local function trim_by_key(subject)
-  vim.api.nvim_set_current_win(assert(view.current(), "no review view open").win)
+  local review = assert(view.current(), "no review view open")
+  assert(require("codereview.state").trim(review.root) == nil, "this branch is trimmed already")
+  vim.api.nvim_set_current_win(review.win)
   feed("gc")
   local win = vim.api.nvim_get_current_win()
   assert(vim.api.nvim_win_get_config(win).relative ~= "", "gc opened no float")
   local rows = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false)
   for i, row in ipairs(rows) do
     if row:find(subject, 1, true) then
-      vim.api.nvim_win_set_cursor(win, { i, 0 })
+      for below = i + 1, #rows do
+        vim.api.nvim_win_set_cursor(win, { below, 0 })
+        feed("<Space>")
+      end
       feed("<CR>")
       return
     end

@@ -1628,7 +1628,7 @@ function M.review_queue()
   queue_float.open(M)
 end
 
----List the commits on the branch, from inside a review, and trim it to the one picked.
+---List the commits on the branch, from inside a review, and trim it to the ones checked.
 ---
 ---The surface is `trim_float`'s, and both the repository and the commit the branch starts at
 ---are handed to it rather than looked up: the review already knows both, and a second answer
@@ -1668,9 +1668,14 @@ end
 ---that never existed, and taking one commit out can need a commit that is staying -- the
 ---formatter case is the likeliest of all, because a formatter touches the same lines every
 ---other commit touched. Such a set is refused rather than approximated, and refused *here*,
----so the store still holds what it held, the review on screen is the review that was there,
----and the reviewer is a keystroke away from a selection that works. A refusal is an ordinary
----answer to a reviewer asking for a tree that never existed, not a failure.
+---so the store still holds what it held and the review on screen is the review that was
+---there. A refusal is an ordinary answer to a reviewer asking for a tree that never existed,
+---not a failure.
+---
+---The commit list asks the same question one step earlier, because a refusal is only
+---actionable while the float is still open on the row. This is the guard for every caller
+---that is not the float, and it costs that one nothing: the builder caches what it assembled
+---on the way, so the second question is answered from the first one's work.
 ---
 ---The base handed to the check is the review's own **identity**, for the reason the commit
 ---list is drawn from it: a second derivation of where this branch starts is a second chance

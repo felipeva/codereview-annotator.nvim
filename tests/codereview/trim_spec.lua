@@ -679,8 +679,20 @@ h.git_lines(fixture, { "commit", "-q", "-m", "fix: loosen the lexer" })
 
 local UNREAD = "fix: loosen the lexer"
 
----Open the commit list from the diff, put the cursor on the row that says `subject`, and
----press `<CR>` -- which is the only way a reviewer ever applies a trim.
+---What a box on the commit list says for a commit that is in the review.
+---
+---Learned from the first list this file opens, which is opened over a review with nothing
+---taken out of it, rather than written down here: naming the character would be this file
+---reciting the float's implementation back to itself. The column itself is
+---`trim_float_spec`'s.
+local IN
+
+---Read the review from `subject` forward, through the keys a reviewer presses.
+---
+---Every commit carries a box on that list, so this leaves the boxes down to that row checked
+---and unchecks every commit older than it -- which is the set a reviewer builds for the same
+---reading -- and then applies them with `<CR>`. "All commits" leaves every box checked, which
+---is the whole branch.
 ---@param subject string "All commits" for the top row
 ---@return integer win The float's window, which the pick should have closed
 local function trim_by_key(subject)
@@ -688,7 +700,23 @@ local function trim_by_key(subject)
   h.feed("gc")
   local win = vim.api.nvim_get_current_win()
   assert.are_not.same("", vim.api.nvim_win_get_config(win).relative, "gc opened no float")
-  local rows = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(win), 0, -1, false)
+  local buf = vim.api.nvim_win_get_buf(win)
+
+  ---The box at the head of `row`, read as the column the top row's own text starts after.
+  ---@param row integer
+  ---@return string
+  local function box(row)
+    local rows = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local width = assert(rows[1]:find("All commits", 1, true), rows[1]) - 1
+    return rows[row]:sub(1, width)
+  end
+
+  if not IN then
+    assert(state.trim(root) == nil, "the first commit list has to be opened over a whole branch")
+    IN = box(2)
+  end
+
+  local rows = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
   local at
   for i, row in ipairs(rows) do
     if row:find(subject, 1, true) then
@@ -696,7 +724,15 @@ local function trim_by_key(subject)
       break
     end
   end
-  vim.api.nvim_win_set_cursor(win, { assert(at, subject .. " is on no row: " .. table.concat(rows, "\n")), 0 })
+  assert(at, subject .. " is on no row: " .. table.concat(rows, "\n"))
+
+  for i = 2, #rows do
+    local wanted = at == 1 or i <= at
+    if (box(i) == IN) ~= wanted then
+      vim.api.nvim_win_set_cursor(win, { i, 0 })
+      h.feed("<Space>")
+    end
+  end
   h.feed("<CR>")
   return win
 end
