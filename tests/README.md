@@ -11,7 +11,8 @@ make perf                                             # timing report at two siz
 `make test` runs `PlenaryBustedDirectory` over `tests/codereview/`, which starts **one
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
-The whole suite is about 1,430 cases in ~5 seconds.
+The whole suite is about 1,590 cases in under ten seconds. A little over a second of that is
+one deliberate wait in `trim_spec` — see "a cache is invisible unless the clock moved".
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -69,7 +70,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colors one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
-| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
+| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched; then the sets with a **hole** in them, which read from a pre-image that is built — the commit taken out of the middle, two that are not next to each other, the prefix reaching past the merge that must assemble nothing, the whole branch taken out, the commit no set can be built without, the same one succeeding beside what it depends on, the refs and the working tree the build must not touch, and the second resolve that finds the tree already built — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, where `gs` goes from it, and the pick that is refused — the sentence naming the commit and the file and no dependency, the store still holding the trim that was there, the review still on screen, and the same commit picked again beside the one it depends on; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
 | `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the row that removes the trim, the row a trim is marked on, the cursor's opening row, the keys, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
@@ -629,6 +630,35 @@ so the out-of-core language path is still checked locally without ever failing C
   against `git diff --name-status` for exactly this reason, and the oldest row is the row that
   reds when the anchor is wrong. Same trap as "a filter test needs a fixture only that filter
   can reject", arriving through the expectation instead of through the fixture.
+- **A pre-image is asserted by its delta and never by a tree object's identity.** A trim with a
+  hole in it reads from a tree that is built, and the tempting assertion is the tree oid —
+  cheap, exact, and it passes against a tree assembled the wrong way for as long as the
+  expectation was assembled the same wrong way, which is what happens when the expectation is
+  produced by a script that shares the implementation's rule. What a reviewer can see is which
+  files the review draws and how much of each, so that is what `trim_spec` compares. Names
+  alone are not enough either: taking out the commit that *added* `src/config_spec.lua` leaves
+  that path in the review, because a kept commit changed it afterwards — the counts (`+1 -1`
+  rather than the whole file arriving) are where a pre-image that took nothing out shows.
+- **Two cases in the matrix exist because reasoning got the rule wrong twice.** A prefix trim
+  reaching past the merge, and every commit taken out: both are ordinary readings, both are
+  refused outright by the obvious rule of accumulating from the merge base, and a suite without
+  them passes on a rule that breaks the shipped feature. Deleting the anchor in `git.lua`'s
+  `pre_image` — building from the base and applying the leading run as well — reds 29 cases in
+  `trim_spec`, and those two blocks are the ones that exist for it and nothing else. Measured.
+- **A cache is invisible unless the clock moved between the two builds.** The tree a hole
+  builds is cached on the repository, the base, `HEAD` and the set, and the claim is that a
+  second resolve does not build it again. A commit object carries the moment it was minted, so
+  two accumulations inside one second mint the *same* object — and "the second resolve produced
+  the same commit" then holds with nothing cached at all. `trim_spec` waits past a whole second
+  between the two, which is the only reason removing the cache reds that case; measured, it
+  reds that one and nothing else in the suite. Same trap as "a filter test needs a fixture only
+  that filter can reject".
+- **A refusal decided on the word `CONFLICT` cannot be told from one decided on the exit
+  status by any green suite.** Both refuse the fixture's dependent commit, because this git
+  prints that word. What separates them is a git that words it differently, which no CI runner
+  here has — so the case that has teeth is the mutation: making `merge_tree` ignore its exit
+  status and take the first line of the output as a tree reds six cases in `trim_spec`, four of
+  them about the refusal a reviewer reads. Run that mutation rather than trusting the green.
 - **"The whole set was dropped" needs a survivor that would have narrowed the review.** A trim
   is a set, and any commit failing the ancestry check drops all of it — but a store that kept
   the commits that passed opens the full branch anyway whenever the survivors have a hole in

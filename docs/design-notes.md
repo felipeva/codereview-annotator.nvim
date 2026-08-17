@@ -253,8 +253,9 @@ to an agent whose working directory is not this one; anything outside its tree f
 to an absolute path with the code inlined.
 
 **A scope's identity and its pre-image are two refs, and only one of them may be re-derived.**
-A **trim** moves a `branch` scope's `before` up the branch and leaves `identity` at the merge
-base. Anything asking *where does this branch start* — the commit list, the progress key —
+A **trim** moves a `branch` scope's `before` off the merge base — up the branch, or onto a
+commit no ref names at all — and leaves `identity` where it is. Anything asking *where does
+this branch start* — the commit list, the progress key —
 has to read the identity: the pre-image is what a trim narrows, so a commit list built from
 it shortens every time a reviewer trims and takes away the rows they need to widen it again.
 Anything asking *what is this review reading* has to read the pre-image. Neither may be
@@ -281,6 +282,41 @@ would leave the review narrowed by a selection the reviewer never made, and whic
 rewritten history are still the same reading is a claim nothing here can make. It is also what
 keeps the sentence one sentence — a set that survives in part fails again on the next read,
 one commit at a time.
+
+**The one thing memoised is the built tree, and the key is why that is not the trap above.**
+A trim with a hole in it reads from a tree that never existed as a commit, so it is built —
+and without a cache every scope cycle, every reopen and every pick pays the whole accumulation
+again. The memo the note above refuses is a stored *sha* going stale against a rewritten
+`HEAD`: it answers from memory without ever asking `HEAD` again, which is the exact failure
+the ancestry check exists to refuse. A key that *contains* the `HEAD` sha cannot do that —
+either key changing is a new key — so the cache holds the built tree under the whole of what
+built it: the repository, the base, `HEAD` and the set. Nothing else is cached. Not the trim,
+not its ancestry answer, not the resolved scope: each of those is an answer about a history
+that can be rewritten while the review is open, and only the first of them is checked on
+every read.
+
+**The anchor is the whole of the pre-image rule, and removing it looks like a simplification.**
+Building from the merge base and applying every skipped commit — including the ones the trim
+takes off the *start* — is the obvious rule and the one the spec was first written with. It
+refuses two ordinary cases, both measured against a real repository rather than reasoned
+about: a plain prefix trim reaching past a merge, which is the shipped `gc` flow on any
+branch with a merge in it, and taking every commit out. Both collide because a merge's
+first-parent diff *adds* everything the side branch brought while the merge base already
+holds it. Anchoring on the newest commit of the leading run fixes both, and it is also what
+keeps the git 2.38 floor off the trim that already ships: a trim with no hole reaches no
+merge at all. Deleting the anchor reds 29 cases in `trim_spec`, and two of them —
+`a trim reaching past the merge` and `every commit taken out` — are the ones that exist for
+this and nothing else.
+
+**A conflicting merge is decided on the exit status, and never on the word `CONFLICT`.**
+`merge-tree` prints an informational trailer that says `CONFLICT (add/add): …`, and it is
+tempting to search for it: the paths are right there in a sentence. It is a message written
+for a human, it is not guaranteed across the versions above the floor, and a search that
+finds nothing reports a conflicting merge as **clean** — which ships a review built from a
+tree that could not be assembled, silently, in the one direction that matters. The exit code
+is the whole answer, exactly as it is for `all_ancestors` behind a stored trim, and the paths
+come from `--name-only`, which prints the tree object and then one path per line. Making the
+merge ignore its exit status reds six cases in `trim_spec`.
 
 **Keying progress on the pre-image fails silently rather than loudly.** The per-scope progress
 key is `name .. ":" .. identity`. Spelled with `before` it agrees with the plugin for every

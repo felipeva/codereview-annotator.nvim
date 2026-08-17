@@ -54,6 +54,11 @@ That is the whole configuration. Nothing else is required.
 **Requirements:** Neovim 0.12 or later, and `git`. Treesitter parsers are optional. A file
 without a parser falls back to flat diff colors.
 
+Taking a commit out of the **middle** of a branch review needs **git 2.38 or later**, which
+is where `git merge-tree --write-tree` arrives. That is the only thing the floor is for.
+Every other reading works on any git, a trim included: a trim that only takes commits off the
+start of the branch reads from a commit that already exists and merges nothing.
+
 ## Your first review
 
 Six keys get you through a review.
@@ -209,8 +214,8 @@ commits", which gives the whole branch back, and the bottom row does the same.
 The list marks the row your review starts at with `▸`, and the cursor opens on that row. With
 the whole branch in the review, the cursor opens on "All commits".
 
-Uncommitted and untracked work stay in the review under every trim. A trim has one end, and
-it is the start.
+Uncommitted and untracked work stay in the review under every trim. A branch review reads to
+the working tree, and no trim reaches that end of it.
 
 The plugin keeps the trim per branch, so the next session opens where your reading stopped.
 Each branch keeps its own trim.

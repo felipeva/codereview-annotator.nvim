@@ -99,6 +99,18 @@ local function taken_out_below(subject)
   return skipped
 end
 
+---The commits with these subjects, as the set a trim takes out — wherever they sit.
+---@param ... string
+---@return string[] skipped
+local function taken_out(...)
+  local skipped = {}
+  for _, subject in ipairs({ ... }) do
+    local commit = commit_named(subject)
+    skipped[#skipped + 1] = commit.sha
+  end
+  return skipped
+end
+
 --- Reading a scope back ----------------------------------------------------------
 
 ---Set the trim and resolve the branch scope through it, exactly as opening a review does.
@@ -128,6 +140,23 @@ local function status_of(files, path)
       return f.status
     end
   end
+end
+
+---How much of a file the review draws, in git's own two numbers.
+---
+---A path alone cannot tell the change one kept commit made to a file from the whole of that
+---file arriving with the commit that added it: both are the same name in the same list. The
+---counts are where a pre-image built from the wrong commits shows.
+---@param files CRFile[]
+---@param path string
+---@return string "+N -M", or a sentence when the review does not hold that file
+local function counts_of(files, path)
+  for _, f in ipairs(files) do
+    if f.path == path then
+      return ("+%d -%d"):format(f.added, f.removed)
+    end
+  end
+  return "not in the review at all"
 end
 
 --- The fixture the resolution rules lean on --------------------------------------
@@ -262,6 +291,201 @@ describe("no trim at all", function()
     assert.same({ "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }, paths(files))
   end)
 end)
+
+--- A trim with a hole in it -------------------------------------------------------
+
+-- The commits taken out no longer have to be the ones at the start of the branch, so the
+-- review reads from a tree that never existed as a commit and has to be built. What is
+-- asserted here is the **delta** and never a tree object's identity: a comparison of tree
+-- oids passes against a tree assembled the wrong way for as long as the expectation was
+-- assembled the same wrong way. Which files the review draws, and how much of each, is what
+-- a reviewer can see and the only thing that can catch a pre-image built from the wrong
+-- commits.
+--
+-- Every case is set through the store and read back through resolution, which is the seam
+-- the block above already uses. The builder gets no seam of its own.
+
+describe("a commit taken out of the middle", function()
+  -- The commit that added `src/config_spec.lua`, with the commit older than it left in.
+  local files, scope = under_trim(taken_out("test: cover the config reader"))
+
+  it("keeps the commit older than it in the review", function()
+    assert.same("M", status_of(files, "src/config.lua"), vim.inspect(paths(files)))
+  end)
+
+  -- The teeth. The file the skipped commit *added* is still in the review, because a kept
+  -- commit changed it afterwards — but only that change is left. Read from the merge base
+  -- instead and the same path is there as an addition of the whole file, so a comparison of
+  -- names alone passes against a pre-image that took nothing out at all.
+  it("shows the file it added as the one line a kept commit changed in it", function()
+    assert.same("M", status_of(files, "src/config_spec.lua"), vim.inspect(paths(files)))
+    assert.same("+1 -1", counts_of(files, "src/config_spec.lua"))
+  end)
+
+  it("holds nothing else the skipped commit did", function()
+    assert.same({ "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }, paths(files))
+  end)
+
+  it("says N of M in its label, which is the shape this reading has", function()
+    assert.is_truthy(scope.label:find(("%d of %d"):format(#commits - 1, #commits), 1, true), scope.label)
+  end)
+
+  it("still names the branch it is a review of", function()
+    assert.is_truthy(scope.label:find("branch vs ", 1, true), scope.label)
+  end)
+
+  -- The field a narrowed review's progress is read back under. It does not move with the
+  -- pre-image, and a synthesized pre-image is the furthest the two have ever been apart.
+  it("keeps the identity at the merge base", function()
+    assert.same(base, scope.identity)
+    assert.are_not.same(scope.before, scope.identity)
+  end)
+end)
+
+describe("two commits taken out that are not next to each other", function()
+  -- The oldest commit and the merge are kept, and they sit between the two taken out.
+  local files, scope = under_trim(taken_out("test: cover the config reader", "docs: write the readme"))
+
+  it("leaves out what both of them did", function()
+    assert.same({ "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }, paths(files))
+  end)
+
+  it("keeps the work of every commit between them", function()
+    assert.same("+1 -0", counts_of(files, "src/config.lua"))
+    assert.same("+2 -1", counts_of(files, "src/lexer.lua"))
+  end)
+
+  it("counts what is left in its label", function()
+    assert.is_truthy(scope.label:find(("%d of %d"):format(#commits - 2, #commits), 1, true), scope.label)
+  end)
+end)
+
+-- The case that caught the first design. Accumulating every skipped commit from the merge
+-- base refuses this one — the merge's own diff adds what the side branch brought while the
+-- base already holds it — and it is the shipped `gc` flow on any branch with a merge in it.
+-- Anchored, it assembles nothing at all and reads what it has always read.
+describe("a trim reaching past the merge", function()
+  local merge = commit_named("Merge branch 'lexer' into feature")
+  local files, scope = under_trim(taken_out_below("test: assert the host as well"))
+
+  it("reads from the merge itself, so nothing was assembled", function()
+    assert.same(merge.sha, scope.before)
+  end)
+
+  it("draws exactly what the shipped trim drew for that reading", function()
+    local expected = h.git_lines(fixture, { "diff", "--name-status", merge.sha })
+    assert.same(
+      expected,
+      vim.tbl_map(function(f)
+        return ("%s\t%s"):format(f.status, f.path)
+      end, files)
+    )
+  end)
+
+  it("says last N, because that is the shape this reading has", function()
+    assert.is_truthy(scope.label:find(("last %d"):format(#commits - 3), 1, true), scope.label)
+  end)
+end)
+
+-- The other case that caught it, and for the same reason: from the merge base this collides
+-- on the merge, and anchored it is the whole branch's newest commit and nothing is built.
+describe("every commit taken out", function()
+  local everything = vim.tbl_map(function(c)
+    return c.sha
+  end, commits)
+  local files, scope = under_trim(everything)
+
+  it("reads from the branch's own tip", function()
+    assert.same(full("HEAD"), scope.before)
+  end)
+
+  it("leaves a review of the reviewer's uncommitted work, which is nothing here", function()
+    assert.same({}, paths(files))
+  end)
+
+  it("says it holds none of them", function()
+    assert.is_truthy(scope.label:find(("0 of %d"):format(#commits), 1, true), scope.label)
+  end)
+end)
+
+-- A skip that cannot be built, at the seam where nothing can be said about it: resolution
+-- has no reviewer in front of it. The refusal a reviewer reads is at the pick, in the view
+-- half of this file.
+describe("a commit whose work a kept commit rewrote", function()
+  local files, scope = under_trim(taken_out("test: assert the host as well"))
+
+  it("gives the whole branch back rather than a reading nothing could assemble", function()
+    assert.same({ "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }, paths(files))
+  end)
+
+  it("says nothing about a trim it could not read", function()
+    assert.is_nil(scope.label:find("last", 1, true), scope.label)
+    assert.is_nil(scope.label:find(" of ", 1, true), scope.label)
+  end)
+end)
+
+describe("the commit it depends on taken out beside it", function()
+  local files, scope = under_trim(taken_out("test: cover the config reader", "test: assert the host as well"))
+
+  -- Both commits that ever touched that file are out, so the file is in the pre-image
+  -- exactly as the working tree has it and the review says nothing about it. A pre-image
+  -- that stopped at the first of the two would draw it, which is the whole difference
+  -- between applying the set and reading from one commit in it.
+  it("takes the file both of them touched out of the review", function()
+    assert.same({ "README.md", "src/config.lua", "src/lexer.lua" }, paths(files))
+  end)
+
+  it("counts what is left in its label", function()
+    assert.is_truthy(scope.label:find(("%d of %d"):format(#commits - 2, #commits), 1, true), scope.label)
+  end)
+end)
+
+-- The synthesized commit is unreachable on purpose, which is the exposure the **snapshot**
+-- mechanism already accepts. Nothing about building it may reach the reviewer's repository:
+-- no ref to keep it alive, no index, no working tree.
+describe("what building a pre-image must not touch", function()
+  local refs = h.git_lines(fixture, { "for-each-ref", "--format=%(refname) %(objectname)" })
+  local head = full("HEAD")
+  local _, scope = under_trim(taken_out("test: cover the config reader", "docs: write the readme"))
+
+  it("built a commit this repository really holds", function()
+    assert.same({ "commit" }, h.git_lines(fixture, { "cat-file", "-t", scope.before }))
+  end)
+
+  it("wrote no ref for it", function()
+    assert.same(refs, h.git_lines(fixture, { "for-each-ref", "--format=%(refname) %(objectname)" }))
+    assert.same({}, h.git_lines(fixture, { "branch", "--contains", scope.before }))
+  end)
+
+  it("left the index and the working tree alone", function()
+    assert.same({}, h.git_lines(fixture, { "status", "--porcelain" }))
+  end)
+
+  it("left HEAD where it was", function()
+    assert.same(head, full("HEAD"))
+  end)
+end)
+
+-- Cycling scopes and reopening a review both resolve again, and a reviewer who narrowed a
+-- long branch pays the whole accumulation on each of them without a cache.
+--
+-- **A cache is invisible unless the clock moved between the two builds.** A commit object
+-- carries the moment it was minted, so two accumulations inside one second mint the same
+-- object and this case would hold with nothing cached at all — the trap that a filter test
+-- needs a fixture only that filter can reject. The wait is what gives it teeth: measured,
+-- removing the cache reds it and nothing else in the suite.
+describe("the tree a hole builds, resolved a second time", function()
+  local skipped = taken_out("test: cover the config reader", "docs: write the readme")
+  local _, first = under_trim(skipped)
+  vim.wait(1100)
+  local _, again = under_trim(skipped)
+
+  it("is the commit the first resolve built, not a second one", function()
+    assert.same(first.before, again.before)
+  end)
+end)
+
+state.set_trim(root, nil)
 
 describe("what a trim never moves", function()
   local _, trimmed = under_trim(taken_out_below("Merge branch 'lexer' into feature"))
@@ -615,6 +839,117 @@ describe("work committed after the trim was picked", function()
   end)
 end)
 
+--- A pick that cannot be built ------------------------------------------------------
+
+-- Taking one commit out can need a commit that is staying, and such a pick is refused
+-- rather than approximated — at the moment it is applied, before anything is stored. What
+-- the reviewer can see is the sentence, a store still holding the trim they had, and the
+-- review on screen unchanged.
+--
+-- Applied through `view.trim_to`, which is the one entry point a pick goes through. No key
+-- reaches a set with a hole in it yet: the float still picks a start.
+describe("a commit whose work a kept commit rewrote, picked", function()
+  local W = assert(view.current())
+  local was_paths = paths(W.files)
+  local was_label = W.scope.label
+  local was_trim = vim.deepcopy(assert(state.trim(root), "this review is not trimmed, so nothing can be untouched"))
+
+  local dependent = commit_named("test: assert the host as well")
+  local dependency = commit_named("test: cover the config reader")
+  local short = assert(h.git_lines(fixture, { "rev-parse", "--short", dependent.sha })[1])
+
+  local msgs, restore = h.capture_notify()
+  view.trim_to({ dependent.sha })
+  restore()
+
+  it("names the commit it refused", function()
+    assert.is_true(h.notified(msgs, short), vim.inspect(msgs))
+    assert.is_true(h.notified(msgs, dependent.subject), vim.inspect(msgs))
+  end)
+
+  it("names the file it conflicts in", function()
+    assert.is_true(h.notified(msgs, "src/config_spec.lua"), vim.inspect(msgs))
+  end)
+
+  -- Which kept commit introduced the conflicting region takes a heuristic that can name the
+  -- wrong commit confidently, so the message names none. The commit this one really does
+  -- depend on is the one the message must not claim to have found.
+  it("names no commit it might have depended on", function()
+    local short_dependency = assert(h.git_lines(fixture, { "rev-parse", "--short", dependency.sha })[1])
+    assert.is_false(h.notified(msgs, short_dependency), vim.inspect(msgs))
+    assert.is_false(h.notified(msgs, dependency.subject), vim.inspect(msgs))
+  end)
+
+  it("leaves the store holding the trim the reviewer already had", function()
+    assert.same(was_trim, state.trim(root))
+  end)
+
+  it("leaves the review that was on screen exactly as it was", function()
+    local X = assert(view.current(), "the review view closed")
+    assert.same(was_paths, paths(X.files))
+    assert.same(was_label, X.scope.label)
+  end)
+end)
+
+describe("the commit it depends on picked beside it", function()
+  local dependent = commit_named("test: assert the host as well")
+  local dependency = commit_named("test: cover the config reader")
+  local listed = assert(git.branch_commits(root, base))
+
+  local msgs, restore = h.capture_notify()
+  view.trim_to({ dependency.sha, dependent.sha })
+  restore()
+  local W = assert(view.current())
+
+  it("refuses nothing", function()
+    assert.is_false(h.notified(msgs, "conflicts"), vim.inspect(msgs))
+  end)
+
+  it("draws the review the two of them are out of", function()
+    assert.same({
+      "README.md",
+      "src/config.lua",
+      "src/config_spec.lua",
+      "src/late.lua",
+      "src/lexer.lua",
+      "src/loose.lua",
+    }, paths(W.files))
+  end)
+
+  it("counts what is left on the winbar", function()
+    local bar = h.winbar(W.win)
+    assert.is_truthy(bar:find(("%d of %d"):format(#listed - 2, #listed), 1, true), bar)
+  end)
+
+  it("stored it, so the next resolve reads the same review", function()
+    assert.same({ dependency.sha, dependent.sha }, state.trim(root))
+  end)
+end)
+
+-- The maximal trim: the review is the work the reviewer has not committed, which is what
+-- the file left uncommitted and untracked several blocks above.
+describe("every commit taken out, in the review", function()
+  local listed = assert(git.branch_commits(root, base))
+  view.trim_to(vim.tbl_map(function(c)
+    return c.id
+  end, listed))
+  local W = assert(view.current())
+
+  it("holds the reviewer's uncommitted and untracked work and nothing else", function()
+    assert.same({ "src/config_spec.lua", "src/loose.lua" }, paths(W.files))
+  end)
+
+  it("still keeps the untracked file as untracked work", function()
+    assert.same("U", status_of(W.files, "src/loose.lua"), vim.inspect(paths(W.files)))
+  end)
+
+  it("says on the winbar that it holds none of the branch's commits", function()
+    local bar = h.winbar(W.win)
+    assert.is_truthy(bar:find(("0 of %d"):format(#listed), 1, true), bar)
+  end)
+end)
+
+state.set_trim(root, nil)
 codereview.close()
 
 --- The trim a session leaves behind -----------------------------------------------

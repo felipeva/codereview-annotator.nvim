@@ -26,7 +26,10 @@ lines, selections, hunks or whole files with a type; the annotations queue up;
 submit them as one batch. See |codereview-layouts|.
 
 Requires Neovim 0.12 or newer and `git`. Treesitter parsers are optional --
-files without one fall back to flat diff colors.
+files without one fall back to flat diff colors. Taking a commit out of the
+middle of a branch review needs git 2.38 or newer, which is where
+`git merge-tree --write-tree` arrives; every other reading, a trim that only
+takes commits off the start of the branch included, works on any git.
 
 ==============================================================================
 2. COMMANDS                                            *codereview-commands*
