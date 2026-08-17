@@ -12,9 +12,9 @@
 -- press.
 --
 -- The fixture is `mkcommits`, whose history is the whole point of it: a branch of five
--- commits, one of them a merge, over a merge base that is not the oldest commit's parent, and
--- one commit that rewrites the line an earlier one introduced. Every rule this file pins is
--- invisible without it -- see the script's own header.
+-- commits, one of them a merge with commits older than it, over a merge base that is not the
+-- oldest commit's parent, and one commit that rewrites the line an earlier one introduced.
+-- Every rule this file pins is invisible without it -- see the script's own header.
 local h = require("tests.helpers")
 
 h.ui(110, 40)
@@ -56,6 +56,9 @@ local DEPENDENT = "test: assert the host as well"
 local DEPENDENCY = "test: cover the config reader"
 ---A commit that only adds a file, so it can leave the review from the middle of the branch.
 local FREE = "docs: write the readme"
+---The merge on the branch's own line of work. A **merge** cannot start a hole, so this row is
+---the one whose refusal is about no file at all.
+local MERGE = "Merge branch 'lexer' into feature"
 
 ---@param commits { subject: string }[]
 ---@return string[]
@@ -241,6 +244,19 @@ describe("the history this spec reads", function()
     for _, subject in ipairs({ DEPENDENT, DEPENDENCY, FREE }) do
       assert.is_true(vim.tbl_contains(subjects(first_parent), subject), subject)
     end
+  end)
+
+  -- What makes a refused merge reachable from a box at all. A merge is refused only while a
+  -- commit older than it stays in the review, so a fixture whose merge is the oldest row
+  -- could not put one there and the block that presses that row would assert nothing.
+  it("puts the merge on the listing with commits older than it", function()
+    local at
+    for i, c in ipairs(first_parent) do
+      if c.subject == MERGE then
+        at = i
+      end
+    end
+    assert.is_true(at ~= nil and at < #first_parent, vim.inspect(subjects(first_parent)))
   end)
 end)
 
@@ -749,6 +765,86 @@ describe("<CR> on a commit that cannot leave on its own", function()
     )
   end)
 
+  state.set_trim(root, nil)
+  codereview.close()
+end)
+
+--- The merge row ----------------------------------------------------------------
+
+-- The one row whose refusal is about no file at all. A **merge** above the leading run
+-- collides with everything the side branch brought -- files the reviewer neither wrote nor
+-- asked about -- so the rule refuses it before any merge is attempted and gives them the
+-- reason instead.
+--
+-- The pairing is what this block exists for, and neither slice that built it could make the
+-- claim alone: `trim_spec` asserts the rule where the pre-image is built, with the set handed
+-- straight to the store, and this file's other refusal never presses a merge row. What is
+-- asserted here is that the box a reviewer can now check reaches that rule, and the four
+-- things that have to hold at once when it does.
+describe("<Space> on the merge row, with a commit older than it left in", function()
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+
+  -- A trim already in place before the press, so "the store still holds what it held" is a
+  -- claim about a set rather than about emptiness: a pick that stored the merge and a pick
+  -- that dropped the trim both red against it, and against nil only the first would.
+  toggle(win, row_of(buf, FREE))
+  h.feed("<CR>")
+  local was = vim.deepcopy(assert(state.trim(root), "the pick that sets this block up stored no trim"))
+  local narrowed = assert(view.current(), "the review closed")
+
+  local reopened, rebuf = commits_by_key(narrowed.win)
+  local at = row_of(rebuf, MERGE)
+  toggle(reopened, at)
+
+  local msgs, restore = h.capture_notify()
+  h.feed("<CR>")
+  restore()
+
+  -- Without this the press is a merge taken off the *start* of the branch, which is inside
+  -- the run, assembles nothing and is refused by nothing -- and every claim below would then
+  -- be made against a pick that was never refused for being a merge.
+  it("really did leave a commit older than the merge in the review", function()
+    local older = vim.tbl_filter(function(row)
+      return row > at
+    end, checked(rebuf))
+    assert.is_true(#older > 0, table.concat(lines(rebuf), "\n"))
+  end)
+
+  it("is told that a merge brings the review nothing it does not already read", function()
+    assert.is_true(h.notified(msgs, "brings nothing the review does not already read"), vim.inspect(msgs))
+  end)
+
+  it("is told which merge", function()
+    local merge = commit_named(MERGE)
+    assert.is_true(h.notified(msgs, merge.sha), vim.inspect(msgs))
+    assert.is_true(h.notified(msgs, merge.subject), vim.inspect(msgs))
+  end)
+
+  -- The teeth against a rule that attempts the merge and rewords whatever the merge reported:
+  -- that is the file-collision sentence with better prose, and it names every file the side
+  -- branch brought.
+  it("is told no file, because the files are not what a reviewer can act on", function()
+    for _, path in ipairs({ "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }) do
+      assert.is_false(h.notified(msgs, path), vim.inspect(msgs))
+    end
+    assert.is_false(h.notified(msgs, "conflicts in"), vim.inspect(msgs))
+  end)
+
+  it("leaves the float open", function()
+    assert.is_true(vim.api.nvim_win_is_valid(reopened))
+  end)
+
+  it("leaves the cursor on the merge row, so unchecking it again is the next keystroke", function()
+    assert.same(at, vim.api.nvim_win_get_cursor(reopened)[1])
+  end)
+
+  it("leaves the store holding exactly the trim that was there", function()
+    assert.same(was, state.trim(root))
+  end)
+
+  h.feed("q")
   state.set_trim(root, nil)
   codereview.close()
 end)
