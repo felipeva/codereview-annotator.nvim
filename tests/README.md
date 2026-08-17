@@ -70,7 +70,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colors one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
-| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched; then the sets with a **hole** in them, which read from a pre-image that is built — the commit taken out of the middle, two that are not next to each other, the prefix reaching past the merge that must assemble nothing, the whole branch taken out, the commit no set can be built without, the same one succeeding beside what it depends on, the refs and the working tree the build must not touch, and the second resolve that finds the tree already built — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, where `gs` goes from it, and the pick that is refused — the sentence naming the commit and the file and no dependency, the store still holding the trim that was there, the review still on screen, and the same commit picked again beside the one it depends on; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
+| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched; then the sets with a **hole** in them, which read from a pre-image that is built — the commit taken out of the middle, two that are not next to each other, the prefix reaching past the merge that must assemble nothing, the whole branch taken out, the commit no set can be built without, the same one succeeding beside what it depends on, the refs and the working tree the build must not touch, and the second resolve that finds the tree already built; then the **merge** on both sides of the rule that refuses it — taken out with an older commit left in, taken off the start of the branch with a hole above it, and a hole on a branch of its own with no merge on its first-parent line at all — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, where `gs` goes from it, and the pick that is refused — the sentence naming the commit and the file and no dependency, the store still holding the trim that was there, the review still on screen, and the same commit picked again beside the one it depends on; the merge picked out of the middle, whose sentence names no file at all, and the same merge picked off the start of the branch, which draws what the shipped trim drew; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
 | `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the box on every row and the two directions `<Space>` moves it, the top row taking the whole branch in and out, the boxes a stored trim opens on, the cursor's opening row, `<CR>` applying a prefix and applying a set with a hole in it, the pick that is refused with the float left open on the row, the keys the footer names and the ones it does not, the rows still one each in a float too narrow to hold them whole, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
@@ -113,11 +113,18 @@ interchangeable, and the assertions know which one they are looking at.
   so it is the only commit here that cannot leave a review on its own — without it a
   refusal has nothing to refuse, which is "a filter test needs a fixture only that filter
   can reject". Its commits are dated days apart, as offsets back from the moment the script
-  runs, so a relative date on a row is a fact a spec can check and never goes stale. `trim_spec` builds a **second copy**
+  runs, so a relative date on a row is a fact a spec can check and never goes stale. The merge
+  is a third rule of its own: it is free on the row that takes it off the start of the branch
+  and refused with a commit older than it left in, and one history holding one merge is what
+  lets a spec make both claims about one row. `trim_spec` builds a **second copy**
   for the trim a restart brings back, and cuts a `second` branch at `feature`'s tip inside
   it: two branches over one history is what "each branch keeps its own trim" needs, and
   neither branch the script builds can offer it — `lexer` has one commit of its own, so
-  every trim on it resolves to the merge base, which is the review it already was.
+  every trim on it resolves to the merge base, which is the review it already was. It builds
+  a **third copy** for the opposite shape, and cuts a `flat` branch of three ordinary commits
+  off master's tip inside it: a first-parent line with no merge on it, which is what "a branch
+  with no merge in it is untouched by the merge rule" needs and which no branch over this
+  history has.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
   well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
   asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
@@ -658,6 +665,18 @@ so the out-of-core language path is still checked locally without ever failing C
   them passes on a rule that breaks the shipped feature. Deleting the anchor in `git.lua`'s
   `pre_image` — building from the base and applying the leading run as well — reds 29 cases in
   `trim_spec`, and those two blocks are the ones that exist for it and nothing else. Measured.
+- **The merge rule needs both of its answers, and one row can only give one of them.** A merge
+  taken out with an older commit left in is refused; the same merge taken off the *start* of
+  the branch is free, assembles nothing, and is the shipped `gc` flow on any branch with a
+  merge in it. A block that asserts only the refusal is satisfied by a rule that refuses every
+  set holding a merge, which breaks the trim that already ships — so `trim_spec` makes both
+  claims about the one merge the fixture has, and adds a third selection where the merge is
+  taken off the start *and* a commit above it is taken out, which is the only case that can
+  tell "where the merge sits" from "the set holds a merge". Measured: that mutation reds those
+  three cases and nothing else; asking the same question before a plain prefix has returned
+  reds 32; not asking it at all reds the two that are the sentence. And "a branch with no merge
+  in it is unaffected" is a claim no branch over this history can make, so it is made over a
+  `flat` branch built for it.
 - **A cache is invisible unless the clock moved between the two builds.** The tree a hole
   builds is cached on the repository, the base, `HEAD` and the set, and the claim is that a
   second resolve does not build it again. A commit object carries the moment it was minted, so

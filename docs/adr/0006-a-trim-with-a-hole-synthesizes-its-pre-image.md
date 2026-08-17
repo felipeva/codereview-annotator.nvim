@@ -45,6 +45,17 @@ as a failure. It names the skipped commit and the files it conflicts in, and no 
 commit: which kept commit introduced the conflicting region takes a heuristic pass that can
 name the wrong commit confidently.
 
+**A merge cannot start a hole.** A merge above the run collides wholesale, for the reason the
+anchor exists at all: its first-parent diff adds everything the side branch brought, and the
+anchor already holds it. That one is refused before any merge is attempted, and the sentence
+is about merges rather than about files — merging the default branch moves the merge base
+forward, so what the merge brought is already outside the review, and the files it would
+collide in are files the reviewer did not write and cannot act on. The same merge taken off
+the *start* of the branch, with every commit older than it taken off too, is inside the run:
+it assembles nothing and reads what a trim past a merge has always read. So the rule is
+dynamic — one row, free or refused by what else the trim takes — and no surface can grey it
+out ahead of time.
+
 The merge is `git merge-tree --write-tree`, which sets a floor of **git 2.38**. Only a trim
 with a hole in it reaches it, so the floor gates the new selections and not the trim that
 already ships, and the README states it that way.
