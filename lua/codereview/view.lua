@@ -1653,7 +1653,8 @@ function M.commit_list()
   trim_float.open(M, v.root, v.scope.identity)
 end
 
----Read the branch review from `before` forward, or from the merge base with nothing passed.
+---Read the branch review with `skipped` taken out of it, or the whole branch with nothing
+---passed.
 ---
 ---Set and then applied through `set_scope`, which is the same entry point a **scope** change
 ---goes through, because that path already re-reads the diff, invalidates the syntax caches
@@ -1662,13 +1663,13 @@ end
 ---
 ---Nothing here re-reads the trim to draw anything: resolution does that, so the label and
 ---the diff are answering out of the same store on the same pass.
----@param before string|nil nil removes the trim
-function M.trim_to(before)
+---@param skipped string[]|nil The commits to take out; nil removes the trim
+function M.trim_to(skipped)
   local v = M.current()
   if not v then
     return
   end
-  require("codereview.state").set_trim(v.root, before)
+  require("codereview.state").set_trim(v.root, skipped)
   M.set_scope("branch")
 end
 

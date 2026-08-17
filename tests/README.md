@@ -69,7 +69,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `quiet_spec` | Where **faded**, **dimmed** and **muted** meet: a queued entry and an archived one inside a faded file, the mark that draws them carrying no group of its own, the namespace a muted pane draws through holding no entry for the fade's family and a definition to fall back to — and the cells eight child processes read, at four colors one token can hold |
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
-| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — the picked commit in the diff, the oldest row at the merge base, the identity that does not move with the pre-image, the label — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
+| `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, and where `gs` goes from it; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
 | `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the row that removes the trim, the row a trim is marked on, the cursor's opening row, the keys, `gc` from the diff and from the tree, and the two refusals that open nothing |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
@@ -613,14 +613,29 @@ so the out-of-core language path is still checked locally without ever failing C
   Eight other call sites resolve `branch` with nothing set, and each spec process gets a state
   directory and a fixture of its own, so they stay correct — but a `branch` scope behaving
   oddly should send the reader to the stored trim before anywhere else.
-- **"The full branch opened" cannot red on its own for a trim naming a commit that is gone.**
+- **"The full branch opened" cannot red on its own for a trim holding a commit that is gone.**
   The store drops such a trim and says so, but `resolve_scope` also refuses a count it cannot
-  take — the guard #140 left — so the whole branch opens whether or not anything checked the
-  trim. `trim_spec` keeps that case because it is the claim a reviewer can see; the teeth are
+  take — the guard #140 left — and a set it cannot anchor on, so the whole branch opens
+  whether or not anything checked the trim. `trim_spec` keeps that case because it is the claim a reviewer can see; the teeth are
   in the sentence beside it, which reds the moment the check goes. Measured: deleting the
   check reds the sentence alone, and deleting the check *and* the count guard reds both. Same
   shape as "the commit list's opening row can only be measured from a row that is not the
   top".
+- **A pre-image asserted by file name cannot tell the merge base from the oldest commit's
+  parent.** Both hold `src/lexer.lua`, so a review reading from either one draws the same four
+  paths — and `git diff --name-only` for the two is one list. What separates them is the
+  *status*: against the merge base the branch **modified** that file, and against the oldest
+  commit's parent it **added** it. `trim_spec`'s every-pick block compares `status<TAB>path`
+  against `git diff --name-status` for exactly this reason, and the oldest row is the row that
+  reds when the anchor is wrong. Same trap as "a filter test needs a fixture only that filter
+  can reject", arriving through the expectation instead of through the fixture.
+- **"The whole set was dropped" needs a survivor that would have narrowed the review.** A trim
+  is a set, and any commit failing the ancestry check drops all of it — but a store that kept
+  the commits that passed opens the full branch anyway whenever the survivors have a hole in
+  them, because a set that is not a prefix resolves to nothing. So the surviving commit in
+  `trim_spec`'s case is the *oldest* commit on the branch, which narrows the review on its own,
+  and the case above it sets that commit alone and asserts the review really is narrower.
+  Without that guard the block passes against per-commit survival.
 - **"The trim was not written" cannot be read off a detached `HEAD` alone.** A trim set while
   `HEAD` is detached is kept in memory and never filed, and it is also never *read* from the
   document — so a later process opening the same detached checkout finds the whole branch

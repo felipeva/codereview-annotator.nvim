@@ -1,16 +1,17 @@
--- The **trim**: the commits taken off the start of a branch review.
+-- The **trim**: the commits taken out of a branch review.
 --
 -- Two halves, and the seams are the two that already exist. The first is scope resolution,
--- where the ref arithmetic lives and where an error is invisible in a rendered diff -- the
--- picked commit is in, the oldest row means the merge base and not a parent, and removing
--- the trim gives the review back. The second is the review view, where everything a
--- reviewer can see is: which files the diff draws, what the label says, which reviewed
--- marks survived, what the queue still lists.
+-- where the pre-image is worked out and where an error is invisible in a rendered diff --
+-- every pick reads what that pick has always read, the oldest row means the merge base and
+-- not a parent, and removing the trim gives the review back. The second is the review view,
+-- where everything a reviewer can see is: which files the diff draws, what the label says,
+-- which reviewed marks survived, what the queue still lists.
 --
 -- What is asserted is what a reviewer can observe. Never the shape of a git invocation, and
 -- never the shape of what the trim is stored in: a trim is set through the state module and
 -- read back through resolution, which is the same round trip `since-batch` makes through
--- the archive.
+-- the archive. A set of commits goes in because that is what a trim *is*, and what comes
+-- back is compared against git's own answer for the same reading.
 --
 -- The fixture is `mkcommits`, whose history is the point: its merge base is a different
 -- commit from its oldest listed commit's parent, so the oldest-row rule is observable at
@@ -85,13 +86,26 @@ local function commit_named(subject)
   error("no commit on this branch says " .. subject)
 end
 
+---The commits a reviewer takes out by starting their reading at that commit: every commit
+---older than it, which is what the row they land on picks.
+---@param subject string
+---@return string[] skipped
+local function taken_out_below(subject)
+  local _, kept = commit_named(subject)
+  local skipped = {}
+  for i = kept + 1, #commits do
+    skipped[#skipped + 1] = commits[i].sha
+  end
+  return skipped
+end
+
 --- Reading a scope back ----------------------------------------------------------
 
 ---Set the trim and resolve the branch scope through it, exactly as opening a review does.
----@param before string|nil nil is no trim
+---@param skipped string[]|nil nil is no trim; an empty set is a trim that takes nothing out
 ---@return CRFile[] files, CRScope scope
-local function under_trim(before)
-  state.set_trim(root, before)
+local function under_trim(skipped)
+  state.set_trim(root, skipped)
   local scope = assert(git.resolve_scope("branch", root))
   local files = assert(git.collect(scope, root, {}))
   return files, scope
@@ -129,37 +143,62 @@ describe("the history this spec reads", function()
   it("keeps the merge base and the oldest commit's parent as different commits", function()
     assert.are_not.same(base, parent_of(commits[#commits].sha))
   end)
+
+  -- What the block below compares against is `git diff` alone, so anything in the tree that
+  -- git diff does not name would be a file the review holds and the expectation lacks.
+  it("is a clean checkout at this point in the file", function()
+    assert.same({}, h.git_lines(fixture, { "status", "--porcelain" }))
+  end)
 end)
 
---- Where a trim can start ---------------------------------------------------------
+--- What every pick resolves to ----------------------------------------------------
 
-describe("the commits a trim can start at", function()
+-- The claim the representation rests on: a reviewer presses the same key, picks the same
+-- row, and reads the same diff. What each row is compared against is git's own answer for
+-- the reading that row has always given -- the picked commit's own parent, and the merge
+-- base on the oldest row -- so what is asserted is the reading and never the arithmetic
+-- that produced it.
+--
+-- Every row rather than a chosen one, because the rows differ in kind: the merge row is
+-- where a trim reaches past a merge, and the oldest row is where the merge base and the
+-- oldest commit's parent are two different commits.
+--
+-- Statuses and not only paths. `src/lexer.lua` is in the review either way, and it is a
+-- file the branch *modified* against the merge base and a file it *added* against the
+-- oldest commit's parent -- so a comparison of names alone passes against the wrong ref.
+describe("every commit a reviewer can pick", function()
   local listed = assert(git.branch_commits(root, base))
 
-  it("offers one per commit on the branch's own line of work", function()
+  it("offers one row per commit on the branch's own line of work", function()
     assert.same(#commits, #listed)
   end)
 
-  -- The stored value is the *parent* of the picked commit, so the commit a reviewer picked
-  -- is in the diff and nothing has to be done to the ref at open time.
-  it("starts every commit but the oldest at that commit's own parent", function()
-    for i = 1, #listed - 1 do
-      assert.same(parent_of(listed[i].sha), full(listed[i].before), listed[i].subject)
-    end
-  end)
+  ---@param files CRFile[]
+  ---@return string[] One `status<TAB>path` per file, in git's own spelling
+  local function as_git_says(files)
+    return vim.tbl_map(function(f)
+      return ("%s\t%s"):format(f.status, f.path)
+    end, files)
+  end
 
-  it("starts the oldest at the merge base, and not at its parent", function()
-    local oldest = listed[#listed]
-    assert.same(base, full(oldest.before))
-    assert.are_not.same(parent_of(oldest.sha), full(oldest.before))
-  end)
+  for at, commit in ipairs(commits) do
+    it(("reads what a review starting at %q has always read"):format(commit.subject), function()
+      -- The ref a trim starting at this commit was stored as before a trim was a set.
+      local shipped = at < #commits and parent_of(commit.sha) or base
+      local files = under_trim(taken_out_below(commit.subject))
+      assert.same(h.git_lines(fixture, { "diff", "--name-status", shipped }), as_git_says(files))
+    end)
+  end
+
+  state.set_trim(root, nil)
 end)
 
 --- What a trim resolves to --------------------------------------------------------
 
 describe("a trim starting at a commit part-way up the branch", function()
-  local picked, kept = commit_named("test: cover the config reader")
-  local files, scope = under_trim(parent_of(picked.sha))
+  local subject = "test: cover the config reader"
+  local _, kept = commit_named(subject)
+  local files, scope = under_trim(taken_out_below(subject))
 
   -- The commit picked added `src/config_spec.lua`; the one before it added the host line to
   -- `src/config.lua`. So the two files say which side of the pick each commit landed on.
@@ -180,12 +219,19 @@ describe("a trim starting at a commit part-way up the branch", function()
   end)
 end)
 
+-- The oldest row takes nothing out: there is no commit older than it to take. That is a
+-- trim all the same -- the label counts the whole branch and the list marks the row -- and
+-- it is the one pick whose set is empty, so it is also what says the store keeps an empty
+-- set rather than losing it on the way to the disk and back.
 describe("a trim starting at the oldest commit", function()
-  local listed = assert(git.branch_commits(root, base))
-  local files, scope = under_trim(listed[#listed].before)
+  local files, scope = under_trim({})
 
   it("reads from the merge base", function()
     assert.same(base, scope.before)
+  end)
+
+  it("is still a trim, and says so in its label", function()
+    assert.is_truthy(scope.label:find(("last %d"):format(#commits), 1, true), scope.label)
   end)
 
   -- `src/lexer.lua` exists at the merge base and does not exist at the oldest commit's
@@ -218,8 +264,7 @@ describe("no trim at all", function()
 end)
 
 describe("what a trim never moves", function()
-  local picked = commit_named("Merge branch 'lexer' into feature")
-  local _, trimmed = under_trim(parent_of(picked.sha))
+  local _, trimmed = under_trim(taken_out_below("Merge branch 'lexer' into feature"))
   local _, whole = under_trim(nil)
 
   -- The one field the whole feature rests on. The pre-image moves under a trim and the
@@ -250,7 +295,7 @@ describe("the scopes gs moves through", function()
   it("is the same cycle under a trim as without one", function()
     state.set_trim(root, nil)
     local without = git.cycle(root)
-    state.set_trim(root, parent_of(commits[1].sha))
+    state.set_trim(root, taken_out_below(commits[1].subject))
     assert.same(without, git.cycle(root))
     state.set_trim(root, nil)
   end)
@@ -540,6 +585,36 @@ describe("cycling scope from a trimmed review", function()
   end)
 end)
 
+-- A commit made after a trim is in the review the moment it is made, because a trim is the
+-- commits it takes *out* and nobody took this one out. A trim that recorded the commits it
+-- kept would leave the new one outside a review the reviewer never narrowed past it, and a
+-- count remembered at pick time would keep saying the number it said then.
+--
+-- Last of this half, because it puts a sixth commit on the branch every block above counts.
+describe("work committed after the trim was picked", function()
+  vim.fn.writefile({ "local late = true" }, vim.fs.joinpath(fixture, "src/late.lua"))
+  -- That file alone: the tree also holds work two blocks above left uncommitted, and this
+  -- claim is about a commit rather than about what else is in the review beside it.
+  h.git_lines(fixture, { "add", "src/late.lua" })
+  h.git_lines(fixture, { "commit", "-q", "-m", "feat: commit after trimming" })
+  -- The entry point `gs` back onto the branch and every open already go through, so the
+  -- trim is read again and nothing about it was touched.
+  view.set_scope("branch")
+  local W = assert(view.current())
+
+  it("holds the new commit's work", function()
+    assert.is_number(h.file_index(W, "src/late.lua"), vim.inspect(paths(W.files)))
+  end)
+
+  it("still holds the commit the trim was picked at", function()
+    assert.is_number(h.file_index(W, "src/lexer.lua"), vim.inspect(paths(W.files)))
+  end)
+
+  it("counts it, so the label grew by one", function()
+    assert.is_truthy(W.scope.label:find("last 2", 1, true), W.scope.label)
+  end)
+end)
+
 codereview.close()
 
 --- The trim a session leaves behind -----------------------------------------------
@@ -683,13 +758,27 @@ end)
 -- What a `git gc` after a rebase leaves behind, and the one case no session can reach on its
 -- own: the commit was there when the trim was picked and this repository has nothing under
 -- that name now. One fact for the reviewer, so one sentence -- the same one.
-describe("a stored trim naming a commit this repository does not have", function()
+--
+-- Set beside a commit the branch still holds, because a trim is a set and the rule is that
+-- **any** failure takes all of it. A store that dropped the commit that failed and kept the
+-- rest would leave the review narrowed by a selection the reviewer never made -- so the
+-- surviving commit is one that narrows the review on its own, and the case above it is what
+-- says so rather than assuming it.
+describe("a stored trim holding a commit this repository does not have", function()
+  local oldest = assert(h.git_lines(kept, { "rev-list", "--first-parent", "--reverse", kept_base .. "..HEAD" })[1])
+
+  it("would narrow the review on its own, for the commit that survives the check", function()
+    state.set_trim(kept_root, { oldest })
+    view.set_scope("branch")
+    assert.are_not.same(WHOLE, paths(assert(view.current()).files))
+  end)
+
   local msgs, restore = h.capture_notify()
-  state.set_trim(kept_root, ("0"):rep(40))
+  state.set_trim(kept_root, { oldest, ("0"):rep(40) })
   view.set_scope("branch")
   restore()
 
-  it("opens the full branch", function()
+  it("opens the full branch, so nothing of the set survived", function()
     assert.same(WHOLE, paths(assert(view.current()).files))
   end)
 
