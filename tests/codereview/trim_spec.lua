@@ -408,6 +408,124 @@ describe("every commit taken out", function()
   end)
 end)
 
+--- A merge, on either side of the rule ---------------------------------------------
+
+-- One merge, on one branch, in three selections -- because no one selection can state this
+-- rule. Taken off the *start* of the branch it is inside the leading run: it assembles nothing
+-- and reads what a trim past a merge has always read, which is the block two above this one
+-- and the shipped `gc` flow on any branch with a merge in it. Taken out with a commit older
+-- than it left in, it is refused before any merge is attempted: its first-parent diff adds
+-- everything the side branch brought while the anchor already holds it, and what it brought is
+-- outside the review in the first place. Taken off the start with a commit above it taken out
+-- as well, it is inside the run *and* the trim has a hole, which is the only selection that
+-- can tell "where the merge sits" from "the set holds a merge".
+--
+-- What resolution can show of a refusal is only that it did not narrow the review. The
+-- sentence a reviewer reads is at the pick, in the view half of this file.
+describe("the merge taken out of the middle", function()
+  -- Resolution has no reviewer in front of it, so a refused set does here what every set that
+  -- cannot be built does: it gives the whole branch back.
+  local files, scope = under_trim(taken_out("Merge branch 'lexer' into feature"))
+
+  it("gives the whole branch back rather than a reading it refused to build", function()
+    assert.same({ "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }, paths(files))
+  end)
+
+  it("says nothing about a trim it refused", function()
+    assert.is_nil(scope.label:find("last", 1, true), scope.label)
+    assert.is_nil(scope.label:find(" of ", 1, true), scope.label)
+  end)
+end)
+
+-- The rule is about where the merge sits and never about the set holding one, and this is the
+-- case that can tell those two apart. The merge is inside the run, so it merges nothing --
+-- and a commit above the run is taken out beside it, so a tree really is assembled. A rule
+-- written as "refuse a set with a merge in it" passes every other block in this file and reds
+-- this one.
+describe("a hole above a merge the trim takes off the start", function()
+  local merge = commit_named("Merge branch 'lexer' into feature")
+  -- Everything up to and including the merge, and the newest commit as well. What is left in
+  -- the review is the one commit between them.
+  local skipped = taken_out_below("test: assert the host as well")
+  vim.list_extend(skipped, taken_out("docs: write the readme"))
+  local files, scope = under_trim(skipped)
+
+  it("refuses nothing, and holds only the commit it kept", function()
+    assert.same({ "src/config_spec.lua" }, paths(files))
+    assert.same("+1 -1", counts_of(files, "src/config_spec.lua"))
+  end)
+
+  -- The teeth against an anchor that stopped at the merge and applied nothing above it: the
+  -- readme the newest commit wrote is out of this review, and only a built tree takes it out.
+  it("built a tree, so the pre-image is no commit on this branch", function()
+    assert.are_not.same(merge.sha, scope.before)
+    assert.same({ "commit" }, h.git_lines(fixture, { "cat-file", "-t", scope.before }))
+    assert.same({}, h.git_lines(fixture, { "branch", "--contains", scope.before }))
+  end)
+
+  it("counts the one commit it kept", function()
+    assert.is_truthy(scope.label:find(("1 of %d"):format(#commits), 1, true), scope.label)
+  end)
+end)
+
+-- **A branch with no merge on its first-parent line is untouched by the rule**, and the
+-- history this spec reads cannot say so on its own: every listing of it holds the merge. So a
+-- second copy of the fixture, and a branch cut off master's tip with three ordinary commits
+-- on it -- a first-parent line the rule has nothing to fire on. A hole in the middle of it is
+-- built and drawn exactly as it was before the rule existed.
+--
+-- Its own repository throughout, so nothing here can be answered out of what the blocks above
+-- did to the fixture they share, and nothing here reaches them.
+describe("a hole on a branch with no merge in it", function()
+  local flat = h.fixture("mkcommits")
+  local flat_root = assert(vim.uv.fs_realpath(flat))
+  h.git_lines(flat, { "checkout", "-q", "-b", "flat", "master" })
+
+  ---@param name string
+  ---@param body string[]
+  ---@param subject string
+  local function commit(name, body, subject)
+    vim.fn.writefile(body, vim.fs.joinpath(flat, name))
+    h.git_lines(flat, { "add", "-A" })
+    h.git_lines(flat, { "commit", "-q", "-m", subject })
+  end
+
+  commit("src/flat_one.lua", { "local one = 1" }, "feat: write the first file")
+  commit("src/flat_two.lua", { "local two = 2" }, "feat: write the second file")
+  commit("src/flat_one.lua", { "local one = 1", "local three = 3" }, "feat: write the first file again")
+
+  local flat_base = assert(h.git_lines(flat, { "merge-base", "master", "HEAD" })[1], "no merge base")
+  local listed = assert(git.branch_commits(flat_root, flat_base))
+  -- The middle row: the only hole a three-commit branch has.
+  local middle = listed[2]
+
+  it("lists a first-parent line with no merge on it", function()
+    assert.same(3, #listed, vim.inspect(listed))
+    for _, c in ipairs(listed) do
+      assert.is_false(c.merge, c.subject)
+    end
+  end)
+
+  state.set_trim(flat_root, { middle.id })
+  local scope = assert(git.resolve_scope("branch", flat_root))
+  local files = assert(git.collect(scope, flat_root, {}))
+
+  it("refuses nothing", function()
+    assert.is_nil(git.trim_refusal(flat_root, flat_base, { middle.id }))
+  end)
+
+  it("draws the two commits it kept and not the one it took out", function()
+    assert.same({ "src/flat_one.lua" }, paths(files))
+    assert.same("+2 -0", counts_of(files, "src/flat_one.lua"))
+  end)
+
+  it("counts what is left in its label", function()
+    assert.is_truthy(scope.label:find("2 of 3", 1, true), scope.label)
+  end)
+
+  state.set_trim(flat_root, nil)
+end)
+
 -- A skip that cannot be built, at the seam where nothing can be said about it: resolution
 -- has no reviewer in front of it. The refusal a reviewer reads is at the pick, in the view
 -- half of this file.
@@ -923,6 +1041,94 @@ describe("the commit it depends on picked beside it", function()
 
   it("stored it, so the next resolve reads the same review", function()
     assert.same({ dependency.sha, dependent.sha }, state.trim(root))
+  end)
+end)
+
+-- The merge picked out of the middle, which is the one refusal that is not about files. What
+-- the reviewer is told is that the merge brings this review nothing: merging the default
+-- branch moves the merge base forward, so what it brought is already outside the reading.
+-- Naming the files it would have collided in would answer a question they did not ask with a
+-- list they did not write and cannot act on.
+describe("the merge picked out of the middle", function()
+  local W = assert(view.current())
+  local was_paths = paths(W.files)
+  local was_label = W.scope.label
+  local was_trim = vim.deepcopy(assert(state.trim(root), "this review is not trimmed, so nothing can be untouched"))
+
+  local merge = commit_named("Merge branch 'lexer' into feature")
+  local short = assert(h.git_lines(fixture, { "rev-parse", "--short", merge.sha })[1])
+
+  local msgs, restore = h.capture_notify()
+  view.trim_to({ merge.sha })
+  restore()
+
+  it("says a merge brings nothing the review does not already read", function()
+    assert.is_true(h.notified(msgs, "brings nothing the review does not already read"), vim.inspect(msgs))
+  end)
+
+  it("names the merge it refused", function()
+    assert.is_true(h.notified(msgs, short), vim.inspect(msgs))
+    assert.is_true(h.notified(msgs, merge.subject), vim.inspect(msgs))
+  end)
+
+  -- The teeth against a rule that attempts the merge and rewords what `merge-tree` said: that
+  -- is the same answer with better prose, and it names every file the side branch brought.
+  it("names no file it would have collided in", function()
+    for _, path in ipairs({ "README.md", "src/config.lua", "src/config_spec.lua", "src/lexer.lua" }) do
+      assert.is_false(h.notified(msgs, path), vim.inspect(msgs))
+    end
+    assert.is_false(h.notified(msgs, "conflicts in"), vim.inspect(msgs))
+  end)
+
+  it("leaves the store holding the trim the reviewer already had", function()
+    assert.same(was_trim, state.trim(root))
+  end)
+
+  it("leaves the review that was on screen exactly as it was", function()
+    local X = assert(view.current(), "the review view closed")
+    assert.same(was_paths, paths(X.files))
+    assert.same(was_label, X.scope.label)
+  end)
+end)
+
+-- The same row, taken off the start of the branch: every commit older than the merge goes out
+-- with it, so it is inside the leading run and merges nothing. This is the shipped `gc` flow
+-- on any branch with a merge in it, and it is the half of the rule a reviewer meets most.
+describe("the same merge picked off the start of the branch", function()
+  local merge = commit_named("Merge branch 'lexer' into feature")
+  local listed = assert(git.branch_commits(root, base))
+
+  local msgs, restore = h.capture_notify()
+  view.trim_to(taken_out_below("test: assert the host as well"))
+  restore()
+  local W = assert(view.current())
+
+  it("refuses nothing", function()
+    assert.is_false(h.notified(msgs, "is not needed"), vim.inspect(msgs))
+    assert.is_false(h.notified(msgs, "conflicts in"), vim.inspect(msgs))
+  end)
+
+  it("reads from the merge itself, so nothing was assembled", function()
+    assert.same(merge.sha, W.scope.before)
+  end)
+
+  -- Against `git diff` alone, so the comparison is with the reading this trim gave before any
+  -- of this existed. The untracked file left in the tree further up this file is in the review
+  -- and in no `git diff`, so it is held out of the comparison rather than dropped from the
+  -- claim -- that it survives every trim is asserted where it is written and again below.
+  it("draws exactly what the shipped trim drew for that reading", function()
+    local tracked = {}
+    for _, f in ipairs(W.files) do
+      if f.status ~= "U" then
+        tracked[#tracked + 1] = ("%s\t%s"):format(f.status, f.path)
+      end
+    end
+    assert.same(h.git_lines(fixture, { "diff", "--name-status", merge.sha }), tracked)
+  end)
+
+  it("says last N on the winbar, because that is the shape this reading has", function()
+    local bar = h.winbar(W.win)
+    assert.is_truthy(bar:find(("last %d"):format(#listed - 3), 1, true), bar)
   end)
 end)
 
