@@ -119,8 +119,8 @@ end
 --- The fixture the resolution rules lean on --------------------------------------
 
 describe("the history this spec reads", function()
-  it("puts four commits on the branch's own line of work", function()
-    assert.same(4, #commits, vim.inspect(commits))
+  it("puts five commits on the branch's own line of work", function()
+    assert.same(5, #commits, vim.inspect(commits))
   end)
 
   -- The reason the fixture's side branch is cut from master's tip: resolving the oldest row
@@ -624,7 +624,7 @@ describe("the other branch over the same commits", function()
   end)
 
   it("counts its own commits on the winbar", function()
-    assert.is_truthy(h.winbar(W.win):find("last 3", 1, true), h.winbar(W.win))
+    assert.is_truthy(h.winbar(W.win):find("last 4", 1, true), h.winbar(W.win))
   end)
 end)
 

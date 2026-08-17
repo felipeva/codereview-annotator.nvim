@@ -102,14 +102,17 @@ interchangeable, and the assertions know which one they are looking at.
   `packages/shared/src` are single-child chains that must compact, `apps` has two children
   so it must not. Used by `panel_spec`, `focus_spec` and `queue_jump_panel_spec`.
 - **`mkcommits.sh`** — repo whose *history* is the point, and the smallest of the four: no
-  file statuses, no binary, no rename. A branch of four commits over the default branch,
-  one of them a merge that brings in a fifth commit from a side branch cut off master's
+  file statuses, no binary, no rename. A branch of five commits over the default branch,
+  one of them a merge that brings in a sixth commit from a side branch cut off master's
   tip. Used by `trim_spec` and `trim_float_spec`. Two rules need exactly that shape and can be seen in
   nothing else: a listing that dropped `--first-parent` draws the commit the merge brought
   in as a row of its own, and the merge base is a different commit from the oldest listed
-  commit's parent, which is what resolving the oldest row has to notice. Its commits are
-  dated days apart, as offsets back from the moment the script runs, so a relative date on
-  a row is a fact a spec can check and never goes stale. `trim_spec` builds a **second copy**
+  commit's parent, which is what resolving the oldest row has to notice. One commit on the
+  branch rewrites the line an earlier one introduced, in the file that earlier one added,
+  so it is the only commit here that cannot leave a review on its own — without it a
+  refusal has nothing to refuse, which is "a filter test needs a fixture only that filter
+  can reject". Its commits are dated days apart, as offsets back from the moment the script
+  runs, so a relative date on a row is a fact a spec can check and never goes stale. `trim_spec` builds a **second copy**
   for the trim a restart brings back, and cuts a `second` branch at `feature`'s tip inside
   it: two branches over one history is what "each branch keeps its own trim" needs, and
   neither branch the script builds can offer it — `lexer` has one commit of its own, so
