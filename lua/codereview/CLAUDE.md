@@ -22,7 +22,7 @@ change there is felt through.
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
 | `fade.lua` | The **faded** file rule: which rows one file's fade covers, and which group a faded row carries in place of its own | stateful (editor) |
-| `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes, and the pre-image a **trim** with a hole in it is built from | stateful (git) |
+| `git.lua` | Every shell-out in the plugin: scope resolution, `git diff`, blob hashes, the pre-image a **trim** with a hole in it is built from, and the one query answered on a later tick — how much each commit on the branch changed | stateful (git) |
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
@@ -33,7 +33,7 @@ change there is felt through.
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named, and how a winbar is assembled from typed segments | pure |
 | `state.lua` | Persisted review progress, the blob comparisons over it — staleness, and touchedness kept in a function of its own — and each branch's **trim**, checked against `HEAD` before it is handed back | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
-| `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox on every row, and the pick that applies the **trim** they add up to | stateful (float) |
+| `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalization, labels, and the directive that earns a type its keystroke | pure |
 | `view.lua` | The review view: the `CRView` it owns, the paint, navigation, delivery, opening and closing | stateful (windows) |
 | `view_layout.lua` | Where the review's windows are: the panes, the before pane, the toggle between the unified and split layouts, which of them is muted, and which group each lights its row in | stateful (windows) |

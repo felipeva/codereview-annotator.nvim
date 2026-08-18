@@ -953,4 +953,91 @@ function M.branch_commits(root, base)
   return commits, nil
 end
 
+---@class CRCommitSize
+---@field added integer    Lines the commit added
+---@field deleted integer  Lines it deleted
+---@field files integer    Files it touched
+
+---How much each commit on the branch changed, answered on a later tick.
+---
+---**Asked apart from the listing, and that is the whole point of it.** `branch_commits` is a
+---metadata query and near-instant; this is a diff of every commit on the branch, and on a
+---long one it is the slowest thing either surface asks for. Made a field of that format it
+---would put the whole cost in front of the float opening -- which is exactly what was
+---refused when these counts were first left off a row. Asked here it costs the float
+---nothing: the rows are drawn from the listing and the columns fill when the answer lands.
+---
+---**One process for the whole branch**, for the reason the listing carries the merge flag
+---rather than asking per row: a commit at a time is a process per row of a list a reviewer
+---is free to take the whole of, and a second walk is a second answer to which commits are on
+---the branch. One question, one answer, and it is `--first-parent` from the same base so the
+---answer is keyed by the rows the listing drew.
+---
+---**`--numstat` and never `--shortstat`.** The short form is a sentence git writes for a
+---human and translates for their locale; the long form is two numbers and a path per file,
+---which is what `git diff --numstat` is for. A binary file prints `-` for both counts: it is
+---a file the commit touched and no lines anybody wrote, and it is counted that way.
+---
+---**`--diff-merges=first-parent` states what the row has to claim.** A merge is one row here
+---and the review reads its first-parent diff, so that is the size the row reports. Every git
+---above this plugin's floor already diffs a merge that way under `--first-parent`; the flag
+---says it rather than inheriting it, because a row claiming a size the review does not have
+---is worse than a row claiming none.
+---
+---The callback is handed nil when git cannot answer, and a row then carries no figures at
+---all. No sentence: a size sits beside the subject to be glanced at, and a reviewer who can
+---still read every subject and press every key has lost nothing worth a notification.
+---
+---It always lands on a later tick and where the editor can be touched, failure and answer
+---alike, so a caller has one rule to write against rather than two.
+---@param root string
+---@param base string Where the branch starts: the scope's identity
+---@param on_done fun(sizes: table<string, CRCommitSize>|nil) Keyed by full sha
+function M.branch_sizes(root, base, on_done)
+  local function answer(sizes)
+    vim.schedule(function()
+      on_done(sizes)
+    end)
+  end
+
+  local cmd = {
+    "git",
+    "log",
+    "--first-parent",
+    "--diff-merges=first-parent",
+    "--numstat",
+    -- The unit separator is what tells a commit's own line from the numstat lines under it:
+    -- those start with a count or a `-` and hold tabs, and nothing else here starts with a
+    -- character a path cannot begin with either.
+    "--format=%x1f%H",
+    base .. "..HEAD",
+  }
+  -- vim.system raises when the binary is missing, rather than reporting it to the callback.
+  local ok = pcall(vim.system, cmd, { text = true, cwd = root, timeout = DIFF_TIMEOUT_MS }, function(res)
+    if res.code ~= 0 then
+      return answer(nil)
+    end
+
+    local sizes, at = {}, nil
+    for _, entry in ipairs(vim.split(res.stdout or "", "\n", { trimempty = true })) do
+      local id = entry:match("^\31(%S+)$")
+      if id then
+        at = { added = 0, deleted = 0, files = 0 }
+        sizes[id] = at
+      elseif at then
+        local added, deleted = entry:match("^(%S+)\t(%S+)\t")
+        if added then
+          at.files = at.files + 1
+          at.added = at.added + (tonumber(added) or 0)
+          at.deleted = at.deleted + (tonumber(deleted) or 0)
+        end
+      end
+    end
+    answer(sizes)
+  end)
+  if not ok then
+    answer(nil)
+  end
+end
+
 return M
