@@ -1066,6 +1066,77 @@ describe("the title while a set is being built", function()
   codereview.close()
 end)
 
+--- One press, three surfaces ----------------------------------------------------
+
+-- The title is this slice's, and the footer and the jump pair arrived with the one before
+-- it. Each half was asserted alone, and what nothing asserted is that one `<Space>` leaves
+-- all three agreeing: the count on the title, the keys named on the footer, and where `]c`
+-- goes next. Every reading below is taken off the same float after the same single press.
+--
+-- The footer is the one that looks like it cannot fail. The title is written again on every
+-- toggle through `nvim_win_set_config`, with a table holding the title and nothing else; a
+-- table holding the whole config would take the footer off the border and say nothing about
+-- it -- no error, no other case red, and a float that stops naming its keys after the first
+-- press a reviewer makes.
+describe("one press, the title, the footer and the jump pair", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+
+  -- Where the pair went under the set the float opened with, so where it goes after the press
+  -- is a change rather than a coincidence: from the top row, the newest commit is the next
+  -- checked one.
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  h.feed("]c")
+  local was = cursor_row(win)
+  local footer_before = chrome(win, "footer")
+
+  -- The press. Everything below is read without another one.
+  local out = row_of(buf, first_parent[1].subject)
+  toggle(win, out)
+  local title = chrome(win, "title")
+  local footer = chrome(win, "footer")
+  local stored = state.trim(root)
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  h.feed("]c")
+  local now = cursor_row(win)
+
+  it("really did take the row the pair used to land on", function()
+    assert.same(out, was)
+    assert.are_not.same(IN, box(buf, out), lines(buf)[out])
+  end)
+
+  it("counts the set the press left on the title", function()
+    assert.is_truthy(title:find(("%d of %d"):format(#first_parent - 1, #first_parent), 1, true), title)
+  end)
+
+  it("still names the pair that moves between checked commits on the footer", function()
+    assert.is_truthy(footer:find("]c", 1, true), footer)
+    assert.is_truthy(footer:find("[c", 1, true), footer)
+  end)
+
+  -- Byte for byte, whatever the footer says: what is claimed is that writing the title back
+  -- left the rest of the window's own config alone, and that has to hold through a footer
+  -- rewritten by somebody else.
+  it("leaves the footer exactly the string it was before the press", function()
+    assert.are_not.same("", footer)
+    assert.same(footer_before, footer)
+  end)
+
+  it("jumps past the row the press took out, rather than to it", function()
+    assert.same(out + 1, now)
+    assert.are_not.same(was, now)
+  end)
+
+  it("did all of that with nothing applied", function()
+    assert.is_nil(stored)
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
 --- Applying the boxes -----------------------------------------------------------
 
 -- What a pick *resolves to* is `trim_spec`'s. What is here is that the keys reach it: the
@@ -1836,4 +1907,99 @@ describe("the height the float opens at", function()
       ("%d rows and a border on %d lines"):format(cramped.height, cramped.lines)
     )
   end)
+end)
+
+--- A jump the float has to scroll for -------------------------------------------
+
+-- The pair's arithmetic is buffer rows, and it was written and pressed on a float tall
+-- enough to hold the branch it was pressed on. The height above is what takes that away: on
+-- a terminal short enough for the floor, most of a long listing is off screen, and the row
+-- `]c` names is a row the window has to move to before a reviewer can see it.
+--
+-- Read as the viewport and not as the cursor alone. A cursor sitting on a row the window
+-- never scrolled to is a jump that landed where nobody can see it, and the row number is the
+-- same either way.
+--
+-- Last, with the block above: this needs the branch that block grew, and a float shorter
+-- than its listing needs a listing longer than any float.
+describe("]c on a float too short to hold the branch", function()
+  h.ui(110, 12)
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local height = vim.api.nvim_win_get_config(win).height
+
+  ---The first and the last row the float is showing.
+  ---@return integer[]
+  local function viewport()
+    return vim.api.nvim_win_call(win, function()
+      return { vim.fn.line("w0"), vim.fn.line("w$") }
+    end)
+  end
+
+  -- Every box out, then two back in, far enough down the listing that neither is on screen
+  -- from the top of it. A checked row inside the viewport is reached by a jump that never
+  -- had to scroll at all, which is the case this block is not about.
+  toggle(win, 1)
+  local FAR, FARTHER = 30, 50
+  toggle(win, FAR)
+  toggle(win, FARTHER)
+
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  local from_top = viewport()
+  local messages, restore = h.capture_notify()
+  h.feed("]c")
+  restore()
+  local landed, showing = cursor_row(win), viewport()
+  h.feed("]c")
+  local farther, showing_farther = cursor_row(win), viewport()
+  h.feed("[c")
+  local back, showing_back = cursor_row(win), viewport()
+
+  it("opened on a float well short of the listing it holds", function()
+    assert.is_true(height < #lines(buf), ("%d rows for a listing of %d"):format(height, #lines(buf)))
+  end)
+
+  it("really did leave both checked rows below the rows on screen", function()
+    assert.same({ FAR, FARTHER }, checked(buf), table.concat(lines(buf), "\n"))
+    assert.is_true(from_top[2] < FAR, ("showing %d to %d"):format(from_top[1], from_top[2]))
+  end)
+
+  it("lands on the checked row rather than on the last row it could see", function()
+    assert.same(FAR, landed)
+  end)
+
+  it("scrolled the float onto it", function()
+    assert.is_true(
+      showing[1] <= FAR and FAR <= showing[2],
+      ("row %d, showing %d to %d"):format(landed, showing[1], showing[2])
+    )
+  end)
+
+  it("reaches the one below it on a second press, and scrolls again", function()
+    assert.same(FARTHER, farther)
+    assert.is_true(
+      showing_farther[1] <= FARTHER and FARTHER <= showing_farther[2],
+      ("row %d, showing %d to %d"):format(farther, showing_farther[1], showing_farther[2])
+    )
+  end)
+
+  it("comes back up on [c, and scrolls back with it", function()
+    assert.same(FAR, back)
+    assert.is_true(
+      showing_back[1] <= FAR and FAR <= showing_back[2],
+      ("row %d, showing %d to %d"):format(back, showing_back[1], showing_back[2])
+    )
+  end)
+
+  -- The other way a jump can fail on a short float: reporting that there is nothing to move
+  -- to, because everything it could see was unchecked.
+  it("moved rather than reported that there was nowhere to go", function()
+    assert.is_false(h.notified(messages, "checked"), vim.inspect(messages))
+  end)
+
+  h.feed("q")
+  codereview.close()
+  h.ui(110, 40)
 end)
