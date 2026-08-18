@@ -169,6 +169,7 @@ The commit list                                        *codereview-commits*
 `gc` opens it over a branch review, and it lists the branch's commits newest
 first, one row each: >
     <Space>          Take the commit under the cursor in or out
+    <Space> (visual) Take the rows you drew in or out together
     ]c [c            Next / previous checked commit
     <CR>             Apply the boxes and close
     q <Esc>          Close, applying nothing
@@ -178,10 +179,18 @@ than inferred from one mark -- and the commits you keep do not have to be next
 to each other. Uncheck one commit in the middle and the commits older than it
 stay in the review.
 
+A run of commits costs one press rather than one per row: draw the rows in
+visual mode and press `<Space>` once. The rows all become the same rather
+than each one flipping, and what they become follows the row you started on
+-- start on a checked row and the whole run leaves the review, start on an
+unchecked one and the whole run comes back in.
+
 The top row is "All commits" and it works both ways: checked it puts the whole
 branch back in the review, unchecked it takes every commit out, which leaves a
-review of your uncommitted work alone. Your cursor opens on the oldest commit
-still in the review, or on that top row while the whole branch is in it.
+review of your uncommitted work alone. A run that reaches that row leaves it
+alone and treats the commits under it normally. Your cursor opens on the
+oldest commit still in the review, or on that top row while the whole branch
+is in it.
 
 `]c` and `[c` move between the commits that are checked, which is how a long
 branch is walked back through without scrolling. Neither wraps: at the last

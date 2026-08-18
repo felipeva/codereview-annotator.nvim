@@ -262,6 +262,23 @@ local function toggle(win, row)
   h.feed("<Space>")
 end
 
+---Draw a run of rows in visual mode and press the key once on it.
+---
+---Drawn from `from` to `to` and never from the top of the run down: which end the reviewer
+---began on is what decides the direction, and a helper that always started at the higher row
+---could not press a run drawn upward at all. The keys and the press go in together, because
+---the float reads where the run started while the selection is still live -- `'<` and `'>`
+---are not written until visual mode is left, which is the recorded trap the review path's own
+---visual capture walked into.
+---@param win integer
+---@param from integer The row the run starts at
+---@param to integer The row it ends at
+local function toggle_run(win, from, to)
+  vim.api.nvim_win_set_cursor(win, { from, 0 })
+  local rows = math.abs(to - from)
+  h.feed("V" .. (rows > 0 and rows .. (to > from and "j" or "k") or "") .. "<Space>")
+end
+
 ---The row the cursor is on, which is what every key that moves it is judged by.
 ---@param win integer
 ---@return integer
@@ -278,10 +295,11 @@ local function chrome(win, field)
 end
 
 ---@param buf integer
----@return table<string, boolean> Every left-hand side bound in normal mode
-local function bound(buf)
+---@param mode? string The mode to read, normal by default
+---@return table<string, boolean> Every left-hand side bound in it
+local function bound(buf, mode)
   local lhs = {}
-  for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, mode or "n")) do
     lhs[vim.keycode(m.lhs)] = true
   end
   return lhs
@@ -696,6 +714,16 @@ describe("the keys on the float", function()
     assert.is_truthy(footer:find("[c", 1, true), footer)
   end)
 
+  -- The key that is not a key of its own: the same `<Space>`, pressed over rows a reviewer
+  -- drew. A footer that named only the single press would leave the whole of this feature
+  -- something a reviewer has to guess at.
+  it("advertises that a run of rows can be pressed together", function()
+    local win = commits_by_key(review.win)
+    local footer = chrome(win, "footer")
+    h.feed("q")
+    assert.is_truthy(footer:find("v rows", 1, true), footer)
+  end)
+
   -- The other half of the same claim: the footer names what the float has, and the float has
   -- nothing the footer does not name. `<Esc>` is the one key beside those the footer lists,
   -- and `close` is what it does.
@@ -718,6 +746,17 @@ describe("the keys on the float", function()
       ["[c"] = true,
       q = true,
     }, lhs)
+  end)
+
+  -- And the same claim in the mode this float bound a key in second. A reviewer in visual
+  -- mode still has every key visual mode gives them, `o` and `iw` and the operators included:
+  -- the one key taken there is the one that presses the rows they drew.
+  it("binds one key in visual mode, and it is the one that toggles", function()
+    local win, buf = commits_by_key(review.win)
+    local lhs = bound(buf, "x")
+    h.feed("q")
+    assert.is_false(vim.api.nvim_win_is_valid(win))
+    assert.same({ [vim.keycode("<Space>")] = true }, lhs)
   end)
 
   codereview.close()
@@ -1135,6 +1174,346 @@ describe("one press, the title, the footer and the jump pair", function()
 
   h.feed("q")
   codereview.close()
+end)
+
+--- A run of rows in one press ---------------------------------------------------
+
+-- Every run pressed below is **mixed** -- some of its rows checked and some not -- and that
+-- is the whole of what these blocks measure. Over a run that is uniform, "make them all the
+-- same" and "flip each of them" produce the same rows, so a block that drew its run over an
+-- untouched listing would pass against either rule and assert nothing about the one this key
+-- exists for.
+--
+-- The direction is the other half. A run drawn downward from a checked row and one drawn
+-- upward from an unchecked row answer differently, and only the second can tell "follows the
+-- row the run started at" from "follows the row nearest the top of the list" -- which is the
+-- same reading on every run drawn the easy way.
+
+describe("a run of rows drawn downward over a mixed set", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local last = #lines(buf)
+
+  -- Two rows out of the four the run will cover, and not next to each other: the run the
+  -- press meets holds checked rows and unchecked rows in the middle of it.
+  toggle(win, 3)
+  toggle(win, 5)
+  local before = checked(buf)
+
+  -- Where the jump pair went under that set, so where it goes after the press is a change
+  -- rather than a coincidence.
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  h.feed("]c")
+  local was = cursor_row(win)
+
+  -- The press. From row 2, which is checked, down to row 5: every row in the run follows row
+  -- 2 out of the review, including the two that were already out.
+  toggle_run(win, 2, 5)
+  local after = checked(buf)
+  local title = chrome(win, "title")
+  local mode = vim.api.nvim_get_mode().mode
+  local still_open = vim.api.nvim_win_is_valid(win)
+  local stored = state.trim(root)
+
+  vim.api.nvim_win_set_cursor(win, { 1, 0 })
+  h.feed("]c")
+  local now = cursor_row(win)
+
+  it("really did press over a run that was already mixed", function()
+    assert.same({ 2, 4, last }, before, table.concat(lines(buf), "\n"))
+  end)
+
+  -- The teeth. Flipping each row instead would have put rows 3 and 5 back in and taken rows
+  -- 2 and 4 out, which is a set with the same number of boxes in it and a different set.
+  it("makes every row in the run the same rather than flipping each of them", function()
+    assert.same({ last }, after, table.concat(lines(buf), "\n"))
+  end)
+
+  it("leaves the row below the run alone", function()
+    assert.same(IN, box(buf, last), lines(buf)[last])
+  end)
+
+  it("counts what the press left on the title", function()
+    assert.is_truthy(title:find(("%d of %d"):format(1, #first_parent), 1, true), title)
+  end)
+
+  -- The pair reads the boxes the press left, and not the ones the float opened on. It landed
+  -- on row 2 before the press, and row 2 is one of the rows the press took out.
+  it("moves the jump pair onto the set the press left", function()
+    assert.same(2, was)
+    assert.same(last, now)
+  end)
+
+  -- Visual mode is left behind, and `<Esc>` is what leaves it -- which is also this float's
+  -- own key for closing. A press that let that mapping run would close the float on the
+  -- reviewer the moment they pressed it.
+  it("leaves the reviewer in normal mode, on a float that is still open", function()
+    assert.same("n", mode)
+    assert.is_true(still_open)
+  end)
+
+  it("did all of that with nothing applied", function()
+    assert.is_nil(stored)
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
+describe("a run of rows drawn upward over a mixed set", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local last = #lines(buf)
+
+  -- The two oldest rows out, so the run is mixed again -- and this time the row the run
+  -- starts at is one of the unchecked ones, sitting at the *bottom* of it.
+  toggle(win, last)
+  toggle(win, last - 1)
+  local before = checked(buf)
+
+  -- From the oldest row up to row 3. The run starts unchecked, so every row in it is checked
+  -- back in.
+  toggle_run(win, last, 3)
+  local after = checked(buf)
+  local title = chrome(win, "title")
+  local stored = state.trim(root)
+
+  it("really did press over a run that was already mixed", function()
+    assert.same({ 2, 3, 4 }, before, table.concat(lines(buf), "\n"))
+  end)
+
+  -- The teeth for *which* row decides. Reading the direction off the top of the run instead
+  -- -- row 3, which is checked -- would have taken all four rows out. Flipping each of them
+  -- would have left rows 3 and 4 out and rows 5 and 6 in.
+  it("follows the row the run started at rather than the row nearest the top", function()
+    local every = {}
+    for row = 1, last do
+      every[row] = row
+    end
+    assert.same(every, after, table.concat(lines(buf), "\n"))
+  end)
+
+  -- And the top row's own box answers for the listing again, which is the reading the title
+  -- falls back to its single count on.
+  it("puts the whole branch back in, as the title says with one count", function()
+    assert.same(IN, box(buf, 1), lines(buf)[1])
+    assert.is_nil(title:find(" of ", 1, true), title)
+    assert.is_truthy(title:find(tostring(#first_parent), 1, true), title)
+  end)
+
+  it("did all of that with nothing applied", function()
+    assert.is_nil(stored)
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
+describe("a run that reaches the row above the commits", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local last = #lines(buf)
+
+  -- One row out of the three commits the run will cover.
+  toggle(win, 4)
+  local before = checked(buf)
+
+  -- Drawn from the top row down, which is the run a reviewer draws with `gg` and a motion.
+  -- The top row is not a commit, so the direction is read from row 2 -- the first row in the
+  -- run that the press can act on.
+  toggle_run(win, 1, 4)
+  local after = checked(buf)
+  local stored = state.trim(root)
+
+  it("really did press over a run that was already mixed", function()
+    assert.same({ 2, 3, 5, last }, before, table.concat(lines(buf), "\n"))
+  end)
+
+  -- The teeth, and both of them are in this one set. Treating the top row as a commit would
+  -- have taken the whole branch out, rows 5 and 6 included -- a set far larger than the four
+  -- rows the reviewer drew. Reading the direction off that row rather than off the first
+  -- commit under it would have checked the run back in instead.
+  it("leaves that row alone and treats the commits under it normally", function()
+    assert.same({ 5, last }, after, table.concat(lines(buf), "\n"))
+  end)
+
+  it("did all of that with nothing applied", function()
+    assert.is_nil(stored)
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
+-- A run of one row is a press on that row, in both places a press can mean something: a
+-- commit, and the row that answers for all of them. Read as the whole box column off two
+-- floats rather than as one row off one, so a visual press that moved some *other* row is a
+-- case that reds.
+describe("one row drawn in visual mode", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+
+  ---Every box on a float of its own, after `press` has been made on it.
+  ---@param press fun(win: integer)
+  ---@return string[]
+  local function boxes_after(press)
+    local win, buf = commits_by_key(review.win)
+    press(win)
+    local out = {}
+    for row = 1, #lines(buf) do
+      out[row] = box(buf, row)
+    end
+    h.feed("q")
+    return out
+  end
+
+  -- Nothing is stored until `<CR>`, so all four floats below open on the same boxes as this
+  -- one and each press is read against it.
+  local opened = boxes_after(function() end)
+  local visual_row = boxes_after(function(win)
+    vim.api.nvim_win_set_cursor(win, { 3, 0 })
+    h.feed("v<Space>")
+  end)
+  local normal_row = boxes_after(function(win)
+    toggle(win, 3)
+  end)
+  local visual_top = boxes_after(function(win)
+    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+    h.feed("v<Space>")
+  end)
+  local normal_top = boxes_after(function(win)
+    toggle(win, 1)
+  end)
+
+  -- Without this, two floats that both did nothing agree with each other and every case
+  -- below passes against a key that is not bound at all.
+  it("really did move a box on each of those floats", function()
+    assert.are_not.same(opened, visual_row, table.concat(visual_row, " "))
+    assert.are_not.same(opened, visual_top, table.concat(visual_top, " "))
+  end)
+
+  it("takes the commit out exactly as a press in normal mode does", function()
+    assert.same(normal_row, visual_row)
+  end)
+
+  it("means every box on the top row, exactly as a press in normal mode does", function()
+    assert.same(normal_top, visual_top)
+  end)
+
+  codereview.close()
+end)
+
+-- What the store is handed after a run, read off the boxes rather than off the press. A run
+-- that painted correctly and tracked something else would look right on the screen and
+-- review the wrong commits, which is the one failure here a reviewer cannot see.
+describe("<CR> after a run", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local files_before = #review.files
+  local win, buf = commits_by_key(review.win)
+  local last = #lines(buf)
+
+  -- The three oldest rows, drawn from the newest of them down: a prefix off the start of the
+  -- branch, which is a set that can always be built -- the refusals are `<CR>`'s own claim
+  -- and they are pinned elsewhere in this file.
+  toggle_run(win, 4, last)
+
+  -- What the boxes say, taken off the screen before the key that applies them, and resolved
+  -- through git rather than through anything the float produced.
+  local out = {}
+  for row = 2, last do
+    if box(buf, row) ~= IN then
+      out[#out + 1] = assert(h.git_lines(fixture, { "rev-parse", lines(buf)[row]:match("%x+") })[1])
+    end
+  end
+  h.feed("<CR>")
+  local stored = vim.deepcopy(state.trim(root))
+  table.sort(out)
+  if stored then
+    table.sort(stored)
+  end
+
+  it("really did leave three rows unchecked and the rest in", function()
+    assert.same(3, #out)
+  end)
+
+  it("applies exactly the commits the boxes left unchecked", function()
+    assert.same(out, stored)
+  end)
+
+  it("says on the label what the run left in the review", function()
+    assert.is_truthy(assert(view.current()).scope.label:find("last 2", 1, true))
+  end)
+
+  it("draws the diff again, narrower than it was", function()
+    assert.is_true(#assert(view.current()).files < files_before)
+  end)
+
+  state.set_trim(root, nil)
+  codereview.close()
+end)
+
+-- The footer names one more key than it did, and it is drawn on a border it has to fit
+-- inside: a footer wider than the float is clipped from the left, silently, taking the keys
+-- with it. Measured against the window rather than against a number written here, and at the
+-- narrowest this float is ever drawn -- which is where the room runs out.
+describe("the footer on the narrowest float this opens", function()
+  ---The float's width and what its border says, on a terminal of `columns` columns.
+  ---@param columns integer
+  ---@return { columns: integer, width: integer, footer: string }
+  local function opened_on(columns)
+    h.ui(columns, 40)
+    state.set_trim(root, nil)
+    codereview.open()
+    local review = assert(view.current(), "no review view opened")
+    local win = commits_by_key(review.win)
+    local at = {
+      columns = vim.o.columns,
+      width = vim.api.nvim_win_get_width(win),
+      footer = chrome(win, "footer"),
+    }
+    h.feed("q")
+    codereview.close()
+    return at
+  end
+
+  -- Two terminals two columns apart, both too narrow for a share of the screen to reach the
+  -- width this float refuses to go under. A share alone would draw them apart, so their being
+  -- one width is the floor and can be nothing else -- and the floor is the case the footer
+  -- has to survive.
+  local narrow = opened_on(62)
+  local narrower = opened_on(60)
+  h.ui(110, 40)
+
+  it("really did open at the width this float stops shrinking at", function()
+    assert.same(narrow.columns - 2, narrower.columns)
+    assert.same(
+      narrow.width,
+      narrower.width,
+      ("%d columns on %d, %d on %d"):format(narrow.width, narrow.columns, narrower.width, narrower.columns)
+    )
+  end)
+
+  it("keeps every key it names inside the border it is drawn on", function()
+    local drawn = vim.fn.strdisplaywidth(narrow.footer)
+    assert.is_true(drawn <= narrow.width, ("%d columns of footer on %d: %s"):format(drawn, narrow.width, narrow.footer))
+  end)
+
+  -- And that the keys are all still on it at that width, which is what being clipped takes
+  -- away first.
+  it("still names every key the float has", function()
+    for _, key in ipairs({ "Space", "v rows", "]c", "[c", "⏎", "q close" }) do
+      assert.is_truthy(narrow.footer:find(key, 1, true), narrow.footer)
+    end
+  end)
 end)
 
 --- Applying the boxes -----------------------------------------------------------

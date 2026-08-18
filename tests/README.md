@@ -640,6 +640,27 @@ so the out-of-core language path is still checked locally without ever failing C
   cases, moving instead of reporting on an empty set reds two, and jumping to the next *row*
   rather than the next *checked* row reds four. The scattered set is what gives that last one
   its teeth: over a run with no hole in it, the two rules are one rule.
+- **A run of rows pressed together has to be pressed over a *mixed* run.** "Make every row in
+  the run the same" and "flip each row in the run" produce the same rows over a run that is
+  uniform, so a block that drew its run over an untouched listing passes against either rule
+  and asserts nothing about the one the key exists for. `trim_float_spec` takes two rows out
+  first, and not next to each other, before it draws anything. The direction is the second
+  half: a run drawn downward from a checked row reads the same under "follows the row the run
+  started at" and under "follows the row nearest the top of the list", so one block draws its
+  run *upward* from an unchecked row, which is the only shape that tells the two apart.
+  Measured: flipping each row instead of making them uniform reds six cases, reading the
+  direction off the top of the run reds the two in the upward block, and folding the
+  `All commits` row into a run that reaches it reds one. The `<CR>` block stays green under
+  all three, because the run it applies is uniform — which is the trap itself, seen from the
+  other side.
+- **A visual-mode key on this float has to be fed with the keys that draw the rows.** The
+  press reads `line("v")` while the selection is still live, because `'<` and `'>` are not
+  written until visual mode is left and say which row is *higher* rather than which one the
+  reviewer began on — the same trap the review path's own visual capture is recorded under
+  above. `trim_float_spec`'s driver feeds the motion and the press together, from the row the
+  run starts at, so a run drawn upward is fed upward. It also asserts the reviewer is left in
+  normal mode on a float that is still open: leaving visual mode means feeding a key back, and
+  `<Esc>` — the obvious one — is this float's own key for closing.
 - **A box a spec reads has to be read as a column, and which spelling means *in* has to be
   learned rather than written down.** `trim_float_spec` takes the box column's width from
   where the sha starts on a row, and takes the checked spelling off a float opened over a
