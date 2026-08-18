@@ -576,6 +576,21 @@ case the header exists for.
 **`nvim_win_call` propagates only the first return value.** Returning `line("w0"), line("w$")`
 from it silently loses the end of the range.
 
+**A key bound in visual mode has to leave visual mode itself, and on a float whose `<Esc>`
+closes it that is not free.** A Lua callback runs without leaving visual mode — which is what
+lets it read `line("v")`, the end the reviewer began on, while the selection is still live —
+so the mode is still there when the callback returns. Feeding a key back is what ends it, and
+which key matters: the commit list binds `<Esc>` to close, so it leaves visual mode with
+`<C-\><C-n>` and feeds it *unmapped* — the key that leaves a mode must not be a key the
+surface has taken for something else. Measured on that float: with nothing fed the mode stays
+`V` after the press; fed unmapped, the mode is `n` and the float is still open.
+
+**A float's title and footer are clipped from the left when they outgrow its border**, with a
+`<` in place of what was cut and no error anywhere. So a footer is a width budget and not a
+sentence: the commit list is fifty columns at its narrowest, and its footer is exactly fifty
+columns wide including the space at each end. A key added to it is paid for by a word taken
+off another.
+
 **One terminal resize fires `VimResized` *and* `WinResized`, so a callback on both runs
 twice.** Measured by driving a real Neovim over a pty and resizing the pty three times:
 

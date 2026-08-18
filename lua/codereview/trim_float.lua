@@ -36,6 +36,13 @@
 ---so `/`, `n`, `N`, `gg` and `G` reach a commit by its subject and reach the ends of the
 ---list already. Nothing below may be mapped over them: a key this float takes is a key a
 ---reviewer no longer has, and none of them is worth what it would cost.
+---
+---**A run of rows pressed together is made uniform, and flipping each of them was refused.**
+---Flipping every row a reviewer drew over is the cheaper rule and the obvious reading of the
+---key -- and over a run that is already mixed it hands back a set they have to work out row
+---by row, which is the state the press was reached for to get out of. What the rows become
+---follows the row the run started at, so the answer is read off where the motion began rather
+---than off whatever the rows between the two ends happen to hold.
 local git = require("codereview.git")
 local render = require("codereview.render")
 
@@ -386,7 +393,13 @@ function M.open(view, root, base)
     title_pos = "center",
     -- Only what works. A key that is not built is not advertised: a footer offering one is
     -- a promise the float cannot keep.
-    footer = " Space toggle · ]c/[c checked · ⏎ apply · q close ",
+    --
+    -- Fifty columns, which is the narrowest this float is ever drawn: a footer wider than
+    -- the border it sits on is clipped from the left, silently, and the keys go with it. The
+    -- run is what the room went to -- the two spellings of the one key read as one item
+    -- together, and the jump pair gives up the word that said what it moves between, which
+    -- its own brackets say to anybody who has met `]f` or `]h`.
+    footer = " Space toggle, v rows · ]c/[c · ⏎ apply · q close ",
     footer_pos = "center",
   })
   -- The rows are fitted to a width they know, so that every one of them stays one row.
@@ -453,26 +466,71 @@ function M.open(view, root, base)
     end
   end
 
-  ---Take the commit under the cursor in or out of the review, and say so on its row.
+  ---Take a run of rows in or out of the review, and say so on every one of them.
   ---
-  ---On the top row it is every commit at once, in whichever direction that row's own box is
-  ---not already pointing: checked, so a narrowed review is widened back out with one key,
-  ---and unchecked, which leaves a review of the reviewer's uncommitted work. Nothing is
-  ---applied and nothing is stored -- `<CR>` is what does that, so a reviewer builds the set
-  ---they want before the review behind them redraws once.
-  local function toggle()
-    local row = vim.api.nvim_win_get_cursor(win)[1]
-    if row == 1 then
+  ---One row is a run of one, which is what a press with no motion behind it is. On the top
+  ---row that is every commit at once, in whichever direction that row's own box is not
+  ---already pointing: checked, so a narrowed review is widened back out with one key, and
+  ---unchecked, which leaves a review of the reviewer's uncommitted work. Nothing is applied
+  ---and nothing is stored -- `<CR>` is what does that, so a reviewer builds the set they want
+  ---before the review behind them redraws once.
+  ---
+  ---**A longer run is made uniform rather than flipped row by row**, and what its rows become
+  ---is read off the row it started at. See the header for what that refuses.
+  ---
+  ---The top row inside a longer run is stepped over rather than folded into it: it is not a
+  ---commit, and it already means *every box at once* -- a run that happened to reach the top
+  ---of the list would otherwise do something far larger than the reviewer drew. A run that
+  ---started there is read from the first commit in it instead, that row being the first one
+  ---the run can act on at all.
+  ---
+  ---Every press comes through here, however many rows it carries, so the repaint that follows
+  ---it -- the boxes, the top row's own box and the count on the title -- is one answer to what
+  ---the reviewer did rather than two that have to agree.
+  ---@param first integer The first row of the run, 1-based
+  ---@param last integer The last row of the run
+  ---@param from integer The row the run started at, which is what decides the direction
+  local function toggle(first, last, from)
+    if last == 1 then
       local whole = all_in(commits, checked)
       for i = 1, #commits do
         checked[i] = not whole
       end
     else
-      -- The listing starts one row below the top row, so the cursor's row is the commit's
-      -- place in it plus one.
-      checked[row - 1] = not checked[row - 1]
+      -- The listing starts one row below the top row, so a row is the commit's place in it
+      -- plus one.
+      local head = math.max(first, 2)
+      local want = not checked[math.max(from, head) - 1]
+      for row = head, last do
+        checked[row - 1] = want
+      end
     end
     paint()
+  end
+
+  ---The row under the cursor, pressed on its own.
+  local function toggle_row()
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    toggle(row, row, row)
+  end
+
+  ---The rows a reviewer drew over, pressed together.
+  ---
+  ---`v` is the end the run started at and the cursor is the end it stopped at, whichever way
+  ---round the two are on the screen. Read from those two rather than from `'<` and `'>`: those
+  ---marks are not written until visual mode is left, and they say which row is higher rather
+  ---than which one the reviewer began on -- which is the whole of what decides the direction.
+  ---
+  ---Visual mode is left on the way out, so the reviewer is back in the mode every other key on
+  ---this float is pressed in. Left with `<C-\><C-n>` rather than with `<Esc>`, and fed
+  ---unmapped: `<Esc>` is this float's own key for closing, so a press that let that mapping
+  ---run would shut the list on the reviewer as they built a set on it. The composer settles
+  ---out of a mode the same way, for the same reason -- the key that leaves a mode must not be
+  ---a key the surface has taken for something else.
+  local function toggle_run()
+    local from, to = vim.fn.line("v"), vim.fn.line(".")
+    toggle(math.min(from, to), math.max(from, to), from)
+    vim.api.nvim_feedkeys(vim.keycode("<C-\\><C-n>"), "n", false)
   end
 
   ---Move to the next or the previous commit that is checked.
@@ -553,7 +611,13 @@ function M.open(view, root, base)
     view.trim_to(skipped)
   end
 
-  vim.keymap.set("n", "<Space>", toggle, { buffer = buf, desc = "Take this commit in or out of the review" })
+  vim.keymap.set("n", "<Space>", toggle_row, { buffer = buf, desc = "Take this commit in or out of the review" })
+  vim.keymap.set(
+    "x",
+    "<Space>",
+    toggle_run,
+    { buffer = buf, desc = "Take the commits on these rows in or out of the review" }
+  )
   vim.keymap.set("n", "]c", function()
     jump(true)
   end, { buffer = buf, desc = "Next checked commit" })

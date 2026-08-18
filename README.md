@@ -177,6 +177,7 @@ asked to look at it.
 | Key | Action |
 | --- | --- |
 | `<Space>` | Take the commit under the cursor in or out of the review |
+| `<Space>` in visual mode | Take every commit in the rows you drew in or out together |
 | `]c` `[c` | Next / previous checked commit |
 | `<CR>` | Apply the boxes and close |
 | `q` / `<Esc>` | Close and change nothing |
@@ -216,9 +217,18 @@ mechanical rename — and the commits older than it stay in the review. The labe
 differently, because the reading is no longer a run of commits: `branch vs origin/master ·
 4 of 5`.
 
+A run of commits — a rebase's worth of fixups, a stretch of mechanical churn — costs one
+press rather than one per row. Draw the rows in visual mode and press `<Space>` once. The
+rows all become the same rather than each one flipping, and what they become follows the row
+you started on: start on a checked row and the whole run leaves the review, start on an
+unchecked one and the whole run comes back in. So a run that is already half checked resolves
+the way you drew it rather than the way it happened to be.
+
 The top row is "All commits", and it works both ways. Check it and the whole branch is back
 in the review. Uncheck it and every commit leaves, which is a review of your uncommitted work
-alone, labelled `0 of 5`.
+alone, labelled `0 of 5`. A run that reaches that row leaves it alone and treats the commits
+under it normally — it already means every box at once, and a run that happens to touch the
+top of the list should not do something larger than you drew.
 
 On a long branch, `]c` and `[c` move between the commits you have checked, so coming back to
 a decision you already made costs a keystroke instead of a scroll. Neither wraps: at the last
