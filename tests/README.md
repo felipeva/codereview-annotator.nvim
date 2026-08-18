@@ -71,7 +71,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `panel_spec` | Tree build, chain compaction, folding, subtree review, navigation, picker, dismissing and summoning the tree |
 | `queue_float_spec` | How the float draws an entry: the bar down every row it owns, the boundary between two, notes kept and wrapped by display width, dropping from anywhere inside one, and the two keys that act on the whole batch — one closing the float, one leaving it open |
 | `trim_spec` | The **trim**, at both of its seams: what a pick resolves to — every row of the listing read against git's own answer for the reading that row has always given, the oldest row at the merge base, the identity that does not move with the pre-image, the label, and the commit made afterwards that is in the review without the trim being touched; then the sets with a **hole** in them, which read from a pre-image that is built — the commit taken out of the middle, two that are not next to each other, the prefix reaching past the merge that must assemble nothing, the whole branch taken out, the commit no set can be built without, the same one succeeding beside what it depends on, the refs and the working tree the build must not touch, and the second resolve that finds the tree already built; then the **merge** on both sides of the rule that refuses it — taken out with an older commit left in, taken off the start of the branch with a hole above it, and a hole on a branch of its own with no merge on its first-parent line at all — and then what a reviewer sees of one, in a real view: the diff drawn again, the marks that survive and the one that does not, uncommitted and untracked work under it, syntax, navigation, collapse, both layouts, the entry annotating in it produces, what the queue still lists, where `gs` goes from it, and the pick that is refused — the sentence naming the commit and the file and no dependency, the store still holding the trim that was there, the review still on screen, and the same commit picked again beside the one it depends on; the merge picked out of the middle, whose sentence names no file at all, and the same merge picked off the start of the branch, which draws what the shipped trim drew; then what a session leaves behind, in a second copy of the fixture and a second process: the branch that opens where the reading stopped, the branch beside it holding its own, the rewritten commit that loses one and the sentence that says so once, the commit this repository does not have saying the same sentence beside one the branch still holds, and the detached `HEAD` that trims for the session, says it is not kept, and is gone in the session after |
-| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the box on every row and the two directions `<Space>` moves it, the top row taking the whole branch in and out, the boxes a stored trim opens on, the cursor's opening row, `<CR>` applying a prefix and applying a set with a hole in it, the pick that is refused with the float left open on the row, the **merge** row checked with a commit older than it left in — the sentence about merges rather than about files, the float still open, the cursor still on it and the store still holding the trim that was there — the keys the footer names and the ones it does not, the rows still one each in a float too narrow to hold them whole, `gc` from the diff and from the tree, and the two refusals that open nothing |
+| `trim_float_spec` | The float over the branch's commits: what a row carries and what it must not, the first-parent listing that leaves out what a merge brought in, the rows a cap would take away, the box on every row and the two directions `<Space>` moves it, the top row taking the whole branch in and out, the boxes a stored trim opens on, the cursor's opening row, `<CR>` applying a prefix and applying a set with a hole in it, the pick that is refused with the float left open on the row, the **merge** row checked with a commit older than it left in — the sentence about merges rather than about files, the float still open, the cursor still on it and the store still holding the trim that was there — the keys the footer names and the ones it does not, the rows still one each in a float too narrow to hold them whole, `gc` from the diff and from the tree, and the two refusals that open nothing; then the **size** on a row: absent while the float opens, filled from git's own answer for each commit, the merge row carrying its first-parent diff, the columns lined up on both edges down the listing, the counts colored at byte offsets on the subject that is not ASCII, every row sized on a branch of sixty-five, and the float closed inside the window before the answer lands |
 | `focus_spec` | Queue-float focus across the async picker, submit closing the float, and where a submit under a **preamble** leaves the cursor |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
 | `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go |
@@ -113,7 +113,13 @@ interchangeable, and the assertions know which one they are looking at.
   so it is the only commit here that cannot leave a review on its own — without it a
   refusal has nothing to refuse, which is "a filter test needs a fixture only that filter
   can reject". Its commits are dated days apart, as offsets back from the moment the script
-  runs, so a relative date on a row is a fact a spec can check and never goes stale. The merge
+  runs, so a relative date on a row is a fact a spec can check and never goes stale. One of
+  the five subjects carries an em dash and is the only line in this fixture that is not
+  ASCII: the commit list places every column right of the subject by measuring back from the
+  end of the row in *bytes*, and across five ASCII subjects that lands exactly where
+  measuring in display columns lands — so an assertion over either ruler passes whichever one
+  the float used. Changing that subject's text moves the row-width and truncation
+  assertions with it. The merge
   is a third rule of its own: it is free on the row that takes it off the start of the branch
   and refused with a commit older than it left in, and one history holding one merge is what
   lets a spec make both claims about one row. `trim_spec` builds a **second copy**
@@ -625,6 +631,25 @@ so the out-of-core language path is still checked locally without ever failing C
   that, and says why: neither branch it trims has been trimmed before, so every box it meets
   is checked — which it asserts rather than assumes, because a box that started the other way
   would build the wrong reading for the process that reads it back.
+- **A case about a row in the commit list has to say which listing it is reading.** The
+  float opens on the commits and fills the size columns in when git answers, which is a later
+  tick — so `trim_float_spec` holds two readings of the same buffer: `rows`, taken as the
+  float opened and carrying no figure at all, and what `filled_rows` hands back after waiting
+  for one. Assert a size against the first and the case reds; assert *what a row carries*
+  against the second without listing the size and it reds the other way. The wait is a
+  condition and never a sleep: a fixed drain that is too short passes because nothing was
+  ever drawn, which is the same shape as a filter test with nothing to reject.
+- **The float closed before its figures arrive is a window a spec has to land inside.** The
+  answer is painted from a callback, so a float already wiped is a write into a dead buffer —
+  and the case for it only measures anything while the close really did beat the answer. The
+  block asserts that it did, off the rows it took at the open, rather than trusting the race
+  it just won. It also cannot wait on the float it closed, because there is nothing left to
+  observe: it opens a second float over the same branch and waits for *that* answer, which
+  asked git the same question second and therefore lands no earlier. What a write into a dead
+  buffer costs is a message and not a failure — an error thrown on a scheduled callback is
+  outside every `pcall` the caller has — so the assertion is over `:messages`, cleared
+  immediately before the close. Deleting the validity guard in `trim_float.lua` reds that one
+  case and nothing else in the suite.
 - **A refused merge takes two specs to pin, and each half passes while the other is broken.**
   The rule that refuses a **merge** above the leading run and the key that reaches it were
   built as separate slices, and neither file's cases red for the other's regression.

@@ -182,6 +182,13 @@ branch back in the review, unchecked it takes every commit out, which leaves a
 review of your uncommitted work alone. Your cursor opens on the oldest commit
 still in the review, or on that top row while the whole branch is in it.
 
+Every row carries the size of its commit as well: `3f +212 -48` is three
+files, 212 lines added and 48 deleted. The counts cost a pass over the whole
+branch, so the list does not wait for them -- it opens on the commits and
+fills the columns in when git answers. A merge row carries its first-parent
+diff, which is the change the review reads for it. No row carries the author:
+it is your own branch.
+
 A set that cannot be assembled is refused with the list still open and your
 cursor still on the row. Nothing is stored, and the review behind the list is
 the review that was there.

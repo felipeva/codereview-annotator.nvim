@@ -37,8 +37,14 @@ read correctly, and the verb and the noun are one word.
 commits that arrived through it are not listed beside your own. There is no limit on the
 rows, so a long branch keeps its oldest commits at the bottom of the list.
 
-The list does not show the author, because it is your own branch. It does not show the added
-and deleted counts, because they cost a second pass over the whole branch.
+The list does not show the author, because it is your own branch.
+
+**Every row shows the size of its commit**: the files it touched, and the lines it added and
+deleted. A box on every row asks *is this one worth reading*, and a subject cannot answer
+that — a formatter run over three hundred files and a one-line fix read alike. Those counts
+do cost a second pass over the whole branch, which is why the list never waits for them: it
+opens on the commits and fills the columns in when git answers. A merge row reports its
+first-parent diff, which is the one change the review reads for it.
 
 **Every row carries a box, and no row carries a mark.** What is in the review is stated on
 each row rather than inferred from one mark on one row, because a set with a hole in it is a

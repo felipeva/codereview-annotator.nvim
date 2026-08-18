@@ -15,6 +15,10 @@
 -- commits, one of them a merge with commits older than it, over a merge base that is not the
 -- oldest commit's parent, and one commit that rewrites the line an earlier one introduced.
 -- Every rule this file pins is invisible without it -- see the script's own header.
+--
+-- The size on a row arrives on a later tick: the float opens on the listing, and git answers
+-- after it. So every case here says which of the two it is reading -- the rows taken as the
+-- float opened, or the rows `filled_rows` has waited for the answer on.
 local h = require("tests.helpers")
 
 h.ui(110, 40)
@@ -59,6 +63,18 @@ local FREE = "docs: write the readme"
 ---The merge on the branch's own line of work. A **merge** cannot start a hole, so this row is
 ---the one whose refusal is about no file at all.
 local MERGE = "Merge branch 'lexer' into feature"
+---The one commit whose subject is not ASCII.
+---
+---Found rather than written down, and what it is wanted for is the property rather than the
+---text: its subject is a different number of bytes and of columns wide, which is the only
+---thing that tells a column placed by counting bytes from one placed by counting columns. A
+---spec naming the string would keep passing on a fixture that went back to plain ASCII.
+local WIDE
+for _, c in ipairs(first_parent) do
+  if #c.subject ~= vim.fn.strdisplaywidth(c.subject) then
+    WIDE = c
+  end
+end
 
 ---@param commits { subject: string }[]
 ---@return string[]
@@ -80,6 +96,38 @@ local function commit_named(subject)
   error(subject .. " is on no commit: " .. vim.inspect(subjects(first_parent)))
 end
 
+---What git says changed between two commits, as `{ files, added, deleted }`.
+---@param from string
+---@param to string
+---@return { files: integer, added: integer, deleted: integer }
+local function size_between(from, to)
+  local at = { files = 0, added = 0, deleted = 0 }
+  for _, l in ipairs(h.git_lines(fixture, { "diff", "--numstat", from, to })) do
+    local added, deleted = l:match("^(%S+)\t(%S+)\t")
+    if added then
+      at.files = at.files + 1
+      -- A binary file prints `-` for both counts: a file the commit touched, and no lines
+      -- anybody wrote.
+      at.added = at.added + (tonumber(added) or 0)
+      at.deleted = at.deleted + (tonumber(deleted) or 0)
+    end
+  end
+  return at
+end
+
+---What git says one commit changed.
+---
+---`<sha>^` is that commit's first parent whatever kind of commit it is, so this asks a merge
+---the same question it asks every other row -- and a merge's first-parent diff is exactly the
+---change the review reads for it. Counted from git's own output rather than taken from
+---anything the plugin produced: what a row claims is judged against git, never against
+---itself.
+---@param sha string
+---@return { files: integer, added: integer, deleted: integer }
+local function size_of(sha)
+  return size_between(sha .. "^", sha)
+end
+
 --- Reading the float ------------------------------------------------------------
 
 ---@param buf integer
@@ -95,6 +143,59 @@ end
 local function commit_rows(buf)
   local all = lines(buf)
   return vim.list_slice(all, 2, #all)
+end
+
+---What a row says its commit changed, read back off it as three numbers.
+---
+---The one place the size's spelling is written down, exactly as `box` is the one place the
+---box is read as a column. What the cases compare is git's numbers against the row's, and a
+---case matching `+1 -0` at every assertion would leave this file asserting the float's
+---format against itself.
+---@param row string
+---@return { files: integer, added: integer, deleted: integer }|nil nil while the row carries none
+local function stat_on(row)
+  local files, added, deleted = row:match("(%d+)f%s+%+(%d+)%s+%-(%d+)")
+  if not files then
+    return nil
+  end
+  return { files = tonumber(files), added = tonumber(added), deleted = tonumber(deleted) }
+end
+
+---The commit rows once git's answer has been drawn onto them.
+---
+---The float opens on the listing alone and fills the size columns when git answers, which is
+---a later tick -- so every case about a figure comes through here, and every case about the
+---float *opening* reads the rows taken at the open instead.
+---@param buf integer
+---@return string[]
+local function filled_rows(buf)
+  local ok = vim.wait(5000, function()
+    return stat_on(commit_rows(buf)[1] or "") ~= nil
+  end, 5)
+  assert(ok, "no size ever reached a row: " .. table.concat(commit_rows(buf), "\n"))
+  return commit_rows(buf)
+end
+
+---The text the float's own extmarks cover on a row, for one highlight group, in order.
+---
+---Read as the byte range each mark holds, applied to the line it is on -- which is the whole
+---reason to read a mark here at all. A subject is free to be any number of bytes wide at a
+---given number of columns, so a count placed by counting *columns* covers the bytes before
+---itself on the one row whose subject is not ASCII, and the number it is coloring is not the
+---number underneath it.
+---@param buf integer
+---@param row integer 1-based
+---@param group string
+---@return string[]
+local function marked(buf, row, group)
+  local text = lines(buf)[row]
+  local out = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+    if m[2] == row - 1 and m[4].hl_group == group and m[4].end_col then
+      out[#out + 1] = vim.trim(text:sub(m[3] + 1, m[4].end_col))
+    end
+  end
+  return out
 end
 
 ---Where the sha starts on a commit row, which is how wide the box column is drawn.
@@ -258,6 +359,23 @@ describe("the history this spec reads", function()
     end
     assert.is_true(at ~= nil and at < #first_parent, vim.inspect(subjects(first_parent)))
   end)
+
+  -- What makes a column's offset measurable at all. Every column right of the subject is
+  -- placed by measuring back from the end of the row in bytes, and across five ASCII
+  -- subjects that lands in the same place as measuring in display columns -- so an assertion
+  -- over either passes whichever ruler the float used.
+  it("carries one subject that is not ASCII", function()
+    assert.is_truthy(WIDE, vim.inspect(subjects(first_parent)))
+    assert.are_not.same(#WIDE.subject, vim.fn.strdisplaywidth(WIDE.subject), WIDE.subject)
+  end)
+
+  -- What makes the merge row's size measurable. The review reads a merge's first-parent
+  -- diff, and a row reporting the other one is only visible while the two are different
+  -- sizes -- on a merge that brought nothing of its own they are one answer.
+  it("gives the merge two diffs of different sizes to be read from", function()
+    local merge = commit_named(MERGE)
+    assert.are_not.same(size_between(merge.sha .. "^2", merge.sha), size_of(merge.sha))
+  end)
 end)
 
 --- The rows --------------------------------------------------------------------
@@ -370,9 +488,142 @@ describe("gc inside a branch review", function()
     assert.is_true(bound(assert(review.panel_buf))[vim.keycode("gc")] == true, "gc is not bound in the tree")
   end)
 
+  --- The size on a row ---------------------------------------------------------
+
+  -- `rows` was taken as the float opened, and it is the whole listing with no figure on it:
+  -- the float draws the rows it has and waits for nothing. A float that asked for the sizes
+  -- first would have them here, because it could not have drawn a row until it did.
+  it("opens on the listing alone, with no size on it yet", function()
+    for _, row in ipairs(rows) do
+      assert.is_nil(stat_on(row), row)
+    end
+  end)
+
+  local filled = filled_rows(buf)
+
+  it("fills in what each commit changed once git answers", function()
+    for i, c in ipairs(first_parent) do
+      assert.same(size_of(c.sha), stat_on(filled[i]), filled[i])
+    end
+  end)
+
+  -- The listing is `--first-parent`, so a merge is one row and one change: what it brought
+  -- onto this branch. A row carrying the size of everything under the merge would be
+  -- claiming a size the review it belongs to does not have.
+  it("gives the merge row the size the review reads for it", function()
+    local at = row_of(buf, MERGE) - 1
+    assert.same(size_of(commit_named(MERGE).sha), stat_on(filled[at]), filled[at])
+  end)
+
+  -- Two commits' sizes compare by eye or they compare by arithmetic. Measured in display
+  -- columns, which is the ruler an eye reads down -- and on both edges of the size, because
+  -- a column pinned only on its left is a column the date beside it can still push around.
+  it("lines the sizes up down the listing", function()
+    local starts, widths = {}, {}
+    for _, row in ipairs(filled) do
+      local at = assert(row:find("%d+f%s+%+%d"), row)
+      starts[#starts + 1] = vim.fn.strdisplaywidth(row:sub(1, at - 1))
+      widths[#widths + 1] = vim.fn.strdisplaywidth(row)
+    end
+    local function every(list)
+      return vim.tbl_map(function()
+        return list[1]
+      end, list)
+    end
+    assert.same(every(starts), starts, table.concat(filled, "\n"))
+    -- Every row ends on the same column as well, which is what keeps the date a column of
+    -- its own: left to its own width it shortens the row it is on and nothing under it.
+    assert.same(every(widths), widths, table.concat(filled, "\n"))
+  end)
+
+  it("carries nothing else beside the box and the size", function()
+    local width = box_width(buf)
+    for i, c in ipairs(first_parent) do
+      local size = size_of(c.sha)
+      local rest = filled[i]:sub(width + 1)
+      local carried = ("%s%s%df+%d-%d%s"):format(c.sha, c.subject, size.files, size.added, size.deleted, c.when)
+      assert.same((carried:gsub("%s+", "")), (rest:gsub("%s+", "")), filled[i])
+    end
+  end)
+
+  it("names the author nowhere once the size is on the row", function()
+    for _, row in ipairs(filled) do
+      assert.is_nil(row:find("Fixture Author", 1, true), row)
+    end
+  end)
+
+  -- The counts are colored where the counts are, read on the one row whose subject is not
+  -- ASCII. Placed by counting display columns instead, every mark on the right of that row
+  -- starts short of the figure it is for and ends inside it.
+  it("colors the counts at byte offsets rather than at display columns", function()
+    local at = row_of(buf, WIDE.subject)
+    local size = size_of(WIDE.sha)
+    assert.same({ ("+%d"):format(size.added) }, marked(buf, at, "CodeReviewStatAdd"), lines(buf)[at])
+    assert.same({ ("-%d"):format(size.deleted) }, marked(buf, at, "CodeReviewStatDel"), lines(buf)[at])
+    -- The file count and the date, in the quiet group both take: the two numbers on the row
+    -- that are neither added nor deleted lines.
+    assert.same({ ("%df"):format(size.files), WIDE.when }, marked(buf, at, "CodeReviewQueueState"), lines(buf)[at])
+  end)
+
   if vim.api.nvim_win_is_valid(win) then
     vim.api.nvim_win_close(win, true)
   end
+  codereview.close()
+end)
+
+--- The float closed before the answer -------------------------------------------
+
+-- The ordinary end of a list opened to check one thing: `q` before git has answered. The
+-- window goes and the buffer is wiped with it, and the answer then lands on a float that is
+-- not there.
+--
+-- The close has to happen *inside* that window or the case measures nothing -- a float that
+-- already has its figures has nothing left to write into a dead buffer -- so the block
+-- asserts that it did rather than trusting that it did.
+describe("a float closed before the figures arrive", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local opened = commit_rows(buf)
+
+  vim.cmd("messages clear")
+  h.feed("q")
+
+  -- Drained by opening the float again and waiting for *that* answer: the two ask git the
+  -- same question about the same branch and this one asked second, so its figures arriving
+  -- is what says the first one's answer has been delivered. A sleep would be a guess in both
+  -- directions -- too short and the case passes because nothing was ever answered.
+  local second, second_buf = commits_by_key(assert(view.current()).win)
+  filled_rows(second_buf)
+  local said = vim.fn.execute("messages")
+
+  it("really did close before any figure was drawn", function()
+    for _, row in ipairs(opened) do
+      assert.is_nil(stat_on(row), row)
+    end
+  end)
+
+  it("wiped the buffer the answer would have been drawn into", function()
+    assert.is_false(vim.api.nvim_win_is_valid(win))
+    assert.is_false(vim.api.nvim_buf_is_valid(buf))
+  end)
+
+  -- Nothing is said and nothing is written. An answer painted into a wiped buffer or a
+  -- closed window raises from the callback it arrives on, which is not a place any pcall of
+  -- the caller's covers: it lands in the messages instead, named after the module it was
+  -- thrown from.
+  it("errors nowhere, and says nothing about it either", function()
+    assert.is_nil(said:find("trim_float", 1, true), said)
+    assert.is_nil(said:find("Invalid", 1, true), said)
+  end)
+
+  it("draws the float that is still open, so the answer went to the right one", function()
+    assert.is_true(vim.api.nvim_win_is_valid(second))
+    assert.is_truthy(stat_on(commit_rows(second_buf)[1]), commit_rows(second_buf)[1])
+  end)
+
+  h.feed("q")
   codereview.close()
 end)
 
@@ -1029,6 +1280,31 @@ describe("a float too narrow for the rows to fit whole", function()
     end
   end)
 
+  -- And again with the size on the rows, which is the state that has the least room of any
+  -- this float draws in. The subject pays for that column too.
+  local filled = filled_rows(buf)
+
+  it("still draws one row per commit with the size on it", function()
+    assert.same(#first_parent, #filled, table.concat(filled, "\n"))
+    for _, row in ipairs(lines(buf)) do
+      assert.is_true(vim.fn.strdisplaywidth(row) <= width, ("%d columns: %s"):format(vim.fn.strdisplaywidth(row), row))
+    end
+  end)
+
+  it("keeps the size and the date whole as well", function()
+    for i, c in ipairs(first_parent) do
+      assert.same(size_of(c.sha), stat_on(filled[i]), filled[i])
+      assert.is_truthy(filled[i]:find(c.when, 1, true), filled[i])
+    end
+  end)
+
+  it("took the room out of the subject", function()
+    local whole = vim.tbl_filter(function(i)
+      return filled[i]:find(first_parent[i].subject, 1, true) ~= nil
+    end, vim.tbl_keys(filled))
+    assert.is_true(#whole < #filled, table.concat(filled, "\n"))
+  end)
+
   h.feed("q")
   codereview.close()
   h.ui(110, 40)
@@ -1064,6 +1340,19 @@ describe("a branch longer than a capped list would show", function()
   -- branch being unreachable.
   it("still holds the oldest commit on the branch", function()
     assert.is_truthy(rows[#rows]:find(first_parent[#first_parent].subject, 1, true), rows[#rows])
+  end)
+
+  local filled = filled_rows(buf)
+
+  -- One answer covers the whole branch however long it is, and it is keyed by commit: the
+  -- filler commits are empty, so a row saying they changed something is a row wearing
+  -- another commit's figures. The newest row is one of them.
+  it("sizes every row on a branch this long, the empty commits included", function()
+    local sized = vim.tbl_filter(function(row)
+      return stat_on(row) ~= nil
+    end, filled)
+    assert.same(#filled, #sized, table.concat(filled, "\n"))
+    assert.same({ files = 0, added = 0, deleted = 0 }, stat_on(filled[1]), filled[1])
   end)
 
   h.feed("q")

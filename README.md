@@ -221,6 +221,13 @@ alone, labelled `0 of 5`.
 The cursor opens on the reading you already have: the oldest commit still in your review, or
 "All commits" while the whole branch is in it.
 
+Every row also says how big its commit is: `3f +212 -48` is three files, two hundred and
+twelve lines added and forty-eight deleted. That is what separates a formatter run from a
+one-line fix before you decide to read it. The counts cost a pass over the whole branch, so
+the list does not wait for them — it opens on the commits and fills the columns in as git
+answers. A merge row carries its first-parent diff, which is the change the review reads for
+it, and no row carries the author: you are reading your own branch.
+
 Some sets cannot be read. Taking a commit out can need a commit you are keeping — a formatter
 run is the likeliest case of all, because it touched the same lines every other commit
 touched. The plugin says so, names the commit and the files it collides in, and leaves the

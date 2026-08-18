@@ -48,6 +48,24 @@ entry appears to end mid-note. Notes go through the renderer's own `wrap`, by di
 width — the same helper, not a copy, because splitting by byte passes every ASCII assertion
 and breaks the first CJK or emoji note.
 
+**The commit list's size columns are a column only while every row spends the same width on
+them.** Each row is fitted to a width it knows, and the date used to take whatever width its
+own words needed — which is invisible until something is drawn *left* of it, and then the
+size column beside a `5 days ago` sits two columns off the one beside a `60 minutes ago` and
+comparing two commits' sizes is arithmetic. Both the size and the date are therefore padded
+to the widest the listing carries, which is also what leaves every row the same number of
+columns wide. Dropping the date's padding alone reds one case in `trim_float_spec`, and it
+reds on the row *widths* rather than on the size's own offset: the size is pinned on its left
+by the subject's own fixed width either way.
+
+**That float's counts arrive after it is drawn, and the float can be gone by then.** The
+listing is a metadata query and near-instant; the sizes are a diff of every commit on the
+branch, which is what was refused when the counts were first left off a row. So the float
+opens on the listing and `git.branch_sizes` answers on a later tick — and `q` closing the
+window wipes its buffer, so the callback is written to ask both before it paints anything.
+An error thrown there lands in the messages rather than in any caller's `pcall`, which is
+where the spec reads for it.
+
 **A window-local highlight namespace reaches extmark highlights.** Attaching one with
 `nvim_win_set_hl_ns` changes what a group resolves to *in that window*, and that reaches a
 line background set by `line_hl_group`, the treesitter replay's extmarks at their higher

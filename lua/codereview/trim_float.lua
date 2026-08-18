@@ -6,10 +6,24 @@
 ---branch starts at as plain values -- so nothing here reads the view, which is what keeps
 ---this module out of the cycle `view` and `annotate` already sit in.
 ---
----What a row carries is a checkbox, the short sha, the subject and the relative date. The
----checkbox is on every row because the question a reviewer answers here is *is this commit
----in my review*, one commit at a time, and a set with a hole in it is a set no single mark
----on a single row can state. Not the author -- you are reading your own branch.
+---What a row carries is a checkbox, the short sha, the subject, how much the commit changed
+---and the relative date. The checkbox is on every row because the question a reviewer
+---answers here is *is this commit in my review*, one commit at a time, and a set with a hole
+---in it is a set no single mark on a single row can state. The size is on every row because
+---that question needs an answer a subject cannot give: a formatter run over three hundred
+---files and a one-line fix read alike until the row says how big each one is.
+---
+---**The size was refused on this row once, and half of that refusal stands.** It was written
+---for a float where a reviewer picked one starting row: the question was *where do I start
+---reading*, which the subject answers, and what it refused was making the float wait on a
+---second pass over the whole branch -- the listing is a metadata query and near-instant,
+---while the counts are a diff of every commit on it. That cost has not changed, so it is
+---still refused: the float opens on the listing alone, and the columns fill when git answers
+---on a later tick. Nothing here waits for them, and a float closed before the answer arrives
+---is answered into nothing.
+---
+---Not the author -- you are reading your own branch, and that half of the refusal is
+---untouched.
 local git = require("codereview.git")
 local render = require("codereview.render")
 
@@ -35,9 +49,22 @@ local NS_TRIM = vim.api.nvim_create_namespace("codereview_trim")
 local CHECKED = "[x]"
 local UNCHECKED = "[ ]"
 
----Two spaces between the columns, so the box, the sha, the subject and the date read as
----four columns rather than as one sentence.
+---Two spaces between the columns, so the box, the sha, the subject, the size and the date
+---read as five columns rather than as one sentence. Inside the size it is one space, which
+---is what keeps its three figures one column of the row rather than three of them.
 local GAP = "  "
+
+---How the file count is spelled.
+---
+---A marker rather than a bare number: the rows carry no header, and a number standing
+---between a subject and two signed counts says how many of nothing. One letter rather than
+---the word, because the float is fifty columns at its narrowest and every column this takes
+---is a column the subject does not get.
+---
+---The two line counts are spelled `+N -M`, which is what the file header and the **sticky
+---header** already spell a size with -- and they take those surfaces' colors as well, so one
+---color means one thing wherever a reviewer meets it.
+local FILES = "%df"
 
 ---One column kept clear on the right, so a row that fills the float does not run into the
 ---border.
@@ -65,6 +92,30 @@ local function all_in(commits, checked)
   return true
 end
 
+---How wide each of the three size columns has to be drawn to line up down the listing.
+---
+---The widest figure any row carries, and no wider. A reviewer comparing two commits' sizes
+---is comparing two columns or they are doing arithmetic, and the sha column is padded to the
+---widest sha for the same reason.
+---
+---All three are zero until git answers, which is what leaves the columns off a row rather
+---than blank on it: a width reserved before the answer is a width the answer changes anyway.
+---@param commits CRCommit[]
+---@param sizes table<string, CRCommitSize>
+---@return { files: integer, added: integer, deleted: integer }
+local function size_widths(commits, sizes)
+  local at = { files = 0, added = 0, deleted = 0 }
+  for _, commit in ipairs(commits) do
+    local size = sizes[commit.id]
+    if size then
+      at.files = math.max(at.files, #FILES:format(size.files))
+      at.added = math.max(at.added, #("+%d"):format(size.added))
+      at.deleted = math.max(at.deleted, #("-%d"):format(size.deleted))
+    end
+  end
+  return at
+end
+
 ---Turn the commits into the float's rows.
 ---
 ---The subject keeps the buffer's own color, which is the brightest thing this float has,
@@ -72,16 +123,19 @@ end
 ---the date are what a row is found by, and the subject is what it is read for.
 ---
 ---Its highlight columns are byte offsets, not display columns -- a subject is free to be
----any width in either ruler, and the two part company at the first accented character.
+---any width in either ruler, and the two part company at the first accented character. Every
+---column to the right of it is placed by measuring back from the end of the row in bytes for
+---that reason, and never by adding up what is drawn.
 ---
----The checkbox column takes its width from the subject and from neither of the other two:
----a sha truncated is a sha a reviewer cannot match against `git log`, and a date is the
----narrowest thing on the row already.
+---The checkbox column takes its width from the subject, and so do the size columns; from
+---neither of the other two. A sha truncated is a sha a reviewer cannot match against
+---`git log`, and a date is the narrowest thing on the row already.
 ---@param commits CRCommit[]
 ---@param width integer Columns the float has to draw into
 ---@param checked boolean[] Whether each commit is in the review, by its place in the listing
+---@param sizes table<string, CRCommitSize> How much each commit changed, empty until git answers
 ---@return { lines: string[], marks: table[] }
-local function build(commits, width, checked)
+local function build(commits, width, checked, sizes)
   -- The top row's own box is checked only while every commit is, because that is what it
   -- says.
   local whole = all_in(commits, checked)
@@ -99,14 +153,45 @@ local function build(commits, width, checked)
   local indent = #CHECKED + #GAP + sha_width + #GAP
   local body = math.max(8, width - indent - MARGIN)
 
+  -- The right of a row: the size, then the date. Both are as wide as the widest the listing
+  -- carries and the same width on every row, which is the whole of what makes them columns
+  -- -- a date left to its own width moves the size beside it, and comparing two commits'
+  -- sizes is then arithmetic rather than a glance down the rows.
+  local size_at = size_widths(commits, sizes)
+  local stat_width = size_at.files > 0 and (size_at.files + 1 + size_at.added + 1 + size_at.deleted) or 0
+  local stat_format = ("%%%ds %%%ds %%%ds"):format(size_at.files, size_at.added, size_at.deleted)
+  local when_width = 0
+  for _, commit in ipairs(commits) do
+    when_width = math.max(when_width, vim.fn.strdisplaywidth(commit.when or ""))
+  end
+  local tail_width = stat_width + when_width + ((stat_width > 0 and when_width > 0) and #GAP or 0)
+
+  -- So the subject is the same width on every row as well, and it is what pays for both.
+  local room = body - (tail_width > 0 and tail_width + #GAP or 0)
+  room = math.max(8, room)
+
   for i, commit in ipairs(commits) do
+    local size = sizes[commit.id]
+    -- A commit git answered nothing for keeps its columns clear rather than pulling every
+    -- row under it out of line.
+    local stat = ""
+    if stat_width > 0 then
+      stat = size
+          and stat_format:format(FILES:format(size.files), ("+%d"):format(size.added), ("-%d"):format(size.deleted))
+        or (" "):rep(stat_width)
+    end
+
     local when = commit.when or ""
-    local room = body - (when ~= "" and vim.fn.strdisplaywidth(when) + #GAP or 0)
-    local subject = render.truncate(commit.subject, math.max(8, room))
+    local tail = stat
+    if when ~= "" then
+      when = (" "):rep(when_width - vim.fn.strdisplaywidth(when)) .. when
+      tail = tail ~= "" and (tail .. GAP .. when) or when
+    end
+    local subject = render.truncate(commit.subject, room)
     local box = checked[i] and CHECKED or UNCHECKED
     local head = box .. GAP .. ("%-" .. sha_width .. "s"):format(commit.sha) .. GAP .. subject
-    if when ~= "" then
-      head = head .. (" "):rep(math.max(#GAP, room - vim.fn.strdisplaywidth(subject) + #GAP)) .. when
+    if tail ~= "" then
+      head = head .. (" "):rep(math.max(#GAP, room - vim.fn.strdisplaywidth(subject) + #GAP)) .. tail
     end
 
     lines[#lines + 1] = head
@@ -119,6 +204,29 @@ local function build(commits, width, checked)
       col = #box + #GAP,
       opts = { end_col = #box + #GAP + #commit.sha, hl_group = "CodeReviewQueueIndex" },
     }
+    -- Measured back from the end of the row, in bytes: the subject between here and the sha
+    -- is any number of bytes wide at a given number of columns, and adding up what is drawn
+    -- would put every mark on this side of it one accented character out.
+    if size and stat_width > 0 then
+      local at = #head - #tail
+      marks[#marks + 1] = {
+        row = row,
+        col = at,
+        opts = { end_col = at + size_at.files, hl_group = "CodeReviewQueueState" },
+      }
+      local plus = at + size_at.files + 1
+      marks[#marks + 1] = {
+        row = row,
+        col = plus,
+        opts = { end_col = plus + size_at.added, hl_group = "CodeReviewStatAdd" },
+      }
+      local minus = plus + size_at.added + 1
+      marks[#marks + 1] = {
+        row = row,
+        col = minus,
+        opts = { end_col = minus + size_at.deleted, hl_group = "CodeReviewStatDel" },
+      }
+    end
     if when ~= "" then
       marks[#marks + 1] = {
         row = row,
@@ -209,16 +317,21 @@ function M.open(view, root, base)
   -- reviewer counting rows against commits would find one too many.
   vim.wo[win].wrap = false
 
+  ---How much each commit changed, empty until git answers. See the header: the listing is
+  ---what the float opens on, and this is what it fills in.
+  local sizes = {}
+
   ---Draw every row again from the boxes as they now stand.
   ---
   ---The whole listing rather than the one box that moved: the top row answers for all of
   ---them, so a toggle anywhere can change two rows -- and a rule that redrew only what it
-  ---believed had changed is a second answer to what a row says.
+  ---believed had changed is a second answer to what a row says. The size columns are as
+  ---wide as the listing's widest figure, so the answer arriving moves every row as well.
   ---
   ---One row is replaced by one row, so the cursor stays where the reviewer left it and
   ---nothing here has to put it back. A repaint that emptied the buffer first would not.
   local function paint()
-    local painted = build(commits, vim.api.nvim_win_get_width(win), checked)
+    local painted = build(commits, vim.api.nvim_win_get_width(win), checked, sizes)
     vim.bo[buf].modifiable = true
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, painted.lines)
     vim.bo[buf].modifiable = false
@@ -232,6 +345,24 @@ function M.open(view, root, base)
   -- Placed rather than left where a fresh window puts it, which is row one: that is the
   -- right row only while nothing is trimmed.
   pcall(vim.api.nvim_win_set_cursor, win, { at + 1, 0 })
+
+  -- The sizes, asked for after the rows are on screen and drawn whenever the answer
+  -- arrives. A reviewer is reading subjects and moving the cursor by then, and the paint
+  -- takes neither away: the rows are the same rows, in the same order, and the cursor sits
+  -- on the one it sat on.
+  --
+  -- **The float can be gone by the time git answers**, which is the ordinary end of a list
+  -- opened to check one thing: `q` closes the window and the buffer is wiped with it. So
+  -- both are asked before anything is written, and the answer is dropped rather than
+  -- painted into a window that is not there. Nothing here can be latched to the close
+  -- instead -- the window can also go with the tab it was in, or with the review behind it.
+  git.branch_sizes(root, base, function(answered)
+    if not answered or not vim.api.nvim_buf_is_valid(buf) or not vim.api.nvim_win_is_valid(win) then
+      return
+    end
+    sizes = answered
+    paint()
+  end)
 
   local function close()
     if vim.api.nvim_win_is_valid(win) then

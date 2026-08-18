@@ -9,7 +9,7 @@
 #
 #   B0  chore: seed the repository        master
 #   B1  chore: bump the year              master, and the merge base
-#   c1  feat: read the config file        feature
+#   c1  feat: read the config file …      feature, and the one subject that is not ASCII
 #   c2  test: cover the config reader     feature
 #   s1  fix: tighten the lexer            lexer, off B1 -- arrives through the merge
 #   M   Merge branch 'lexer'              feature
@@ -36,6 +36,14 @@
 # that filter can reject. c2 and c3 are on opposite sides of the merge on purpose: they
 # are not next to each other, so taking both out applies the two of them in turn instead
 # of reading a tree that some commit already has.
+#
+# c1's subject carries an em dash, and it is the only line here that is not ASCII. A row in
+# the commit list places its highlights at byte offsets, and every column to the right of the
+# subject is measured back from the end of the row: with five ASCII subjects the byte ruler
+# and the display ruler agree, so a count drawn by adding up what is *drawn* lands exactly
+# where a count drawn by counting bytes does, and an assertion over either passes. One
+# multi-byte character in one subject is what pulls the two rulers apart -- the same reason
+# mkfixture keeps a `café 🎉` line, arriving at a different subsystem.
 #
 # The commits are dated apart from each other, so the relative date on a row is a fact a
 # reader can check rather than "0 seconds ago" five times over. Each date is an offset back
@@ -80,7 +88,7 @@ commit $((6 * DAY)) "chore: seed the repository"
 git checkout -qb feature
 printf 'local port = 8080\nlocal host = "localhost"\n' > src/config.lua
 git add -A
-commit $((5 * DAY)) "feat: read the config file"
+commit $((5 * DAY)) "feat: read the config file — port and host"
 
 printf 'local cfg = require("config")\nassert(cfg.port)\n' > src/config_spec.lua
 git add -A
