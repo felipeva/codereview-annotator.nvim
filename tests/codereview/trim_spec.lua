@@ -1104,7 +1104,24 @@ describe("the merge picked out of the middle", function()
 
   it("names the merge it refused", function()
     assert.is_true(h.notified(msgs, short), vim.inspect(msgs))
-    assert.is_true(h.notified(msgs, merge.subject), vim.inspect(msgs))
+  end)
+
+  -- A merge is called `Merge remote-tracking branch 'X' into Y`: sixty characters that say
+  -- nothing the word *merge* does not, in front of the only part a reviewer can act on.
+  it("names no subject, because a merge's subject says nothing the word merge does not", function()
+    assert.is_false(h.notified(msgs, merge.subject), vim.inspect(msgs))
+  end)
+
+  -- The teeth against the sentence going back to reading `Taking out <sha> <subject> ...`: a
+  -- surface that shows one line truncates the tail, so a reason built last is a reason a
+  -- reviewer never reads. What truncation is allowed to cost is the sha, which is on the row
+  -- their cursor is on.
+  it("says why before it says which, so a truncated line still carries the reason", function()
+    local said = vim.tbl_filter(function(m)
+      return m:find("brings nothing", 1, true) ~= nil
+    end, msgs)
+    assert.same(1, #said, vim.inspect(msgs))
+    assert.same(1, said[1]:find("A merge brings nothing"), said[1])
   end)
 
   -- The teeth against a rule that attempts the merge and rewords what `merge-tree` said: that

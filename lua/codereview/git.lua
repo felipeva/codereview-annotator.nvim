@@ -293,6 +293,16 @@ end
 ---@field total integer  How many the branch has
 ---@field hole boolean   Whether a commit was taken out with an older one left in
 
+---What a reviewer is told when a pick cannot be assembled.
+---
+---**The reason comes first and the commit comes last.** These sentences reach a reviewer
+---through whatever notification surface the host wired up, and one that shows a single line
+---truncates the tail. Built the other way round -- the commit, then its subject, then the
+---reason -- the subject sits between the reader and the only part they can act on, and a long
+---subject pushes the reason off the end entirely. A merge subject is the longest git writes,
+---which made the one message that exists to carry a reason the message most likely to lose it.
+---Ordered this way what truncation costs is the sha, and the sha is on the row the cursor is
+---already on.
 ---@param commit CRCommit
 ---@param conflicts string[]
 ---@param err string|nil
@@ -302,13 +312,17 @@ local function refusal(commit, conflicts, err)
   -- files, and naming the kept commit that introduced the conflicting region would take a
   -- heuristic pass of its own that can name the wrong commit confidently.
   if #conflicts > 0 then
-    return ("Taking out %s %s conflicts in %s — the review is unchanged"):format(
+    return ("Conflicts in %s — %s %s cannot be taken out on its own, and the review is unchanged"):format(
+      table.concat(conflicts, ", "),
       commit.sha,
-      commit.subject,
-      table.concat(conflicts, ", ")
+      commit.subject
     )
   end
-  return ("Taking out %s %s could not be assembled — %s"):format(commit.sha, commit.subject, err or "git refused it")
+  return ("%s — %s %s cannot be taken out, and the review is unchanged"):format(
+    err or "git refused it",
+    commit.sha,
+    commit.subject
+  )
 end
 
 ---What a reviewer is told when they take a merge out of the middle of a trim.
@@ -319,11 +333,16 @@ end
 ---them. What they can act on is the reason, and the reason is that the merge is not the
 ---thing they think they are taking out: merging the default branch moves the merge base
 ---forward, so everything that merge brought is already outside this review.
+---
+---**It names no subject either.** A merge is called `Merge remote-tracking branch 'X' into
+---Y`, which says nothing the word *merge* does not already say and spends sixty characters
+---saying it -- which is what pushed the reason out of this sentence before the order changed.
 ---@param commit CRCommit
 ---@return string
 local function merge_refusal(commit)
-  local named = ("Taking out the merge %s %s is not needed"):format(commit.sha, commit.subject)
-  return named .. ": a merge brings nothing the review does not already read — the review is unchanged"
+  return ("A merge brings nothing the review does not already read — %s stays in, and the review is unchanged"):format(
+    commit.sha
+  )
 end
 
 ---What a **trim** leaves a branch review reading from.

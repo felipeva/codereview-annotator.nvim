@@ -1070,7 +1070,20 @@ describe("<Space> on the merge row, with a commit older than it left in", functi
   it("is told which merge", function()
     local merge = commit_named(MERGE)
     assert.is_true(h.notified(msgs, merge.sha), vim.inspect(msgs))
-    assert.is_true(h.notified(msgs, merge.subject), vim.inspect(msgs))
+  end)
+
+  -- Pressed from the float the sentence is the same one, and it is here that its length is
+  -- worst: the merge a reviewer meets on a real branch is `Merge remote-tracking branch
+  -- 'origin/master' into <branch>`, and carrying that subject pushed the reason past the end
+  -- of a one-line notification.
+  it("is told the reason before the sha, and no subject at all", function()
+    local merge = commit_named(MERGE)
+    assert.is_false(h.notified(msgs, merge.subject), vim.inspect(msgs))
+    local said = vim.tbl_filter(function(m)
+      return m:find("brings nothing", 1, true) ~= nil
+    end, msgs)
+    assert.same(1, #said, vim.inspect(msgs))
+    assert.same(1, said[1]:find("A merge brings nothing"), said[1])
   end)
 
   -- The teeth against a rule that attempts the merge and rewords whatever the merge reported:
