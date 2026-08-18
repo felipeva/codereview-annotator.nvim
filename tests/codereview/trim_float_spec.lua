@@ -262,6 +262,13 @@ local function toggle(win, row)
   h.feed("<Space>")
 end
 
+---The row the cursor is on, which is what every key that moves it is judged by.
+---@param win integer
+---@return integer
+local function cursor_row(win)
+  return vim.api.nvim_win_get_cursor(win)[1]
+end
+
 ---@param win integer
 ---@param field "title"|"footer"
 ---@return string
@@ -670,9 +677,23 @@ describe("the keys on the float", function()
     assert.is_truthy(footer:find("q close", 1, true), footer)
   end)
 
+  it("advertises the pair that moves between the commits that are checked", function()
+    local win = commits_by_key(review.win)
+    local footer = chrome(win, "footer")
+    h.feed("q")
+    assert.is_truthy(footer:find("]c", 1, true), footer)
+    assert.is_truthy(footer:find("[c", 1, true), footer)
+  end)
+
   -- The other half of the same claim: the footer names what the float has, and the float has
-  -- nothing the footer does not name. `<Esc>` is the one key beside those three, and `close`
-  -- is what it does.
+  -- nothing the footer does not name. `<Esc>` is the one key beside those the footer lists,
+  -- and `close` is what it does.
+  --
+  -- It is also where the keys this float must *not* take are pinned at the table -- `/`, `n`,
+  -- `N`, `gg` and `G` are absent from a set that is asserted whole. That is the weaker half
+  -- of that guarantee and it is not what carries it: a mapping added in another file would
+  -- have to reach this buffer to show up here at all. What carries it is the block that
+  -- presses them.
   it("binds those keys and no others", function()
     local win, buf = commits_by_key(review.win)
     local lhs = bound(buf)
@@ -682,10 +703,219 @@ describe("the keys on the float", function()
       [vim.keycode("<CR>")] = true,
       [vim.keycode("<Esc>")] = true,
       [vim.keycode("<Space>")] = true,
+      ["]c"] = true,
+      ["[c"] = true,
       q = true,
     }, lhs)
   end)
 
+  codereview.close()
+end)
+
+--- Moving between the commits that are checked ----------------------------------
+
+-- The pair is judged by where the cursor lands, and every claim about it is pressed rather
+-- than called: the keys are the whole feature, and a function asserted directly would pass
+-- against a float that binds neither of them.
+--
+-- Both ends of the list and the empty set are here on purpose. A jump pressed in the middle
+-- of a long run asserts the half nobody doubted -- what a pair like this gets wrong is the
+-- last checked row, where a wrap looks like a working key, and a list with nothing to move
+-- between, where the cheapest implementation moves the cursor to row one and says nothing.
+
+describe("]c and [c with every commit checked", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local last = #lines(buf)
+
+  -- The state an untrimmed branch opens in, and the one the pair has to work in first: a
+  -- reviewer reaches for `]c` before they have taken anything out, not after.
+  it("really did open with every box checked", function()
+    assert.same(last, #checked(buf), table.concat(lines(buf), "\n"))
+  end)
+
+  it("moves to the newest commit from the row the float opens on", function()
+    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+    h.feed("]c")
+    assert.same(2, cursor_row(win))
+  end)
+
+  it("walks down the listing one commit at a time", function()
+    h.feed("]c")
+    assert.same(3, cursor_row(win))
+    h.feed("]c")
+    assert.same(4, cursor_row(win))
+  end)
+
+  it("comes back up on [c", function()
+    h.feed("[c")
+    assert.same(3, cursor_row(win))
+  end)
+
+  it("says there is no next one at the last commit, and stays on it", function()
+    vim.api.nvim_win_set_cursor(win, { last, 0 })
+    local messages, restore = h.capture_notify()
+    h.feed("]c")
+    restore()
+    assert.same(last, cursor_row(win))
+    assert.is_true(h.notified(messages, "next"), vim.inspect(messages))
+  end)
+
+  -- The row above the newest commit is the one that takes the whole branch in or out, which
+  -- is not a commit -- so the newest commit is the top of this pair's list.
+  it("says there is no previous one at the newest commit, and stays on it", function()
+    vim.api.nvim_win_set_cursor(win, { 2, 0 })
+    local messages, restore = h.capture_notify()
+    h.feed("[c")
+    restore()
+    assert.same(2, cursor_row(win))
+    assert.is_true(h.notified(messages, "previous"), vim.inspect(messages))
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
+describe("]c and [c over a set with holes in it", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  local last = #lines(buf)
+  -- Two rows taken out, and not next to each other, so the rows left checked are 2, 4 and
+  -- the last one. A run with no hole in it cannot tell "the next checked commit" from "the
+  -- next row".
+  toggle(win, 3)
+  toggle(win, last - 1)
+
+  it("really did leave the checked rows scattered", function()
+    assert.same({ 2, 4, last }, checked(buf), table.concat(lines(buf), "\n"))
+  end)
+
+  it("skips the rows that are unchecked", function()
+    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+    h.feed("]c")
+    assert.same(2, cursor_row(win))
+    h.feed("]c")
+    assert.same(4, cursor_row(win))
+    h.feed("]c")
+    assert.same(last, cursor_row(win))
+  end)
+
+  it("skips them going back up as well", function()
+    h.feed("[c")
+    assert.same(4, cursor_row(win))
+    h.feed("[c")
+    assert.same(2, cursor_row(win))
+  end)
+
+  it("reaches the end of the set rather than the end of the list", function()
+    vim.api.nvim_win_set_cursor(win, { last, 0 })
+    local messages, restore = h.capture_notify()
+    h.feed("]c")
+    restore()
+    assert.same(last, cursor_row(win))
+    assert.is_true(h.notified(messages, "next"), vim.inspect(messages))
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
+describe("]c and [c with nothing checked", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  -- One press on the top row of a whole-branch review takes every commit out, which is the
+  -- reading this pair has nothing to move between.
+  toggle(win, 1)
+  local at = 3
+  vim.api.nvim_win_set_cursor(win, { at, 0 })
+
+  it("really did leave every box unchecked", function()
+    assert.same({}, checked(buf), table.concat(lines(buf), "\n"))
+  end)
+
+  it("says so on ]c rather than moving", function()
+    local messages, restore = h.capture_notify()
+    h.feed("]c")
+    restore()
+    assert.same(at, cursor_row(win))
+    assert.is_true(h.notified(messages, "checked"), vim.inspect(messages))
+  end)
+
+  it("says so on [c rather than moving", function()
+    local messages, restore = h.capture_notify()
+    h.feed("[c")
+    restore()
+    assert.same(at, cursor_row(win))
+    assert.is_true(h.notified(messages, "checked"), vim.inspect(messages))
+  end)
+
+  h.feed("q")
+  codereview.close()
+end)
+
+--- The keys the float leaves alone ----------------------------------------------
+
+-- What is claimed here is not behaviour this float built. It is an ordinary buffer in an
+-- ordinary window, so searching it and reaching its ends are Neovim's, and the guarantee is
+-- that nothing was mapped over them.
+--
+-- Every case presses the key. Asserting that the mapping table holds no entry for `/` would
+-- read the one file that is allowed to bind on this buffer and pass against a mapping added
+-- later somewhere else -- which is the entire failure the guarantee exists to prevent.
+describe("searching the commit list", function()
+  state.set_trim(root, nil)
+  codereview.open()
+  local review = assert(view.current(), "no review view opened")
+  local win, buf = commits_by_key(review.win)
+  -- Two rows carry this and no other row does, which is what makes `n` and `N` observable at
+  -- all: a needle matching one row is reached by `/` alone, and repeating it would land back
+  -- where the search already was whether or not the key works.
+  local REPEATED = "test: "
+  local first, second = row_of(buf, DEPENDENT), row_of(buf, DEPENDENCY)
+
+  it("has two rows to repeat a search over, and no more", function()
+    local hits = {}
+    for i, row in ipairs(lines(buf)) do
+      if row:find(REPEATED, 1, true) then
+        hits[#hits + 1] = i
+      end
+    end
+    assert.same({ first, second }, hits, table.concat(lines(buf), "\n"))
+  end)
+
+  it("reaches a commit by its subject", function()
+    vim.api.nvim_win_set_cursor(win, { 1, 0 })
+    h.feed("/" .. REPEATED .. "<CR>")
+    assert.same(first, cursor_row(win))
+  end)
+
+  it("repeats that search on n", function()
+    h.feed("n")
+    assert.same(second, cursor_row(win))
+  end)
+
+  it("goes back on N", function()
+    h.feed("N")
+    assert.same(first, cursor_row(win))
+  end)
+
+  it("reaches the oldest commit on G", function()
+    h.feed("G")
+    assert.same(#lines(buf), cursor_row(win))
+  end)
+
+  it("reaches the top of the list on gg", function()
+    h.feed("gg")
+    assert.same(1, cursor_row(win))
+  end)
+
+  h.feed("q")
   codereview.close()
 end)
 
