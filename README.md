@@ -229,6 +229,16 @@ subject and reach the ends of the branch — nothing is mapped over them.
 The cursor opens on the reading you already have: the oldest commit still in your review, or
 "All commits" while the whole branch is in it.
 
+The list's title counts what you have checked while you are checking it — `Commits on this
+branch · 3 of 5 checked` — and it moves on every `<Space>`. With the whole branch in the
+review it reads `5 commits`, and with nothing checked it says that instead. Nothing reaches
+the review until `<CR>`, so the title is the one place that says what you are building before
+you build it.
+
+The list is as tall as your terminal lets it be, so a long branch shows more of itself on a
+tall screen. It never grows past the commits it lists, and it stays a centered float: it
+adjusts your review rather than replaces it.
+
 Every row also says how big its commit is: `3f +212 -48` is three files, two hundred and
 twelve lines added and forty-eight deleted. That is what separates a formatter run from a
 one-line fix before you decide to read it. The counts cost a pass over the whole branch, so

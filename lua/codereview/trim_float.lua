@@ -25,6 +25,13 @@
 ---Not the author -- you are reading your own branch, and that half of the refusal is
 ---untouched.
 ---
+---**The title counts the boxes, and it counts nothing else.** A running total of what the
+---checked commits add up to was refused rather than merely left out: the per-commit figures
+---are on the rows already, so summing them is cheap and tempting -- and wrong. Two commits
+---that both touch one file count it twice, so the total overstates exactly when the set is
+---large enough for a reviewer to want it, and a number they cannot trust is worse than no
+---number at all.
+---
 ---**Search is not reimplemented here.** This is an ordinary buffer in an ordinary window,
 ---so `/`, `n`, `N`, `gg` and `G` reach a commit by its subject and reach the ends of the
 ---list already. Nothing below may be mapped over them: a key this float takes is a key a
@@ -95,6 +102,71 @@ local function all_in(commits, checked)
     end
   end
   return true
+end
+
+---How much of the terminal's height the float takes, and the fewest rows it takes on a
+---terminal too short to give it that share.
+---
+---A share of the screen rather than a row count. The twenty-eight rows this replaces were
+---chosen when the list was something a reviewer glanced at to find one row to start reading
+---from; it is the surface a **trim** is built on now, and a branch of sixty scrolling through
+---a third of a tall terminal is the room that cap gave away. A share uses what is there at
+---every size, where a cap stops using it at one.
+---
+---Not the whole screen, deliberately: a float leaving no review around it is a different
+---class of surface, and `gc` would read as leaving the review rather than as adjusting it.
+---The floor is what a terminal too short for a share of any use gets instead.
+local HEIGHT_SHARE = 0.8
+local HEIGHT_FLOOR = 10
+
+---How tall the float opens, against the terminal it opens on.
+---
+---Never taller than the listing it holds, either. A five-commit branch on a tall terminal
+---would otherwise open a window that is mostly blank -- the same room given away as the cap
+---gave away, from the other end -- and the floor is about a short *terminal*, not about a
+---short branch: a listing that fits inside it is a listing a reviewer can already see whole.
+---@param rows integer Rows the listing has, the row that takes the whole branch included
+---@return integer
+local function height_for(rows)
+  return math.min(rows, math.max(HEIGHT_FLOOR, math.floor(vim.o.lines * HEIGHT_SHARE)))
+end
+
+---What the title says about the branch and about the set being built on it.
+---
+---The branch's own count is on it whatever the boxes say, because a checked count is read
+---against something: *three of sixty-five* is a set, *three* is a number.
+---
+---The whole branch checked falls back to that count alone. It is the state a review opens in,
+---and spelling out that nothing has been taken out of it yet says nothing extra. Nothing
+---checked is spelled in a word rather than as a `0` standing between two counts, because that
+---is the reading worth not misreading: the review is the reviewer's uncommitted work and no
+---commit at all.
+---
+---`N of M` is how the review's own label spells the same fact, so one spelling means one
+---thing on both surfaces. Said here while the set is still being built, which is what the
+---label cannot do -- it says nothing until a pick is applied, and by then the reviewer has
+---already committed to what they built.
+---@param commits CRCommit[]
+---@param checked boolean[]
+---@return string
+local function title_for(commits, checked)
+  local total = #commits
+  local n = 0
+  for i = 1, total do
+    if checked[i] then
+      n = n + 1
+    end
+  end
+
+  local set
+  if n == total then
+    set = ("%d commit%s"):format(total, total == 1 and "" or "s")
+  elseif n == 0 then
+    set = ("none of %d checked"):format(total)
+  else
+    set = ("%d of %d checked"):format(n, total)
+  end
+  return (" Commits on this branch · %s "):format(set)
 end
 
 ---How wide each of the three size columns has to be drawn to line up down the listing.
@@ -300,8 +372,8 @@ function M.open(view, root, base)
   vim.bo[buf].bufhidden = "wipe"
 
   local width = math.min(100, math.max(50, math.floor(vim.o.columns * 0.8)))
-  local height = math.min(28, math.max(10, math.floor(vim.o.lines * 0.7)))
-  local n = #commits
+  -- The listing, plus the row above it that takes the whole branch in or out.
+  local height = height_for(#commits + 1)
   local win = vim.api.nvim_open_win(buf, true, {
     relative = "editor",
     width = width,
@@ -310,7 +382,7 @@ function M.open(view, root, base)
     col = math.floor((vim.o.columns - width) / 2),
     style = "minimal",
     border = "rounded",
-    title = (" Commits on this branch · %d commit%s "):format(n, n == 1 and "" or "s"),
+    title = title_for(commits, checked),
     title_pos = "center",
     -- Only what works. A key that is not built is not advertised: a footer offering one is
     -- a promise the float cannot keep.
@@ -335,6 +407,11 @@ function M.open(view, root, base)
   ---
   ---One row is replaced by one row, so the cursor stays where the reviewer left it and
   ---nothing here has to put it back. A repaint that emptied the buffer first would not.
+  ---
+  ---The title is written again from the same boxes, because it counts them: a reviewer
+  ---building a set watches the count move as they press, rather than learning what they built
+  ---from the review's label once it is too late to change. Only the title is handed back, so
+  ---nothing else the window was opened with is restated here to be kept.
   local function paint()
     local painted = build(commits, vim.api.nvim_win_get_width(win), checked, sizes)
     vim.bo[buf].modifiable = true
@@ -344,6 +421,7 @@ function M.open(view, root, base)
     for _, m in ipairs(painted.marks) do
       pcall(vim.api.nvim_buf_set_extmark, buf, NS_TRIM, m.row, m.col, m.opts)
     end
+    vim.api.nvim_win_set_config(win, { title = title_for(commits, checked), title_pos = "center" })
   end
 
   paint()

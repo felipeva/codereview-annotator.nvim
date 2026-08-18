@@ -39,6 +39,26 @@ rows, so a long branch keeps its oldest commits at the bottom of the list.
 
 The list does not show the author, because it is your own branch.
 
+**The list takes a share of the terminal's height.** Twenty-eight rows was the cap while the
+list was something you glanced at to find one row to start reading from. It is where you
+build a set now, and a branch of sixty scrolling through a third of a tall screen is room
+given away. It is never taller than the listing it holds, so a five-commit branch opens a
+small window, and never shorter than a floor, so a short terminal still opens one you can
+read a list in. It is not full screen: the review stays visible around it, because `gc`
+adjusts the review rather than leaves it.
+
+**The title counts the boxes while you are still pressing them.** `3 of 5 checked`, beside
+what the branch holds, worked out again on every toggle. The review's own label reports the
+same fact, but only once you have applied the pick, which is too late to change your mind.
+With the whole branch checked the title falls back to the count it always carried, because a
+review that has taken nothing out has nothing extra to say; with nothing checked it says that
+in a word rather than as a `0` between two counts.
+
+**The title totals nothing across the checked commits.** The per-commit figures are on the
+rows already, so adding them up is cheap — and wrong. Two commits that both touch one file
+count it twice, so the total overstates exactly when the set is large enough for the number
+to be worth reading, and a number you cannot trust is worse than no number.
+
 **Every row shows the size of its commit**: the files it touched, and the lines it added and
 deleted. A box on every row asks *is this one worth reading*, and a subject cannot answer
 that — a formatter run over three hundred files and a one-line fix read alike. Those counts
