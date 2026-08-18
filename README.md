@@ -176,7 +176,9 @@ asked to look at it.
 
 | Key | Action |
 | --- | --- |
-| `<CR>` | Review from this commit forward |
+| `<Space>` | Take the commit under the cursor in or out of the review |
+| `]c` `[c` | Next / previous checked commit |
+| `<CR>` | Apply the boxes and close |
 | `q` / `<Esc>` | Close and change nothing |
 
 </details>
@@ -217,6 +219,12 @@ differently, because the reading is no longer a run of commits: `branch vs origi
 The top row is "All commits", and it works both ways. Check it and the whole branch is back
 in the review. Uncheck it and every commit leaves, which is a review of your uncommitted work
 alone, labelled `0 of 5`.
+
+On a long branch, `]c` and `[c` move between the commits you have checked, so coming back to
+a decision you already made costs a keystroke instead of a scroll. Neither wraps: at the last
+checked commit `]c` says there is no next one rather than sending you somewhere you did not
+ask for. The list is an ordinary buffer, so `/`, `n`, `N`, `gg` and `G` reach a commit by its
+subject and reach the ends of the branch — nothing is mapped over them.
 
 The cursor opens on the reading you already have: the oldest commit still in your review, or
 "All commits" while the whole branch is in it.

@@ -31,6 +31,11 @@
 ---that both touch one file count it twice, so the total overstates exactly when the set is
 ---large enough for a reviewer to want it, and a number they cannot trust is worse than no
 ---number at all.
+---
+---**Search is not reimplemented here.** This is an ordinary buffer in an ordinary window,
+---so `/`, `n`, `N`, `gg` and `G` reach a commit by its subject and reach the ends of the
+---list already. Nothing below may be mapped over them: a key this float takes is a key a
+---reviewer no longer has, and none of them is worth what it would cost.
 local git = require("codereview.git")
 local render = require("codereview.render")
 
@@ -381,7 +386,7 @@ function M.open(view, root, base)
     title_pos = "center",
     -- Only what works. A key that is not built is not advertised: a footer offering one is
     -- a promise the float cannot keep.
-    footer = " Space toggle · ⏎ apply · q close ",
+    footer = " Space toggle · ]c/[c checked · ⏎ apply · q close ",
     footer_pos = "center",
   })
   -- The rows are fitted to a width they know, so that every one of them stays one row.
@@ -470,6 +475,46 @@ function M.open(view, root, base)
     paint()
   end
 
+  ---Move to the next or the previous commit that is checked.
+  ---
+  ---Neither direction wraps. Reaching the end of the run reports it, which is what `]f` and
+  ---`]h` do on the diff behind this float: the end of a list is a fact, and a jump that came
+  ---back round would move a reviewer somewhere they did not ask to be.
+  ---
+  ---The top row is not a target: it is not a commit. Jumping *from* it is ordinary, which is
+  ---what puts the newest checked commit one press away from the row the float opens on.
+  ---@param forward boolean
+  local function jump(forward)
+    local row = vim.api.nvim_win_get_cursor(win)[1]
+    local found, any
+    for i = 1, #commits do
+      if checked[i] then
+        any = true
+        -- The listing starts one row below the top row, so a commit sits on its place in the
+        -- listing plus one -- the arithmetic `toggle` reads a press with.
+        local at = i + 1
+        if forward and at > row then
+          -- The first row past the cursor, and the rows are walked in the order they are
+          -- drawn in, so the first match forward is the nearest one.
+          found = found or at
+        elseif not forward and at < row then
+          found = at
+        end
+      end
+    end
+    -- Said apart from the sentence below, because they are different facts: one is a list
+    -- with nothing to move between, the other is a reviewer already at the end of it.
+    if not any then
+      info("No commit is checked")
+      return
+    end
+    if not found then
+      info(("No %s checked commit here"):format(forward and "next" or "previous"))
+      return
+    end
+    vim.api.nvim_win_set_cursor(win, { found, 0 })
+  end
+
   ---Apply the boxes and close.
   ---
   ---What a pick applies is the commits it takes **out**, which is every row left unchecked.
@@ -509,6 +554,12 @@ function M.open(view, root, base)
   end
 
   vim.keymap.set("n", "<Space>", toggle, { buffer = buf, desc = "Take this commit in or out of the review" })
+  vim.keymap.set("n", "]c", function()
+    jump(true)
+  end, { buffer = buf, desc = "Next checked commit" })
+  vim.keymap.set("n", "[c", function()
+    jump(false)
+  end, { buffer = buf, desc = "Previous checked commit" })
   vim.keymap.set("n", "<CR>", pick, { buffer = buf, desc = "Review the commits that are checked" })
   vim.keymap.set("n", "q", close, { buffer = buf, desc = "Close the commit list" })
   vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Close the commit list" })
