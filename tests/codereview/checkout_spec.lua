@@ -224,18 +224,98 @@ describe("an annotation about a file in another checkout", function()
   end)
 end)
 
+local LOOSE = "a thought with no repository behind it"
+
+---How many entries in the queue carry a note.
+---@param needle string
+---@return integer
+local function occurrences(needle)
+  local n = 0
+  for _, text in ipairs(queued_notes()) do
+    if text == needle then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- An entry with no repository behind it belongs to no checkout, so it is in hand wherever
+-- the reviewer is. Read back here rather than queued, because the id it carries is what the
+-- last block turns on.
+describe("a loose entry read back into a checkout that already has a queue", function()
+  state.save_global({ { id = 1, type = "issue", kind = "note", key = "note:0", note = LOOSE } })
+
+  vim.cmd("cd " .. vim.fn.fnameescape(A))
+  state.restore_queue(A)
+
+  it("brings it into hand", function()
+    assert.same(1, occurrences(LOOSE), vim.inspect(queued_notes()))
+  end)
+
+  -- The store that needs no root is read on its own question. Asked of the whole queue, a
+  -- checkout that already holds entries answers "not empty" and the loose entry never
+  -- arrives at all.
+  it("leaves the entries this checkout already held exactly as they were", function()
+    assert.same(1, occurrences("about agent-a"), vim.inspect(queued_notes()))
+  end)
+
+  -- Without this the last block is vacuous: only an id low enough to collide can catch a
+  -- counter that starts again per checkout.
+  it("brought it back with the id it was stored under", function()
+    for _, e in ipairs(queue.all()) do
+      if e.note == LOOSE then
+        assert.same(1, e.id)
+      end
+    end
+  end)
+end)
+
+-- A checkout has to be able to read its own store while the reviewer holds something that
+-- belongs to no checkout. The two guards are separate questions for this reason: asked as
+-- one, a bare note in hand stops every checkout visited afterwards from ever reading what
+-- was left in it -- which is the failure this slice removes, wearing a different hat.
+describe("a checkout with unsent work, reached with that entry in hand", function()
+  local waiting = state.load(MAIN)
+  waiting.queue = {
+    {
+      id = 2,
+      type = "fix",
+      kind = "file",
+      path = "src/main.lua",
+      abs_path = vim.fs.joinpath(MAIN, "src/main.lua"),
+      key = "src/main.lua:f:0",
+      inline = false,
+      note = "left unsent in main",
+    },
+  }
+  state.save(MAIN, waiting)
+
+  vim.cmd("cd " .. vim.fn.fnameescape(MAIN))
+  state.ensure_queue()
+
+  it("reads that checkout's own store, though the queue was not empty", function()
+    assert.same(1, occurrences("left unsent in main"), vim.inspect(queued_notes()))
+  end)
+
+  -- Read on every restore rather than on its own question, the loose entry arrives once per
+  -- checkout the reviewer visits.
+  it("keeps the loose entry, and only one of it", function()
+    assert.same(1, occurrences(LOOSE), vim.inspect(queued_notes()))
+  end)
+
+  it("shows nothing of the checkout it came from", function()
+    assert.same(0, occurrences("about agent-a"), vim.inspect(queued_notes()))
+  end)
+end)
+
 -- What one id counter is for, and the case a counter split per checkout would fail.
 --
--- A **loose** entry rides along in every checkout, so its id shares a queue with the ids
--- of whichever checkout the reviewer is in. This checkout's archive is empty, which is
--- exactly where a per-checkout counter would start at 1 -- and 1 is what the loose entry
--- restored as. `remove` matches the first entry carrying the id it is given, so the
--- collision does not report anything: it drops the wrong annotation.
-describe("a checkout with an empty archive, beside a loose entry", function()
-  local LOOSE = "a thought with no repository behind it"
+-- This checkout's archive is empty, which is exactly where a per-checkout counter would
+-- start at 1 -- and 1 is what the loose entry beside it came back as. `remove` matches the
+-- first entry carrying the id it is given, so the collision reports nothing at all: it
+-- drops the wrong annotation.
+describe("an annotation queued in a checkout with an empty archive", function()
   local OWNED = "the first annotation in main"
-
-  state.save_global({ { id = 1, type = "issue", kind = "note", key = "note:0", note = LOOSE } })
   annotate_in(MAIN, OWNED)
 
   local by_note = {}
@@ -243,23 +323,17 @@ describe("a checkout with an empty archive, beside a loose entry", function()
     by_note[e.note] = e
   end
 
-  it("shows the loose entry beside this checkout's own", function()
+  it("has the loose entry beside it still", function()
     assert.is_not_nil(by_note[LOOSE], vim.inspect(queued_notes()))
     assert.is_not_nil(by_note[OWNED], vim.inspect(queued_notes()))
   end)
 
-  -- Without this the block is vacuous: only an id low enough to collide can catch a
-  -- counter that starts again per checkout.
-  it("brought the loose entry back with the id it was stored under", function()
-    assert.same(1, by_note[LOOSE].id)
-  end)
-
-  it("gives this checkout's annotation an id of its own", function()
+  it("takes an id of its own", function()
     assert.are_not.same(by_note[LOOSE].id, by_note[OWNED].id)
   end)
 
-  -- The consequence, which is the whole reason the ids have to differ. Dropping the loose
-  -- entry must drop the loose entry.
+  -- The consequence, and the whole reason the ids have to differ: dropping the loose entry
+  -- has to drop the loose entry.
   it("drops the entry that was asked for, and leaves the other", function()
     local removed = queue.remove(by_note[LOOSE].id)
     assert.same(LOOSE, removed and removed.note)
