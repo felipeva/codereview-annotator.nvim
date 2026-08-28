@@ -162,6 +162,81 @@ function M.snapshot(root)
   return line({ "stash", "create" }, root) or line({ "rev-parse", "--verify", "--quiet", "HEAD" }, root)
 end
 
+---@class CRCheckout
+---@field path string        Absolute and resolved -- the name `M.root` answers with
+---@field branch string|nil  nil on a detached HEAD
+---@field current boolean    Whether it is the checkout the question was asked from
+
+---Every **checkout** of one repository: the main clone and each linked worktree of it.
+---
+---What a **switch** chooses from, and the plugin's own knowledge rather than the host's
+---(ADR-0007) -- `git worktree list` does not move under this the way the agent tooling
+---behind ADR-0001 does. The repository is whichever one `cwd` is in, so listing the
+---checkouts of a review means asking from the review's root and not from the working
+---directory (ADR-0008).
+---
+---Three rows are dropped rather than offered, and each of them would otherwise be a choice
+---that cannot be taken:
+---
+---  * a **bare** repository, which has no working tree to review and no directory to root a
+---    tab in;
+---  * a registered checkout whose directory is gone -- git calls it prunable -- because a
+---    row that fails the moment it is chosen is not a choice;
+---  * anything whose path cannot be resolved, for the reason every path here is resolved.
+---
+---**Every path is realpathed**, because a store's file name is a base name plus a hash of
+---the full path and `M.root` answers with symlinks resolved. A listed path that differed by
+---one symlink would give that checkout a *second* store, and the queue left in the first
+---would be invisible rather than merely misfiled. git resolves these itself on the platforms
+---this was written against; the call is what keeps that from being a dependency.
+---
+---`--porcelain` rather than `--porcelain -z`: the NUL form exists to carry a path holding a
+---newline, which would otherwise be read as two records here. Both halves then fail the
+---directory test and the checkout is left out of the list -- it is not offered, and nothing
+---is misfiled -- which is a cost worth paying to keep this off a git version floor that
+---nothing else in the plugin needs.
+---@param cwd string|nil
+---@return CRCheckout[]
+function M.checkouts(cwd)
+  local out = run({ "worktree", "list", "--porcelain" }, { cwd = cwd })
+  if not out then
+    return {}
+  end
+  -- Asked once rather than per row: which checkout the question came from is a fact about
+  -- the question.
+  local here = M.root(cwd)
+
+  local checkouts = {}
+  local path, branch, bare = nil, nil, false
+
+  ---Close the record just read, keeping it only if it names a checkout that can be opened.
+  local function flush()
+    local resolved = path and (vim.uv.fs_realpath(path) or path)
+    if resolved and not bare and (vim.uv.fs_stat(resolved) or {}).type == "directory" then
+      checkouts[#checkouts + 1] = { path = resolved, branch = branch, current = resolved == here }
+    end
+    path, branch, bare = nil, nil, false
+  end
+
+  for _, ln in ipairs(vim.split(out, "\n", { plain = true })) do
+    -- Records are separated by a blank line, which matches nothing and closes nothing: the
+    -- next `worktree` line is what ends the record before it, and `flush` after the loop is
+    -- what ends the last one.
+    local key, value = ln:match("^(%S+)%s*(.*)$")
+    if key == "worktree" then
+      flush()
+      path = value
+    elseif key == "branch" then
+      branch = (value:gsub("^refs/heads/", ""))
+    elseif key == "bare" then
+      bare = true
+    end
+  end
+  flush()
+
+  return checkouts
+end
+
 --- Scopes ----------------------------------------------------------------------
 
 ---@class CRScope
