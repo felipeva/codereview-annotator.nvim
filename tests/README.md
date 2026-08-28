@@ -26,6 +26,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
+| `codereview/checkout_child.lua` | Spawned by `checkout_restart_spec` to work in two **checkouts** and dispatch from each — deliberately not a spec. |
 | `codereview/layout_child.lua` | Spawned by `layout_spec` — deliberately not a spec. |
 | `codereview/archived_child.lua` | Spawned by `render_spec` to archive a batch and turn archived entries off — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
@@ -79,6 +80,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `interactive_spec` | The insert-mode leak, and where a completed or canceled `@` leaves you, in a real pty-backed Neovim |
 | `map_spec` | That `lua/codereview/CLAUDE.md` lists exactly the modules that exist — the only part of the map a machine can check |
 | `checkout_spec` | The queue scoped to its **checkout**: two checkouts of one repository in one session — what each store receives, the queue left in the second read back rather than hidden, the return to the first, the annotation about a checkout you are not in that is filed nowhere and says so, and the loose entry whose id one counter keeps clear of |
+| `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
 
 ## Fixtures
 
@@ -134,7 +136,8 @@ interchangeable, and the assertions know which one they are looking at.
   history has.
 - **`mkcheckouts.sh`** — one repository in three **checkouts** of it, and the only fixture
   whose checkouts are the point: `main` on master, plus `agent-a` and `agent-b`, each a
-  linked checkout on a branch of its own. Used by `checkout_spec`. Unlike the other four it
+  linked checkout on a branch of its own. Used by `checkout_spec` and
+  `checkout_restart_spec`. Unlike the other four it
   builds a plain directory holding the three rather than a repository at the path it is
   given, which keeps the whole fixture inside one `rm` — a checkout added beside the
   repository would be left behind — and leaves that path itself inside no repository. A
@@ -257,6 +260,16 @@ so the out-of-core language path is still checked locally without ever failing C
   therefore does *not* simulate a restart — the latch is still set, nothing reloads, and an
   assertion about restoring is measuring nothing. `capture_spec` spawns
   `capture_child.lua` twice for this reason.
+- **Seeding the id counter per checkout needs a restart, a dispatch *and* a second
+  checkout.** The trap below is the one-checkout half of it. With the counter per session
+  and one checkout, `archive_spec` catches an unseeded counter; with two checkouts it can
+  be seeded from the first one visited and still hand the second an id its own archive
+  already holds. `checkout_restart_spec` therefore leaves the second checkout with an
+  archive and *no* queue — a stored queue coming back would lift the counter on its own and
+  the case would pass with the archive never read — and it asserts that every id the first
+  checkout holds is below every id the second's archive holds before asserting anything
+  about the new one. Both cuts red exactly that case: deleting the `queue.seed` call, and
+  putting the read-back latch back to once per session.
 - **The id an archived entry holds only collides across a restart *plus* a dispatch.** The
   queue's counter is module-level and starts at 1, so a one-process test of "a new
   annotation does not take an id the archive already holds" passes whether or not the
