@@ -675,13 +675,33 @@ function M.restore_queue(root)
   return M.reconcile_queue(root)
 end
 
----The repository the queue belongs to when no view is open.
+---The **checkout** everything resolves against: the review's own when one is open, and the
+---working directory's otherwise.
 ---
----Public because more than the restore has to ask it: writing the queue with nothing open
----and emptying it after a submit both write to the store this names, and a second copy of
----the question is a second chance to answer it differently.
----@return string|nil
-function M.ambient_root()
+---Public because more than the restore has to ask it. Writing the queue with nothing open,
+---emptying it after a submit and reading the last **batch** back all name a checkout, and a
+---second copy of the question is a second chance to answer it differently.
+---
+---**The review wins, which is ADR-0008 in one line.** The two answers agreed until a
+---**switch** existed, because a review could only ever be opened where the reviewer was
+---standing. After a switch the working directory is still the checkout they are standing
+---*in*, so reading it would file the review's annotations in that checkout's store and read
+---that checkout's archive back under this review -- the corruption the per-checkout queue
+---exists to remove, reached through a door the switch opened.
+---
+---The review tab's own directory is not consulted either, though it holds the same answer
+---and looks equivalent: Neovim silently resets a tab's local directory to the global one
+---once that directory is deleted, and fires no `DirChanged` when it does. `V.root` is the
+---authority and the `:tcd` beside it is a courtesy to the **host**.
+---
+---The view is required function-locally, as `git` is above: the two require each other, and
+---Lua resolves a require inside a function lazily.
+---@return string|nil checkout nil outside every checkout, with no review open
+function M.current_checkout()
+  local view = require("codereview.view").current()
+  if view then
+    return view.root
+  end
   return require("codereview.git").root(vim.fn.getcwd())
 end
 
@@ -712,7 +732,21 @@ local NO_CHECKOUT = ""
 ---whichever surface asked.
 ---@return integer staled 0 once this checkout's queue has already been read back
 function M.ensure_queue()
-  local root = M.ambient_root()
+  return M.ensure_queue_for(M.current_checkout())
+end
+
+---The same read-back, for a checkout named rather than resolved.
+---
+---What a review opening uses. A **switch** is how a session reaches a checkout it has never
+---read, and that checkout is owed everything a first visit owes: its stored queue, the
+---entries that belong to no checkout, the latch that stops the next resolved read pointing
+---the queue somewhere else, and the id counter lifted past what its own **archive** already
+---draws on the diff. Reaching for the parts of that separately is how a second, quieter
+---restore comes into existence beside this one.
+---@param root string|nil nil outside every checkout, where the store needing no root still
+---       has to be read
+---@return integer staled 0 once this checkout's queue has already been read back
+function M.ensure_queue_for(root)
   if queue_restored[root or NO_CHECKOUT] then
     -- Still pointed at, and this is the whole of what a return to a checkout costs: its
     -- entries never left memory, so what is owed is the queue being the one this checkout
@@ -730,23 +764,28 @@ end
 ---@param view CRView
 ---@param scope_key string
 function M.restore(view, scope_key)
-  local data = M.load(view.root)
   -- The review's own checkout, which is the checkout its queue is about (ADR-0008). The
   -- working directory is not asked: what a review is reading is the review's to say.
-  queue.use(view.root)
+  --
+  -- The whole read-back rather than a queue swap of its own. A **switch** can open a review
+  -- in a checkout this session has never touched, and half a restore there is worse than
+  -- none: the latch would stay unset and the next resolved read would move the queue back
+  -- to the checkout the reviewer is standing in, the loose entries would not ride along,
+  -- and an annotation made here could take an id this checkout's archive already draws.
+  --
+  -- The count it returns is deliberately dropped. `view.open` calls `reconcile` immediately
+  -- after this, and `reconcile` judges the same entries again and reports what it finds --
+  -- so a sentence said here would be that same sentence said twice. A return to a checkout
+  -- reports staleness in the existing wording and adds no sentence of its own.
+  M.ensure_queue_for(view.root)
 
+  local data = M.load(view.root)
   local saved = data.scopes and data.scopes[scope_key]
   if saved and saved.reviewed then
     for path, blob in pairs(saved.reviewed) do
       view.reviewed[path] = blob
       view.expanded[path] = false
     end
-  end
-
-  -- Per checkout, as the restore's own guard is: a bare note in hand is not a reason to
-  -- leave this checkout's stored queue unread.
-  if data.queue and #data.queue > 0 and queue.count_in(view.root) == 0 then
-    queue.replace(view.root, data.queue)
   end
 end
 

@@ -23,7 +23,6 @@
 ---still on the stack to do it. What a surface then has to repaint is the surface's own
 ---affair.
 local config = require("codereview.config")
-local git = require("codereview.git")
 
 local M = {}
 
@@ -153,16 +152,22 @@ local function to_clipboard(payload, _to)
   return false, "No send adapter configured — copied the batch to the + register instead"
 end
 
----Where a batch's `@ref`s resolve against, and which repository it is going out of.
+---Where a batch's `@ref`s resolve against, and which **checkout** it is going out of.
 ---
----One answer for both, because they are one question asked from two sides: the repository
----is what the archive is keyed on, and it is also what stands in when nothing has been
----routed. A note captured outside a checkout has none.
+---One answer for both, because they are one question asked from two sides: the checkout is
+---what the archive is keyed on, and it is also what stands in when nothing has been routed.
+---A note captured outside a checkout has none.
+---
+---`opts.root` is the open review's, handed in by the surface that asked. Without one the
+---question falls to the checkout the plugin is acting on, which is the review's again when
+---there is one -- a copy is passed *and* resolved because a submit reaches here from
+---surfaces that know a review and from surfaces that do not, and the two must not be able
+---to name different checkouts.
 ---@param to table|nil
 ---@param opts { root?: string }
 ---@return string base, string|nil repo
 local function destination(to, opts)
-  local repo = opts.root or git.root(vim.fn.getcwd())
+  local repo = opts.root or require("codereview.state").current_checkout()
   local root = repo or vim.fn.getcwd()
   -- Resolve refs against the directory the payload is actually going to: a routed agent
   -- reads `@path` relative to its own cwd, not this Neovim's.
@@ -325,7 +330,7 @@ function M.submit(ctx)
   -- start. The queue alone rather than the whole document, because submitting changes
   -- nothing about the reviewed marks stored beside it.
   local state = require("codereview.state")
-  state.persist_queue(ctx.root or state.ambient_root())
+  state.persist_queue(ctx.root or state.current_checkout())
 
   info(
     ("Submitted %d annotation%s to %s"):format(

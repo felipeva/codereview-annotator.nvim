@@ -158,7 +158,14 @@ function M.open(ctx, on_accept, label)
         -- to be relative to, and the absolute path is the only name the file has.
         local path = chosen.path
         if path:sub(1, 1) == "/" then
-          local root = payload.resolve_base(vim.uv.cwd())
+          -- Against the **checkout** the plugin is acting on -- the review's own when one is
+          -- open (ADR-0008) -- and not against the working directory. A reviewer who has
+          -- switched is standing in one checkout and reading another, and the two hold the
+          -- same repository-relative layout: relativizing against the wrong one turns a
+          -- perfectly ordinary path into a `../` walk between sibling checkouts, and the
+          -- note carries that text from then on.
+          local state = require("codereview.state")
+          local root = payload.resolve_base(state.current_checkout() or vim.uv.cwd())
           path = payload.relative_to(vim.uv.fs_realpath(path) or path, root) or path
         end
         -- Rendered by the module that reads references, not spelled out again here. Lines

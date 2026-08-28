@@ -55,6 +55,32 @@ takes commits off the start of the branch included, works on any git.
         archived -- a register is not a consumer. Needs no review view open.
         Also bound to `gy` in the diff and in the queue float.
 
+                                                          *:CodeReviewSwitch*
+:CodeReviewSwitch
+        Switch the review to another **checkout** of this repository -- the
+        main clone, or any `git worktree` of it. Offers the checkouts git
+        itself lists, minus a bare repository and any whose directory is gone,
+        and opens the branch review in whichever you choose. Also bound to
+        `gS` in the diff and in the file tree.
+
+        Needs no review open, which is how you open a review somewhere else in
+        the first place: opening with nothing already open is simply the case
+        with nothing to close first. A checkout with nothing in its branch
+        scope says so and leaves the review you were reading exactly where it
+        was.
+
+        Each checkout keeps its own queue, reviewed marks, trims and archive,
+        and shares none of them -- so leaving one is lossless and returning
+        gives back what you left. Switching with annotations still queued is
+        therefore safe, and is not confirmed.
+
+        Your **global** working directory never moves and the tab you started
+        in keeps its own, so you can always reach the checkout Neovim started
+        in. Only the review's own tab is pointed at the chosen checkout, and
+        that is for your LSP root, your diff-sign base and a relative `:e` --
+        nothing in the plugin reads it back. Replace the chooser with
+        |codereview-opt-pick_checkout|.
+
                                                        *:CodeReviewLastBatch*
 :CodeReviewLastBatch
         Read the last dispatched batch back: its annotations, grouped by type
@@ -105,6 +131,8 @@ Buffer-local, inside the review view:
                      review -- see |codereview-commits|
     gA               Show or hide archived entries, for the rest of the
                      session -- see |codereview-archived|
+    gS               Switch the review to another checkout of this
+                     repository -- see |:CodeReviewSwitch|
     <CR>             Open the real file here, in a new tab
     gd               Read this file in the host's own diff tool --
                      bound only with |codereview-opt-open_diff| wired
@@ -152,6 +180,8 @@ In the file tree:                                         *codereview-tree*
                      review -- see |codereview-commits|
     gA               Show or hide archived entries, for the rest of the
                      session -- see |codereview-archived|
+    gS               Switch the review to another checkout of this
+                     repository -- see |:CodeReviewSwitch|
     q                Close the review
 
 The tree collapses single-child directory chains, so a monorepo shows
@@ -834,10 +864,11 @@ any other note you walked away from.
 8. ADAPTERS                                            *codereview-adapters*
 
 The plugin has no opinion about where a review goes, about which pickers you
-use, or about which diff tool you read a rewrite in. Five optional functions
+use, or about which diff tool you read a rewrite in. Six optional functions
 inject that. With none of them wired everything still works: the payload
 reaches the `+` register instead of an agent and the batch stays queued, `@`
-in the composer stays a literal `@`, and `gd` is not bound to anything.
+in the composer stays a literal `@`, `gd` is not bound to anything, and a
+switch offers its checkouts through `vim.ui.select`.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
@@ -995,6 +1026,38 @@ open_diff({spec})                                   *codereview-opt-open_diff*
         to the review to say anything about it. It is for the rewrite Neovim's
         own diff mode reads better than a unified diff does -- a reformat, a
         re-indent, a file moved wholesale -- not a second review surface.
+
+pick_checkout({checkouts}, {cb})               *codereview-opt-pick_checkout*
+        Choose which **checkout** |:CodeReviewSwitch| moves the review to.
+        Call {cb} with a path, or with nil for "none of them". >
+            pick_checkout = function(checkouts, cb)
+              vim.ui.select(checkouts, {
+                prompt = "Switch the review to:",
+                format_item = function(c) return c.branch or c.path end,
+              }, function(chosen) cb(chosen and chosen.path) end)
+            end,
+<
+        {checkouts} is every checkout of the current repository the plugin can
+        open, each of them: >
+            path     absolute and resolved -- the name git answers with
+            branch   the branch it is on, or nil when detached
+            current  whether it is the checkout being reviewed right now
+<
+        A bare repository and any checkout whose directory is gone are already
+        out of that list: neither has a working tree to review, and a row that
+        fails the moment it is chosen is not a choice.
+
+        **Answer with a path, not with a row.** The list is a convenience and
+        not a restriction -- an adapter is free to offer a checkout that was
+        never in it, which is what reviewing a checkout of a *different*
+        repository needs until cross-repository listing exists.
+
+        Without this you get the picker the plugin ships, which implements
+        this same contract rather than being a lesser path beside it: both are
+        handed the same list and both answer the same way. Wiring one replaces
+        that picker. What a checkout *is* stays the plugin's own knowledge --
+        `git worktree list` does not move under it the way agent tooling does
+        -- and how a list is put in front of you is yours.
 
 ==============================================================================
 9. CONFIGURATION                                  *codereview-configuration*
@@ -1224,6 +1287,9 @@ lacks the archive.
 require("codereview").setup({opts})                     *codereview.setup()*
 require("codereview").open({scope})                      *codereview.open()*
 require("codereview").close()                           *codereview.close()*
+require("codereview").switch()                         *codereview.switch()*
+        Switch the review to another checkout of this repository. Works with
+        no review open. See |:CodeReviewSwitch|.
 require("codereview").annotate({type}, {range}, {opts})
                                                      *codereview.annotate()*
         Annotate the current buffer, with no review view involved. {type} is
