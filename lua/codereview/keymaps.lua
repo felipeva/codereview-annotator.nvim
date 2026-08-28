@@ -113,7 +113,7 @@ function M.diff(buf, view)
     ["gp"] = { view.toggle_panel, "Show or hide the file tree" },
     -- From the `g` family the other view-level commands come from, and clear of `gt`/`gT`,
     -- which are how `<CR>`'s new tab is returned from.
-    ["gl"] = { view.toggle_layout, "Switch between the unified and split layouts" },
+    ["gl"] = { view.toggle_layout, "Toggle the unified and split layouts" },
     -- `gb` for the **batch**, from the same `g` family. It opens the surface the command
     -- opens, so a reviewer reads one fact off one surface however they asked for it.
     ["gb"] = { view.last_batch, "Read the last batch back" },
@@ -211,7 +211,7 @@ function M.panel(buf, view)
     ["<C-p>"] = { view.pick_file, "Jump to a file" },
     ["<Tab>"] = { view.toggle_focus, "Focus the diff" },
     ["gp"] = { view.toggle_panel, "Hide the file tree" },
-    ["gl"] = { view.toggle_layout, "Switch between the unified and split layouts" },
+    ["gl"] = { view.toggle_layout, "Toggle the unified and split layouts" },
     ["gb"] = { view.last_batch, "Read the last batch back" },
     ["gc"] = { view.commit_list, "List the commits on the branch, and trim the review" },
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
