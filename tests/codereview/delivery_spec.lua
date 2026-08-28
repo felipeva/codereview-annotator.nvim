@@ -22,6 +22,12 @@ local state = require("codereview.state")
 local main = assert(vim.uv.fs_realpath(vim.fs.joinpath(fixture, "src/main.lua")))
 local root = assert(vim.uv.fs_realpath(fixture))
 
+-- The **checkout** this session is in, resolved before anything is queued. It is what the
+-- capture path does first, and what the entries built by hand below stand in for: a queue
+-- belongs to a checkout, so an entry added before one is resolved joins the queue of
+-- nowhere. Harmless here beyond that -- nothing is on disk yet to be read back.
+state.ensure_queue()
+
 ---The batches this repository has kept, through the accessor a surface would use.
 ---
 ---A dispatch is the one condition that empties the queue, and it is the one condition that

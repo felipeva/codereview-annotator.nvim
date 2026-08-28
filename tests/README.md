@@ -78,10 +78,11 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
 | `interactive_spec` | The insert-mode leak, and where a completed or canceled `@` leaves you, in a real pty-backed Neovim |
 | `map_spec` | That `lua/codereview/CLAUDE.md` lists exactly the modules that exist — the only part of the map a machine can check |
+| `checkout_spec` | The queue scoped to its **checkout**: two checkouts of one repository in one session — what each store receives, the queue left in the second read back rather than hidden, the return to the first, the annotation about a checkout you are not in that is filed nowhere and says so, and the loose entry whose id one counter keeps clear of |
 
 ## Fixtures
 
-Four repositories, each rebuilt from scratch by its script. They are not
+Five repositories, each rebuilt from scratch by its script. They are not
 interchangeable, and the assertions know which one they are looking at.
 
 - **`mkfixture.sh`** — flat `src/`-only repo covering every file status at once:
@@ -131,6 +132,20 @@ interchangeable, and the assertions know which one they are looking at.
   off master's tip inside it: a first-parent line with no merge on it, which is what "a branch
   with no merge in it is untouched by the merge rule" needs and which no branch over this
   history has.
+- **`mkcheckouts.sh`** — one repository in three **checkouts** of it, and the only fixture
+  whose checkouts are the point: `main` on master, plus `agent-a` and `agent-b`, each a
+  linked checkout on a branch of its own. Used by `checkout_spec`. Unlike the other four it
+  builds a plain directory holding the three rather than a repository at the path it is
+  given, which keeps the whole fixture inside one `rm` — a checkout added beside the
+  repository would be left behind — and leaves that path itself inside no repository. A
+  second *copy* of a repository will not do: two copies are two repositories, and what is
+  scoped per checkout can only be seen in checkouts that share one, which is also what
+  `git worktree list` has to name for the picker built on it. `src/main.lua` is at the same
+  repository-relative path in all three on purpose: an entry captured in one is then
+  identical to an entry captured in another everywhere but its absolute path, which is what
+  gives "the owning checkout is derived from the entry's own paths" something to fail on.
+  Give the checkouts different file names and a rule reading the repository-relative path
+  alone passes.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
   well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
   asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
@@ -213,6 +228,29 @@ so the out-of-core language path is still checked locally without ever failing C
   visual mode exits. Calling the entry point directly after a selection therefore captures
   the whole file instead. Feed the keys and the mapping together (`h.feed("1GVj<F5>")`), as
   `annotate_spec` does for the review path.
+- **A spec that builds entries by hand has to resolve its checkout first.** A queue belongs
+  to a **checkout**, and `queue.add` files an entry in the queue of the checkout the session
+  is in — which the capture path has always resolved before it queues anything, and which a
+  spec calling `queue.add` directly has not. An entry added before then joins the queue of
+  nowhere and is invisible the moment anything resolves one, which reads as an empty queue
+  rather than as a misplaced entry: `delivery_spec`, `archive_spec`, `archive_float_spec`,
+  `queue_float_spec`, `touched_spec` and `since_batch_spec` all call `state.ensure_queue()`
+  once for this, exactly as a session does. `viewless_child.lua` needs none, because it
+  opens a review first.
+- **A batch is the queue of the checkout you are in, so a spec cannot queue in one and
+  submit from another.** `archive_spec`'s clean-tree block used to: it queued against the
+  dirty fixture and then changed directory into a reset copy, because what it is really
+  about is `git stash create` minting nothing. It now queues in the clean checkout. A spec
+  that carries a queue across a directory change is asserting the corruption #173 removed,
+  and it reports as `Queue is empty — annotate something first`.
+- **Parallel runs can hide a whole spec file's failures, so judge on the exit code.**
+  `PlenaryBustedDirectory` runs one Neovim per file and interleaves their output; a file
+  whose cases failed can leave no `Tests Failed` line anywhere a `grep` will find, while
+  every summary in the log still reads `Failed : 0`. The runner is still right — it fails
+  when any child exits non-zero — so the exit code is the authority, and the way to find
+  which file it was is to rerun with `{ sequential = true, keep_going = true }` and read the
+  failures in order. This is the same trap as "the plenary tally lies", arriving through the
+  scheduler instead of through ANSI codes.
 - **The queue is restored once per session, so a second session means a second process.**
   `state.ensure_queue()` latches after the first read, which is what stops a statusline
   calling `count()` from hitting the disk on every redraw. Clearing the queue in-process

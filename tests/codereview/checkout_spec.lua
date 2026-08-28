@@ -26,6 +26,9 @@ h.ui(110, 40)
 local base = assert(vim.uv.fs_realpath(h.fixture("mkcheckouts")))
 local A = vim.fs.joinpath(base, "agent-a")
 local B = vim.fs.joinpath(base, "agent-b")
+-- The third is touched by one block only, and that is what it is for: a checkout with an
+-- empty **archive**, which is the one that a counter seeded per checkout would start at 1.
+local MAIN = vim.fs.joinpath(base, "main")
 
 local codereview = require("codereview")
 local git = require("codereview.git")
@@ -167,5 +170,99 @@ describe("returning to the first checkout", function()
 
   it("counts only that checkout's entries", function()
     assert.same(1, queue.count())
+  end)
+end)
+
+-- Reachable with no gesture this slice adds: open a file that is in another checkout and
+-- annotate it. The entry is about that checkout and the queue is this one's, so it can be
+-- filed nowhere -- not here, because it is not about here, and not there, because a queue
+-- nothing has read back must not be written over. It is kept, it goes out with the batch,
+-- and what it does not do is survive a restart. The reviewer is told exactly that.
+describe("an annotation about a file in another checkout", function()
+  local NOTE = "about agent-b, written from agent-a"
+
+  vim.cmd("cd " .. vim.fn.fnameescape(A))
+  state.ensure_queue()
+  vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(B, "src/main.lua")))
+  note = NOTE
+  local msgs, restore = h.capture_notify()
+  codereview.annotate("bug")
+  restore()
+
+  local entries = queue.all()
+  local entry = entries[#entries]
+
+  -- The guard: the entry has to be about the other checkout for anything below to mean
+  -- anything, and the two checkouts hold the same repository-relative path, so it is the
+  -- absolute one that says which.
+  it("is about the checkout the file is in", function()
+    assert.same(NOTE, entry.note)
+    assert.same("src/main.lua", entry.path)
+    assert.same(vim.fs.joinpath(B, "src/main.lua"), entry.abs_path)
+  end)
+
+  it("stays in the queue the reviewer is in", function()
+    assert.is_true(vim.tbl_contains(queued_notes(), NOTE), vim.inspect(queued_notes()))
+  end)
+
+  it("is filed under neither checkout", function()
+    assert.is_false(vim.tbl_contains(stored_notes(A), NOTE), vim.inspect(stored_notes(A)))
+    assert.is_false(vim.tbl_contains(stored_notes(B), NOTE), vim.inspect(stored_notes(B)))
+  end)
+
+  it("says so, rather than leaving it to be discovered at the next start", function()
+    assert.is_true(h.notified(msgs, queue.unfiled_phrase(1)), vim.inspect(msgs))
+  end)
+
+  -- Progress is written on every mutation, so a sentence said per write would be said
+  -- again on the next annotation, the next reviewed mark and the next drop.
+  it("says it once, and not again on the next write", function()
+    local again, restore_again = h.capture_notify()
+    state.persist_queue(A)
+    restore_again()
+    assert.is_false(h.notified(again, "about another checkout"), vim.inspect(again))
+  end)
+end)
+
+-- What one id counter is for, and the case a counter split per checkout would fail.
+--
+-- A **loose** entry rides along in every checkout, so its id shares a queue with the ids
+-- of whichever checkout the reviewer is in. This checkout's archive is empty, which is
+-- exactly where a per-checkout counter would start at 1 -- and 1 is what the loose entry
+-- restored as. `remove` matches the first entry carrying the id it is given, so the
+-- collision does not report anything: it drops the wrong annotation.
+describe("a checkout with an empty archive, beside a loose entry", function()
+  local LOOSE = "a thought with no repository behind it"
+  local OWNED = "the first annotation in main"
+
+  state.save_global({ { id = 1, type = "issue", kind = "note", key = "note:0", note = LOOSE } })
+  annotate_in(MAIN, OWNED)
+
+  local by_note = {}
+  for _, e in ipairs(queue.all()) do
+    by_note[e.note] = e
+  end
+
+  it("shows the loose entry beside this checkout's own", function()
+    assert.is_not_nil(by_note[LOOSE], vim.inspect(queued_notes()))
+    assert.is_not_nil(by_note[OWNED], vim.inspect(queued_notes()))
+  end)
+
+  -- Without this the block is vacuous: only an id low enough to collide can catch a
+  -- counter that starts again per checkout.
+  it("brought the loose entry back with the id it was stored under", function()
+    assert.same(1, by_note[LOOSE].id)
+  end)
+
+  it("gives this checkout's annotation an id of its own", function()
+    assert.are_not.same(by_note[LOOSE].id, by_note[OWNED].id)
+  end)
+
+  -- The consequence, which is the whole reason the ids have to differ. Dropping the loose
+  -- entry must drop the loose entry.
+  it("drops the entry that was asked for, and leaves the other", function()
+    local removed = queue.remove(by_note[LOOSE].id)
+    assert.same(LOOSE, removed and removed.note)
+    assert.is_true(vim.tbl_contains(queued_notes(), OWNED), vim.inspect(queued_notes()))
   end)
 end)
