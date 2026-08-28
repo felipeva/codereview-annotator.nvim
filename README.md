@@ -223,6 +223,13 @@ working directory never moves and the tab you started in keeps its own, so you c
 get back to where you started; only the review's own tab is pointed at the checkout, for
 your LSP, your diff signs and a relative `:e`.
 
+Returning also reopens the **scope** that checkout was last reviewed in — reviewed marks are
+kept per scope, so which scope opens decides which marks come back. A checkout you have
+never reviewed opens the branch review, and so does one whose remembered scope can no longer
+be shown: a revspec whose branch has gone, or a `staged` scope you have since committed. A
+restart is not a return, though — `:CodeReview` with no argument always means the branch
+review, wherever you are and whatever you last read.
+
 ### Trim a branch review
 
 A branch review can read any set of the branch's commits. Press `gc` to list them, newest
