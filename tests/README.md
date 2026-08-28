@@ -83,6 +83,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
 | `switch_spec` | Moving the review to another **checkout**: the listing it is chosen from — the three checkouts of one repository, each named as its own git names it, with a bare one and a deleted one left out — the picker the plugin ships and the `pick_checkout` adapter that replaces it, a switch with a review open and with none, the directories a switch must not move, the queue and the store and the id that follow the review rather than the working directory, and what belongs to no checkout riding along into one reached by switching — asked from a tab standing in another checkout — the tab a real file opens into, `:CodeReviewSwitch` and `gS` in the diff and the tree, and the checkout with nothing in scope that is declined rather than opened |
 | `count_spec` | The queued count a statusline asks for: which **checkout** it is about after a bare directory change, the bare note that is in the number everywhere, what a redraw costs in git processes cold and warm, the answer of "no checkout" that is deliberately not remembered so a `git init` is visible at once, the tab whose own directory was deleted underneath it, and the intersection with the **switch** — the number read from the tab the reviewer is standing in, about the checkout the review is on |
+| `frozen_spec` | A **checkout** deleted underneath an open review, which is the one place the review's root and the tab's working directory give different answers — so this is where ADR-0008 is proved and not merely restated. In two acts, because the two halves need different tab states: never having left the tab, where there is no working directory at all and the review has to stay readable through it; then having left and returned, where the tab has adopted a *live* sibling checkout and a working-directory read resolves, succeeds and is wrong. The paint, the cursor move and the file tree that all raised; the highlighting the diff keeps; the queue still readable; each operation needing the checkout refused by name rather than through git; the reviewer told on coming back; the store the annotation still reaches; the **switch** out that a deletion took away; `:CodeReview` from a tab with no directory of its own — and the executed mutation that replaces the review's root with a working-directory read and shows the review opening a file out of the wrong checkout |
 | `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
 
 ## Fixtures
@@ -140,7 +141,7 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mkcheckouts.sh`** — one repository in three **checkouts** of it, and the only fixture
   whose checkouts are the point: `main` on master, plus `agent-a` and `agent-b`, each a
   linked checkout on a branch of its own. Used by `checkout_spec`,
-  `checkout_restart_spec`, `switch_spec` and `sweep_spec`. Unlike the other four it
+  `checkout_restart_spec`, `switch_spec`, `frozen_spec` and `sweep_spec`. Unlike the other four it
   builds a plain directory holding the three rather than a repository at the path it is
   given, which keeps the whole fixture inside one `rm` — a checkout added beside the
   repository would be left behind — and leaves that path itself inside no repository. A
@@ -925,6 +926,42 @@ so the out-of-core language path is still checked locally without ever failing C
   dropping the backticks, say — silently yields no rows, and "no row names a module that is
   gone" then holds over nothing. It asserts both sides are non-empty before comparing them,
   which is the only reason that reformatting reds two cases instead of one.
+
+### A checkout deleted underneath a review
+
+This subsection is #177's and stands on its own.
+
+**A case about a deleted checkout has to say which act it is in.** `vim.uv.cwd()` is nil only
+while the reviewer stays in the tab; leaving it and coming back makes Neovim adopt the global
+directory. So a case that asserts the review is still readable must not have left the tab —
+the raise it guards against heals on re-entry — and a case that asserts *which* checkout the
+review resolves against must have left and returned, or a working-directory read answers `""`,
+fails loudly, and the case passes for the wrong reason. One `getcwd()` measurement answers
+neither question on its own. `frozen_spec` is in two acts for exactly this, and pins the
+environment at each boundary so a future Neovim that changes either answer fails here rather
+than somewhere confusing.
+
+**The checkout the reviewer stands in must be alive, and must not be the one under review.**
+The whole trap is that a working-directory read names something that *exists*. Stand the
+reviewer outside every checkout and every assertion naming the review's root passes under the
+implementation the file exists to catch.
+
+**Only a working-tree capture can be falsely staled.** A review annotation is judged against
+the blob its scope already holds in memory, which no deletion can move; a capture taken from
+the file carries a working-tree blob and is judged against the disk. So "reconciling is
+refused, and the queue's staleness is left alone" needs an entry captured from a buffer, or
+it is a rule with nothing to fail on.
+
+**A switch needs a target with something in scope.** The `mkcheckouts` fixture's `main` is the
+branch the other two are cut from, so its own branch review is empty and a switch to it is
+declined rather than opened — which `switch_spec` owns as a case in its own right. A file
+asserting that a reviewer can *get out* has to switch to `agent-a` or `agent-b`.
+
+**A mutation case asserts the broken behaviour, so it is green before and after.** The one at
+the end of `frozen_spec` replaces the review's root with a working-directory read and asserts
+the review opens a file out of an unrelated checkout. It is a sensitivity check on every case
+above it rather than a behaviour case, and reading it as a failing test to fix would delete
+the proof.
 
 ## Deliberately not covered
 

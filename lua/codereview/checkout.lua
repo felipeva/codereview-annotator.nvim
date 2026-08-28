@@ -77,6 +77,30 @@ function M.switch()
   end
 
   local checkouts = git.checkouts(root)
+
+  -- **A review whose checkout was deleted underneath it can still be left.**
+  --
+  -- The listing is built by asking git from the checkout the plugin is acting on, and that
+  -- is exactly the directory that went: `vim.system` raises on a cwd that is not there, so
+  -- the answer is an empty list and the reviewer is told no checkout can be opened. With
+  -- `:CodeReview` resolving through the same question, a switch is the only way out of such
+  -- a review -- so the one gesture that must keep working is the one a deletion took away.
+  --
+  -- Asked again from the *global* working directory, which is the checkout Neovim started
+  -- in: it is never moved (ADR-0008), which is the whole of why a reviewer can always get
+  -- back to where they began. Strictly the repository it lists is the one the reviewer is
+  -- standing in rather than the one the dead review was of. Nothing can list the latter --
+  -- a linked checkout's git directory is reached through the directory that is gone -- and
+  -- in the case this exists for the two are the same repository anyway.
+  --
+  -- Gated on the checkout being gone, not merely on an empty list. An empty list from a
+  -- checkout that is *there* means git named nothing openable in that repository, and
+  -- answering that with another repository's checkouts would be the cross-repository
+  -- listing #171 rules out.
+  if #checkouts == 0 and (vim.uv.fs_stat(root) or {}).type ~= "directory" then
+    checkouts = git.checkouts(vim.fn.getcwd(-1, -1))
+  end
+
   if #checkouts == 0 then
     -- Reachable only when git listed nothing this plugin could open: every checkout it
     -- named was bare, or gone, or unresolvable. Said rather than opening an empty picker,

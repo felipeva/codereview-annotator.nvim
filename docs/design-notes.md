@@ -983,3 +983,58 @@ back to the diff window, so choosing an agent from the queue float dumped the cu
 the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
 leaves the float open behind it. It also has to drive its own repaint: the picker is
 asynchronous, so anything run after the call returns paints before a target exists.
+
+## A checkout deleted underneath a review
+
+This section is #177's and stands on its own; the **orphan** sweep's rules are elsewhere,
+because that is about *stored state* and this is about the *live review*.
+
+**A relative path handed to any library is a working-directory read.** ADR-0008 says every
+working-directory read inside a review is a bug, and this is the shape of it that no grep
+for `getcwd` finds. `vim.filetype.match({ filename = path })` absolutises a relative name
+through `vim.fs.abspath`, which is an `assert(vim.uv.cwd())` — so the syntax pass asking for
+a language by a repository-relative path *raised*, on every paint and every cursor move,
+once the review's checkout was deleted and the tab had no working directory left. The review
+became unreadable with no git call anywhere near it. It joins from `V.root` now. Anything
+else handing a path to a Neovim library owes the same join.
+
+**`vim.uv.cwd()` is nil only while the reviewer stays in the tab.** Leave it and come back
+and Neovim adopts the global directory, so the crash above heals itself and the wrongness
+that replaces it is silent. That is why the two are asserted in different acts of
+`frozen_spec` and why one measurement of "what does `getcwd()` say" answers neither
+question on its own.
+
+**Reconciling under a gone checkout does not fail — it lies.** `git.hash_worktree` stats
+each path before it runs git, so with the checkout gone `present` is empty and it returns
+`{}` *without spawning git at all*. Every working-tree annotation then compares "no hash"
+against its capture blob, is flagged **stale**, and is written to the store that way; the
+reviewer is told a count that is false about work they still have to send. This is why the
+operations needing the checkout are refused rather than run with a warning in front of
+them: the obscure failure was not an error message, it was a plausible number.
+
+**The verdict is never latched, and that is a rule rather than laziness.** A stat says
+"gone" for a directory that is briefly absent — an unmounted volume, an agent rebuilding a
+worktree at the same path. Stored state needs a grace period because nothing re-asks it; a
+live review is re-asked every time a key is pressed, so re-testing is both cheaper and more
+correct than remembering. The announcement latch clears with it, or a reviewer who gets the
+worktree back is never told it is usable again.
+
+**A switch is the only way out, so its listing cannot be built the obvious way.**
+`git.checkouts` is asked from the checkout the plugin is acting on, which is exactly the
+directory that went — `vim.system` raises on a cwd that is not there, the list comes back
+empty, and the reviewer is told no checkout can be opened. It is asked again from the global
+working directory, which is never moved. Strictly that lists the repository the reviewer is
+standing in rather than the one the dead review was of; nothing can list the latter, because
+a linked checkout's git directory is reached *through* the directory that is gone. The
+fallback is gated on the checkout being absent, not on the list being empty — an empty list
+from a checkout that exists means git named nothing openable in *that* repository, and
+answering it with another repository's checkouts is the cross-repository listing #171 rules
+out.
+
+**`open` resolving its own checkout was the other half of the stranding.** It read `getcwd()`
+raw, which answers `""` in such a tab, and `vim.system` raises on an empty cwd rather than
+reporting a failure — so `:CodeReview` said "not inside a git repository" to a reviewer
+sitting inside one. It resolves through `state.current_checkout` now, which already carried
+that fall-through. Note what this does *not* buy: with a review open, `current_checkout`
+answers that review's root, so reopening cannot rescue a review whose own checkout is the
+one that went. The switch is the gesture for that; this is for the tab afterwards.

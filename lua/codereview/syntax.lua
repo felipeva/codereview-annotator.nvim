@@ -68,7 +68,18 @@ local function parser_available(lang)
 end
 
 ---Treesitter language for a path, or nil when there is no parser for it.
----@param path string
+---
+---**Hand this an absolute path from inside a review.** `vim.filetype.match` absolutises a
+---relative name for itself, through `vim.fs.abspath`, which is an `assert(vim.uv.cwd())` --
+---so a relative name is a working-directory read wearing a filetype's clothes. It raises,
+---rather than answering wrongly, once the review's **checkout** is deleted and the tab it
+---is drawn in has no working directory at all. That is ADR-0008's rule reached through a
+---library call instead of through plugin code, and it is why the ADR says *every*
+---working-directory read inside a review is a bug, including a convenient one.
+---
+---Still typed as any path, and still asked with a relative one from outside a review, where
+---there is no root to join from and a working directory is the honest answer.
+---@param path string Absolute, when the caller has a review's root to join from
 ---@return string|nil
 function M.lang_for(path)
   local ft = vim.filetype.match({ filename = path })
@@ -311,7 +322,11 @@ function M.apply(view, ns, group_for)
     -- The panes hold the same rows, so one pane's bounds answer for both.
     local near = maps.first <= hi and maps.last >= lo
     if near and not file.binary and not view.syntax_painted[file.path] then
-      local lang = M.lang_for(file.path)
+      -- Joined from the review's root, never left relative: the language question is
+      -- answered by a call that absolutises what it is given, so a relative path here reads
+      -- the working directory and raises once the checkout is gone. `open_file` joins from
+      -- the same authority, which is the pattern ADR-0008 names.
+      local lang = M.lang_for(vim.fs.joinpath(view.root, file.path))
       if lang then
         local group_of = group_for and group_for(fi) or nil
         -- An untracked file has no committed pre-image; its "after" is the working tree.
