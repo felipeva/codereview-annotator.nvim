@@ -156,9 +156,11 @@ end
 
 --- The two stores that share the directory and are not checkout documents --------
 
--- Neither can name a checkout that hashes back to its own file name, which is what leaves
--- the sweep needing no list of files to leave alone. A list would be a second copy of
--- where those two stores live, kept in a third place.
+-- Neither carries a checkout or a stamp, so the shape test turns both away before anything
+-- else has seen them -- which is what leaves the sweep needing no list of files to leave
+-- alone. A list would be a second copy of where those two stores live, kept in a third
+-- place. The file-name test below would refuse them too, and never gets the chance, so this
+-- case reds when the shape test goes and not when that one does.
 state.save_global({
   { id = 20, type = "issue", kind = "note", key = "note:0", note = "a thought with no repository behind it" },
 })
@@ -218,10 +220,11 @@ vim.fn.delete(BEFORE, "rf")
 -- Half of that schema: the checkout is on it and hashes back to its own file name, and the
 -- stamp is not. Gone, parent alive, and refused for want of an age.
 --
--- Here because the document above is refused twice over -- it names no checkout, so both
--- the shape test and the file-name test turn it away -- and a rule held by two guards can
--- lose one of them silently. This one is refused by the stamp alone, so weakening the stamp
--- test to "no stamp means old enough" is visible here and nowhere else.
+-- Here because the document above is refused by the shape test for naming no checkout, and
+-- never reaches anything below it -- so no case there can show what the *stamp* half of that
+-- test is doing. This one carries a checkout that hashes back to its own file name, so the
+-- stamp is the only thing left to refuse it: weakening that test to "no stamp means old
+-- enough" is visible here and nowhere else in the suite.
 local HALF = checkout_dir("half")
 store(HALF, {
   queue = { entry(HALF, 14, "unsent, in a document with a checkout and no stamp") },

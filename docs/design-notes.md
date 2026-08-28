@@ -549,12 +549,22 @@ argument one field further along.
 **The stored checkout is checked against the file name, not trusted.** It is a second copy of
 what the file name already hashes, so a state directory carried between machines, or a file
 written half way, names a path that means nothing here. Sweeping on a path that does not hash
-back to its own file would remove a document belonging to something else entirely. That check
-is also why the sweep needs no list of files to leave alone: neither the store that needs no
-root nor the drafts beside it can pass it, and a list would be a third copy of where those two
-live. Both are refused *twice*, by that check and by the shape test above it, so
-`sweep_spec`'s case for a document carrying a checkout and no stamp exists to hold the stamp
-half on its own — a rule two guards defend can lose one of them silently.
+back to its own file would remove a document belonging to something else entirely. What that
+check refuses is a document filed under one checkout and naming another, and that is all it
+refuses.
+
+**What keeps the neighbouring stores out of a sweep is the shape test, not the file-name
+check.** The store that needs no root and the drafts beside it share the directory and are not
+checkout documents. Both are turned away for carrying neither the checkout nor the stamp,
+before the file-name check has seen them — so the sweep needs no list of files to leave alone,
+and the credit belongs to the shape test. The file-name check *would* refuse them, because
+`M.path(nil)` does not raise but answers `v:null-<hash>.json`, which no document is ever filed
+under; it simply never gets the chance. That was measured, after a comment here claimed
+otherwise. The shape test is load-bearing in a stronger way too: delete it and a document
+carrying a checkout with no stamp reaches the age test, where `now - nil` raises — an error on
+every switch, not a document wrongly swept. `sweep_spec` keeps a document of that shape
+because it is the only thing that holds the stamp half on its own; without it, reading a
+missing stamp as age zero passes the whole file.
 
 **A checkout this session has read back is never swept, and that is not an optimisation.**
 Its entries are in memory whether its directory is there or not, and the next write about it

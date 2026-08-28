@@ -1052,16 +1052,30 @@ local function sweepable(file, now)
   -- checkout it is about nor when it was last written, so there is nothing here to test and
   -- it is left alone -- for good, because the only way to gain the two keys is to be saved
   -- again, and a checkout that is gone is never saved again.
+  --
+  -- **This is also what leaves the sweep needing no list of files to leave alone.** The
+  -- store that needs no root and the drafts beside it share this directory and are not
+  -- checkout documents; both are turned away right here, before anything below has seen
+  -- them. A list would be a third copy of where those two live.
+  --
+  -- **And it stops a raise, not only a wrong sweep.** Delete it and a document carrying a
+  -- checkout with no stamp reaches the age test below, where `now - nil` raises: an error
+  -- outside an `it` in a spec, and an error on every **switch** in an editor. `sweep_spec`
+  -- keeps a document of exactly that shape, because that is the only way this half of the
+  -- test is held on its own.
   if type(doc.checkout) ~= "string" or type(doc.saved) ~= "number" then
     return nil
   end
 
   -- The stored path is a second copy of what the file name already hashes, so it is checked
-  -- against it rather than trusted. A state directory carried between machines names paths
-  -- that mean nothing here, and a file written half way names anything at all. This is also
-  -- what leaves the sweep needing no list of files to leave alone: neither the store that
-  -- needs no root nor the drafts beside it can pass it, and a list would be a third copy of
-  -- where those two live.
+  -- against it rather than trusted: a state directory carried between machines names paths
+  -- that mean nothing here, and a file written half way names anything at all.
+  --
+  -- What this refuses is a document filed under one checkout and naming another, and that
+  -- is all it refuses. It is **not** what keeps the two stores above out of a sweep -- they
+  -- are gone before this line runs. It would refuse them if they reached it, because
+  -- `M.path(nil)` does not raise but answers `v:null-<hash>.json`, which no document is
+  -- ever filed under -- and that is a true sentence about a path nothing ever takes.
   if M.path(doc.checkout) ~= file then
     return nil
   end
