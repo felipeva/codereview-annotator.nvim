@@ -884,7 +884,9 @@ describe("annotating under a trim", function()
     vim.api.nvim_win_set_cursor(X.win, { X.render.file_rows[at], 0 })
     annotate.annotate("bug")
     local whole = vim.deepcopy(assert(queue.all()[1], "nothing was captured with the trim removed"))
+    -- Ids apart, and the capture stamp with them: neither is read off the line.
     trimmed.id, whole.id = nil, nil
+    trimmed.at, whole.at = nil, nil
     assert.same(whole, trimmed)
   end)
 end)

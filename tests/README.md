@@ -83,6 +83,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
 | `switch_spec` | Moving the review to another **checkout**: the listing it is chosen from — the three checkouts of one repository, each named as its own git names it, with a bare one and a deleted one left out — the picker the plugin ships and the `pick_checkout` adapter that replaces it, a switch with a review open and with none, the directories a switch must not move, the queue and the store and the id that follow the review rather than the working directory, and what belongs to no checkout riding along into one reached by switching — asked from a tab standing in another checkout — the tab a real file opens into, `:CodeReviewSwitch` and `gS` in the diff and the tree, and the checkout with nothing in scope that is declined rather than opened |
 | `count_spec` | The queued count a statusline asks for: which **checkout** it is about after a bare directory change, the bare note that is in the number everywhere, what a redraw costs in git processes cold and warm, the answer of "no checkout" that is deliberately not remembered so a `git init` is visible at once, the tab whose own directory was deleted underneath it, and the intersection with the **switch** — the number read from the tab the reviewer is standing in, about the checkout the review is on |
+| `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
 
 ## Fixtures
 
@@ -139,7 +140,7 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mkcheckouts.sh`** — one repository in three **checkouts** of it, and the only fixture
   whose checkouts are the point: `main` on master, plus `agent-a` and `agent-b`, each a
   linked checkout on a branch of its own. Used by `checkout_spec`,
-  `checkout_restart_spec` and `switch_spec`. Unlike the other four it
+  `checkout_restart_spec`, `switch_spec` and `sweep_spec`. Unlike the other four it
   builds a plain directory holding the three rather than a repository at the path it is
   given, which keeps the whole fixture inside one `rm` — a checkout added beside the
   repository would be left behind — and leaves that path itself inside no repository. A

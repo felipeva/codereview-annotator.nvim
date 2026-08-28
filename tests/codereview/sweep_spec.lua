@@ -215,6 +215,19 @@ store(BEFORE, {
 }, { checkout = false, saved = false })
 vim.fn.delete(BEFORE, "rf")
 
+-- Half of that schema: the checkout is on it and hashes back to its own file name, and the
+-- stamp is not. Gone, parent alive, and refused for want of an age.
+--
+-- Here because the document above is refused twice over -- it names no checkout, so both
+-- the shape test and the file-name test turn it away -- and a rule held by two guards can
+-- lose one of them silently. This one is refused by the stamp alone, so weakening the stamp
+-- test to "no stamp means old enough" is visible here and nowhere else.
+local HALF = checkout_dir("half")
+store(HALF, {
+  queue = { entry(HALF, 14, "unsent, in a document with a checkout and no stamp") },
+}, { checkout = HALF, saved = false })
+vim.fn.delete(HALF, "rf")
+
 -- A document whose stored checkout is not the checkout it is filed under. Reachable by a
 -- state directory carried between machines, and by a file written half way. All three
 -- conditions hold for the path it names -- gone, parent there, aged -- and it is still not
@@ -348,6 +361,10 @@ describe("what a sweep must not remove", function()
 
   it("leaves a document written before the checkout and the stamp existed", function()
     assert.is_true(stored(BEFORE), state.path(BEFORE))
+  end)
+
+  it("leaves a document that carries a checkout but no stamp", function()
+    assert.is_true(stored(HALF), state.path(HALF))
   end)
 
   it("leaves a document whose stored checkout is not the one it is filed under", function()

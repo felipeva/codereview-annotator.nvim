@@ -232,9 +232,12 @@ describe("annotating inside it", function()
     })
   end)
 
-  -- Ids apart, because they are issued in order and nothing else about an entry is.
+  -- Ids apart, and the capture stamp with them: both are minted as an entry is made
+  -- rather than read off the line it is about, so two captures either side of a second
+  -- boundary differ in the stamp and in nothing else.
   it("produces the entry that line produces in any other scope", function()
     from_since.id, from_worktree.id = nil, nil
+    from_since.at, from_worktree.at = nil, nil
     assert.same(from_worktree, from_since)
   end)
 end)

@@ -500,6 +500,69 @@ gets them at all. Both halves of a restore therefore ask their own question, and
 is safe because every `queue.add` is followed by a write: a loose entry is on the disk
 before anything can read that store again.
 
+## Sweeping orphaned state
+
+**The seven-day window is seven days WITHOUT A WRITE, not seven days missing.** The stamp
+the age test reads is rewritten on every save, and only a mutation saves — opening a review
+does not, and closing one does not. So a checkout last written to nine days ago and deleted
+a minute ago has **no protection at all**: the next **switch** sweeps it, and whatever was
+unsent in it goes. The protection is proportional to how recently the document was written,
+which is not what a grace period against a directory that may come back would give you.
+This is a deliberate deviation from "kept for a while after its checkout disappears". The
+alternative — a stamp written the first time a sweep finds the directory gone, swept only
+once *that* is a week old — needs two sweeps seven days apart, and sweeps happen only on a
+switch, so a store could easily never shrink at all. The precedent settles it: the store
+that needs no root already deletes seven-day-old unsent annotations outright, with no
+directory test whatsoever, so this rule is strictly less aggressive than one the plugin has
+shipped for a long time.
+
+**The parent test buys less than "an unmounted volume is unsweepable at any age" claims.**
+It holds when the directory *above* the checkout was on the volume too, which is the
+motivating case: macOS removes `/Volumes/<name>` when a volume ejects, so a checkout under
+it has no parent and is never swept. It does not hold where a mount point survives as an
+empty directory, which is usual on Linux: a checkout at `/mnt/disk/repo` is gone, `/mnt/disk`
+is still there, and the sweep may take it. Keep the test — it is the only thing that
+separates an absent volume from a removed checkout, and no grace period of any length can —
+but do not read it as a guarantee.
+
+**A sweep can never reach the state anyone already has.** A document written before the
+checkout and the stamp existed carries neither, and the only way to gain them is to be saved
+again — which cannot happen once the directory is gone. Every orphan that exists today is
+therefore permanent. This is forced by the file name, which is a base name plus a hash of the
+full path and cannot be read backwards. It also means the sweep removes nothing on the day it
+ships, and can remove its first document no earlier than seven days later.
+
+**The commonest way checkouts disappear is the one shape the sweep cannot touch.** Deleting a
+whole project directory takes the repository and every checkout inside it, so every parent
+goes too and nothing qualifies. Worktrees kept at `.worktrees/agent-a` are the same case. What
+the sweep does reach is a checkout removed from *beside* a repository that stays — which is
+what `git worktree add ../agent-a` produces, and it is the shape agent tooling actually
+creates.
+
+**The age is the document's, not its entries'.** A document can hold nothing but reviewed
+marks and trims, and there is no entry in it to take an age from. The entries are stamped too,
+but for a different reason and read by nobody here: an entry with no repository behind it has
+carried a stamp since that store began ageing entries out, an owned one carried none, and
+which store an entry came from was therefore readable off the entry — which is ADR-0002's
+argument one field further along.
+
+**The stored checkout is checked against the file name, not trusted.** It is a second copy of
+what the file name already hashes, so a state directory carried between machines, or a file
+written half way, names a path that means nothing here. Sweeping on a path that does not hash
+back to its own file would remove a document belonging to something else entirely. That check
+is also why the sweep needs no list of files to leave alone: neither the store that needs no
+root nor the drafts beside it can pass it, and a list would be a third copy of where those two
+live. Both are refused *twice*, by that check and by the shape test above it, so
+`sweep_spec`'s case for a document carrying a checkout and no stamp exists to hold the stamp
+half on its own — a rule two guards defend can lose one of them silently.
+
+**A checkout this session has read back is never swept, and that is not an optimisation.**
+Its entries are in memory whether its directory is there or not, and the next write about it
+puts the document straight back. Sweeping it would report unsent work as destroyed while that
+work sits in the queue and in the number a statusline shows — a figure wrong in both
+directions at once. It is also what keeps a sweep away from the checkout under an open review,
+whose behaviour when its directory disappears belongs somewhere else entirely.
+
 ## The archive
 
 **The state document's `VERSION` must not be bumped to add a key.** A mismatched version

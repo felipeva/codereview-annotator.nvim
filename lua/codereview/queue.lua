@@ -36,6 +36,7 @@ local M = {}
 ---@field tag string|nil        "deleted"|"change"|"added"|hunk type
 ---@field note string
 ---@field stale boolean|nil
+---@field at integer           When it was captured
 
 ---The key a checkout's queue is held under. Outside every checkout there is still a queue
 ---to add to -- a **bare note** can be written anywhere -- and nil is not a table key.
@@ -88,6 +89,17 @@ end
 function M.add(item)
   item.id = next_id
   next_id = next_id + 1
+  -- Stamped where the id is issued, because this is the one seam every capture passes
+  -- through: the review path and the buffer path both end here. An entry with no
+  -- repository behind it has carried a stamp since the store that needs no root began
+  -- ageing entries out, and an owned one carried none -- so which store an entry came from
+  -- was readable off the entry. ADR-0002's argument against a consumer branching on where
+  -- an entry came from is the same argument, one field further along.
+  --
+  -- Not what the **sweep** reads. A document can hold nothing but reviewed marks and
+  -- trims, and there is no entry in it to take an age from, so the age of stored state is
+  -- the document's own stamp.
+  item.at = item.at or os.time()
   -- Filed by what the entry is, not by where the reviewer is: an entry with no
   -- repository-relative path has no checkout to belong to, wherever it was written.
   local list = item.path and list_for(current) or loose

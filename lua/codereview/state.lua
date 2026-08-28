@@ -99,6 +99,11 @@ function M.load(root)
   -- a key those files simply lack.
   decoded.archive = decoded.archive or {}
   decoded.trims = decoded.trims or {}
+  -- The **checkout** and the save stamp are deliberately *not* defaulted here, though they
+  -- arrived exactly as those two did. A document written before them has neither, and that
+  -- absence is the whole of what keeps it out of a **sweep**: defaulted, it would reach the
+  -- sweep either claiming to be about wherever it was loaded from or claiming an age of
+  -- 1970, and either answer removes a document nothing knows anything about.
   return decoded
 end
 
@@ -108,6 +113,17 @@ end
 function M.save(root, data)
   local file = M.path(root)
   vim.fn.mkdir(vim.fs.dirname(file), "p")
+  -- The two keys a **sweep** reads, written here rather than by each caller: every write of
+  -- a document comes through this function, and a key set anywhere else is a key some other
+  -- write silently drops.
+  --
+  -- The **checkout**, because the file name keeps a base name and a hash of the full path
+  -- and the path cannot be recovered from either. The stamp, because a document may hold
+  -- nothing but reviewed marks and trims, and the entries in it are not what a document's
+  -- age is. Neither is a reason to bump `VERSION`: an older document simply lacks both,
+  -- exactly as it lacks the archive and the trims.
+  data.checkout = root
+  data.saved = os.time()
   local ok, encoded = pcall(vim.json.encode, data)
   if not ok then
     return false
@@ -997,6 +1013,155 @@ function M.clear(root)
   -- The archive went with it, so anything holding a projection of it is holding entries
   -- that no longer exist -- and would go on drawing them until the next dispatch.
   archive_writes = archive_writes + 1
+end
+
+--- Sweeping orphaned state ------------------------------------------------------
+
+---How long the state of a checkout that is gone is kept before a sweep may take it.
+---
+---Seven days, which is the number the store that needs no root and the draft store both
+---carry -- and a different rule wearing it. Those two are lifetimes for stores nothing else
+---ever prunes: they age out on their own or they grow forever. This one is a grace period,
+---and it stands beside two other conditions rather than alone, so it gets a constant of its
+---own rather than borrowing one of theirs.
+---
+---**It measures time without a write, not time missing.** The stamp it reads is rewritten
+---on every save, and only a mutation saves -- opening a review does not, and closing one
+---does not -- so a checkout last written to nine days ago and deleted a minute ago has no
+---protection here at all. The design notes say what that costs and why the alternative was
+---refused.
+local ORPHAN_GRACE_SECONDS = 7 * 24 * 60 * 60
+
+---A document whose checkout is **orphaned** and whose state may be discarded, or nil.
+---
+---Every condition in one place, so nothing can hold three of them and forget the fourth.
+---@param file string The document being examined
+---@param now integer
+---@return table|nil doc The decoded document, when it may be swept
+local function sweepable(file, now)
+  local ok, doc = pcall(function()
+    return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
+      luanil = { object = true, array = true },
+    })
+  end)
+  if not ok or type(doc) ~= "table" or doc.version ~= VERSION then
+    return nil
+  end
+
+  -- Written before this file recorded either key. Such a document says neither which
+  -- checkout it is about nor when it was last written, so there is nothing here to test and
+  -- it is left alone -- for good, because the only way to gain the two keys is to be saved
+  -- again, and a checkout that is gone is never saved again.
+  if type(doc.checkout) ~= "string" or type(doc.saved) ~= "number" then
+    return nil
+  end
+
+  -- The stored path is a second copy of what the file name already hashes, so it is checked
+  -- against it rather than trusted. A state directory carried between machines names paths
+  -- that mean nothing here, and a file written half way names anything at all. This is also
+  -- what leaves the sweep needing no list of files to leave alone: neither the store that
+  -- needs no root nor the drafts beside it can pass it, and a list would be a third copy of
+  -- where those two live.
+  if M.path(doc.checkout) ~= file then
+    return nil
+  end
+
+  -- Already read back, and memory is the truth. A checkout this session has read keeps its
+  -- entries whether its directory is there or not, and the next write about it puts the
+  -- document straight back -- so taking it here would report unsent work as destroyed while
+  -- that work sits in the queue and in the number a statusline shows. It is also what keeps
+  -- a sweep away from the checkout under an open review.
+  if queue_restored[doc.checkout] then
+    return nil
+  end
+
+  -- The directory is gone. A path that is there but is not a directory is gone too: what
+  -- was a checkout is not one now.
+  if (vim.uv.fs_stat(doc.checkout) or {}).type == "directory" then
+    return nil
+  end
+
+  -- **Its parent is still there.** The condition that is easy to leave out, and the one
+  -- that keeps an absent volume out of this: a volume that is not mounted takes the
+  -- directory above the checkout with it, and a missing mount point is an absent volume
+  -- rather than a checkout somebody removed. No grace period of any length can tell those
+  -- two apart. The design notes say where this holds and where it does not.
+  if (vim.uv.fs_stat(vim.fs.dirname(doc.checkout)) or {}).type ~= "directory" then
+    return nil
+  end
+
+  -- Aged out, by the document's own stamp rather than by the entries in it: a document
+  -- holding only reviewed marks and trims has no entry to take an age from.
+  if (now - doc.saved) < ORPHAN_GRACE_SECONDS then
+    return nil
+  end
+
+  return doc
+end
+
+---How a reviewer is told what a sweep took.
+---
+---Two figures and never one. How many checkouts went is a fact about the state directory;
+---how many unsent annotations went with them is a fact about the reviewer's own work. A
+---sum answers neither, and the checkout count alone says nothing at all about the work.
+---@param checkouts integer
+---@param entries integer
+---@return string
+local function swept_phrase(checkouts, entries)
+  return ("Swept %d orphaned checkout%s — %d unsent annotation%s went with %s"):format(
+    checkouts,
+    checkouts == 1 and "" or "s",
+    entries,
+    entries == 1 and "" or "s",
+    checkouts == 1 and "it" or "them"
+  )
+end
+
+---Discard the stored state of checkouts that are gone.
+---
+---Run on a **switch** and on nothing else: that is the moment a checkout's existence is
+---most likely to have just changed, it is rare, and it is nowhere near a hot path. No
+---startup scan and no timer.
+---
+---The whole document goes rather than the queue inside it. An orphaned **archive** is
+---already unreadable, because an archive is opened through the checkout being reviewed, and
+---the reviewed marks and the **trim** beside it describe a diff that no longer exists.
+---
+---Says one line when it took something and nothing at all when it did not. It never asks:
+---a confirmation on an operation this guarded teaches distrust of it, which is the reason a
+---switch does not ask either.
+---
+---`archive_writes` is deliberately not moved. A projection of an archive is only ever the
+---open review's, and the checkout under an open review has been read back -- which is one
+---of the conditions above.
+---@return { checkouts: integer, entries: integer } What went, as two figures
+function M.sweep_orphans()
+  local dir = vim.fs.dirname(M.global_path())
+  local checkouts, entries = 0, 0
+  if vim.fn.isdirectory(dir) == 0 then
+    return { checkouts = checkouts, entries = entries }
+  end
+
+  local now = os.time()
+  for name, kind in vim.fs.dir(dir) do
+    if kind == "file" and name:sub(-5) == ".json" then
+      local file = vim.fs.joinpath(dir, name)
+      local doc = sweepable(file, now)
+      if doc then
+        checkouts = checkouts + 1
+        -- What was unsent, which is the queue and not everything the document held: an
+        -- archived entry has already reached an agent, and counting it would report work
+        -- as lost that was delivered.
+        entries = entries + #(doc.queue or {})
+        vim.fn.delete(file)
+      end
+    end
+  end
+
+  if checkouts > 0 then
+    info(swept_phrase(checkouts, entries))
+  end
+  return { checkouts = checkouts, entries = entries }
 end
 
 return M
