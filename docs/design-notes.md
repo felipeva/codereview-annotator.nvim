@@ -443,7 +443,8 @@ A checkout that has been reviewed and never annotated now has a document, where 
 none. It costs one file per checkout ever opened, and it moves the stamp the orphan sweep
 ages against — a checkout whose review was merely opened looks recently written. The sweep
 skips a checkout this session has read back anyway, so this makes it more conservative rather
-than less.
+than less. Its window is stated as *without a write or an open* for this reason; it said
+*without a write* when it landed, and this is the slice that made that untrue.
 
 **A remembered scope is a default, and a default must never turn an open into a refusal.**
 A revspec whose branch has gone stops resolving; a `staged` scope emptied by a commit resolves
@@ -557,6 +558,128 @@ second time; read it under the session's latch alone and a checkout visited late
 gets them at all. Both halves of a restore therefore ask their own question, and the answer
 is safe because every `queue.add` is followed by a write: a loose entry is on the disk
 before anything can read that store again.
+
+## Sweeping orphaned state
+
+**The seven-day window is seven days WITHOUT A WRITE OR AN OPEN, not seven days missing.**
+The stamp the age test reads is rewritten on every save. This said "only a mutation saves —
+opening a review does not", which was true when the sweep landed and stopped being true one
+slice later: recording the **scope** a checkout was last reviewed in writes the document when
+a review opens, so an open now refreshes the stamp and closing one still does not. The
+direction is safe — it makes a document harder to sweep, never easier, and a checkout this
+session has read back is skipped anyway — but the sentence has to name it, because the window
+is what a reviewer is being promised. So a checkout last written to *and last opened* nine
+days ago and deleted a minute ago has **no protection at all**: the next **switch** sweeps
+it, and whatever was unsent in it goes. The protection is proportional to how recently the
+document was touched, which is not what a grace period against a directory that may come back
+would give you.
+This is a deliberate deviation from "kept for a while after its checkout disappears". The
+alternative — a stamp written the first time a sweep finds the directory gone, swept only
+once *that* is a week old — needs two sweeps seven days apart, and sweeps happen only on a
+switch, so a store could easily never shrink at all. The precedent settles it: the store
+that needs no root already deletes seven-day-old unsent annotations outright, with no
+directory test whatsoever, so this rule is strictly less aggressive than one the plugin has
+shipped for a long time.
+
+**The parent test buys less than "an unmounted volume is unsweepable at any age" claims.**
+It holds when the directory *above* the checkout was on the volume too, which is the
+motivating case: macOS removes `/Volumes/<name>` when a volume ejects, so a checkout under
+it has no parent and is never swept. It does not hold where a mount point survives as an
+empty directory, which is usual on Linux: a checkout at `/mnt/disk/repo` is gone, `/mnt/disk`
+is still there, and the sweep may take it. Keep the test — it is the only thing that
+separates an absent volume from a removed checkout, and no grace period of any length can —
+but do not read it as a guarantee.
+
+**A sweep can never reach the state anyone already has.** A document written before the
+checkout and the stamp existed carries neither, and the only way to gain them is to be saved
+again — which cannot happen once the directory is gone. Every orphan that exists today is
+therefore permanent. This is forced by the file name, which is a base name plus a hash of the
+full path and cannot be read backwards. It also means the sweep removes nothing on the day it
+ships, and can remove its first document no earlier than seven days later.
+
+**The commonest way checkouts disappear is the one shape the sweep cannot touch.** Deleting a
+whole project directory takes the repository and every checkout inside it, so every parent
+goes too and nothing qualifies. Worktrees kept at `.worktrees/agent-a` are the same case. What
+the sweep does reach is a checkout removed from *beside* a repository that stays — which is
+what `git worktree add ../agent-a` produces, and it is the shape agent tooling actually
+creates.
+
+**The age is the document's, not its entries'.** A document can hold nothing but reviewed
+marks and trims, and there is no entry in it to take an age from. The entries are stamped too,
+but for a different reason and read by nobody here: an entry with no repository behind it has
+carried a stamp since that store began ageing entries out, an owned one carried none, and
+which store an entry came from was therefore readable off the entry — which is ADR-0002's
+argument one field further along.
+
+**The stored checkout is checked against the file name, not trusted.** It is a second copy of
+what the file name already hashes, so a state directory carried between machines, or a file
+written half way, names a path that means nothing here. Sweeping on a path that does not hash
+back to its own file would remove a document belonging to something else entirely. What that
+check refuses is a document filed under one checkout and naming another, and that is all it
+refuses.
+
+**What keeps the neighbouring stores out of a sweep is the shape test, not the file-name
+check.** The store that needs no root and the drafts beside it share the directory and are not
+checkout documents. Both are turned away for carrying neither the checkout nor the stamp,
+before the file-name check has seen them — so the sweep needs no list of files to leave alone,
+and the credit belongs to the shape test. The file-name check *would* refuse them, because
+`M.path(nil)` does not raise but answers `v:null-<hash>.json`, which no document is ever filed
+under; it simply never gets the chance. That was measured, after a comment here claimed
+otherwise. The shape test is load-bearing in a stronger way too: delete it and a document
+carrying a checkout with no stamp reaches the age test, where `now - nil` raises — an error on
+every switch, not a document wrongly swept. `sweep_spec` keeps a document of that shape
+because it is the only thing that holds the stamp half on its own; without it, reading a
+missing stamp as age zero passes the whole file.
+
+**A checkout this session has read back is never swept, and that is not an optimisation.**
+Its entries are in memory whether its directory is there or not, and the next write about it
+puts the document straight back. Sweeping it would report unsent work as destroyed while that
+work sits in the queue and in the number a statusline shows — a figure wrong in both
+directions at once. It is also what keeps a sweep away from the checkout under an open review,
+whose behaviour when its directory disappears belongs somewhere else entirely.
+
+## The checkout trail
+
+A section of its own, because `docs/design-notes.md` has conflicted on every merge in this
+stack.
+
+**Only a successful open is a journey.** `view.open` declines an empty scope, an
+unresolvable one and a failed diff, and it declines each of them *before* it closes
+anything — the review the reviewer was reading is still on screen. A push made on the switch
+rather than on the open therefore records a departure that never happened, and the checkout
+it records is the one the reviewer is standing in. The picker then offers the row marked
+`(current)` first and going back goes nowhere, which is two of this feature's rules broken
+by a keystroke that told the reviewer only "No changes in scope".
+
+**Arriving removes; leaving pushes. De-duplicating the push is not the same rule.** The
+parent spec's wording — "pushing a checkout removes any earlier occurrence of it first" —
+holds each checkout once and still leaves the checkout the reviewer is *standing in* on the
+trail, ranked above one they have never opened. Removing the checkout being arrived at is
+what makes the trail "where I have been" rather than "where I have been, plus here". It also
+makes a duplicate push impossible without a second rule: a checkout can only be pushed by
+being left, and can only be left after being entered, which removed it. Two checkouts cannot
+tell the two rules apart at any step — `trail_spec` needs the fixture's third for it, and
+deleting the removal reds the ordering case with `agent-a` ranked above `main`.
+
+**A checkout that is gone and a checkout that refuses are opposite cases.** Gone: walk over
+it, name it, carry on — consuming the entry is the point. There and refusing: consume
+nothing. An agent worktree whose branch has been merged has an empty branch scope, so
+refusing is the *ordinary* end state rather than an exotic one, and a trail entry once spent
+cannot be got back — there is no forward, by design. An implementation that pops before it
+opens loses that checkout permanently and says nothing about it.
+
+**Skipping terminates because the trail is finite, not because anything is protected.** The
+parent spec said it terminates because the checkout Neovim started in is never switched away
+from and stays reachable. The first half is true — the global working directory never moves.
+The second does not follow: that checkout reaches the trail by being left, like any other,
+and its directory can be deleted, like any other. Every skip takes one entry off a finite
+list, which is the real reason, and it means the bottom of the trail is reachable and has to
+say so rather than be a press that does nothing.
+
+**The trail is never persisted, and the only way to test that is a process that did not
+build it.** `trail_child.lua` is inverted from every other child in the suite: it builds a
+trail so the parent can find one absent, and it shares the parent's state directory so the
+parent looks for one with that session's stores on the disk in front of it.
 
 ## The archive
 
@@ -968,3 +1091,58 @@ back to the diff window, so choosing an agent from the queue float dumped the cu
 the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
 leaves the float open behind it. It also has to drive its own repaint: the picker is
 asynchronous, so anything run after the call returns paints before a target exists.
+
+## A checkout deleted underneath a review
+
+This section is #177's and stands on its own; the **orphan** sweep's rules are elsewhere,
+because that is about *stored state* and this is about the *live review*.
+
+**A relative path handed to any library is a working-directory read.** ADR-0008 says every
+working-directory read inside a review is a bug, and this is the shape of it that no grep
+for `getcwd` finds. `vim.filetype.match({ filename = path })` absolutises a relative name
+through `vim.fs.abspath`, which is an `assert(vim.uv.cwd())` — so the syntax pass asking for
+a language by a repository-relative path *raised*, on every paint and every cursor move,
+once the review's checkout was deleted and the tab had no working directory left. The review
+became unreadable with no git call anywhere near it. It joins from `V.root` now. Anything
+else handing a path to a Neovim library owes the same join.
+
+**`vim.uv.cwd()` is nil only while the reviewer stays in the tab.** Leave it and come back
+and Neovim adopts the global directory, so the crash above heals itself and the wrongness
+that replaces it is silent. That is why the two are asserted in different acts of
+`frozen_spec` and why one measurement of "what does `getcwd()` say" answers neither
+question on its own.
+
+**Reconciling under a gone checkout does not fail — it lies.** `git.hash_worktree` stats
+each path before it runs git, so with the checkout gone `present` is empty and it returns
+`{}` *without spawning git at all*. Every working-tree annotation then compares "no hash"
+against its capture blob, is flagged **stale**, and is written to the store that way; the
+reviewer is told a count that is false about work they still have to send. This is why the
+operations needing the checkout are refused rather than run with a warning in front of
+them: the obscure failure was not an error message, it was a plausible number.
+
+**The verdict is never latched, and that is a rule rather than laziness.** A stat says
+"gone" for a directory that is briefly absent — an unmounted volume, an agent rebuilding a
+worktree at the same path. Stored state needs a grace period because nothing re-asks it; a
+live review is re-asked every time a key is pressed, so re-testing is both cheaper and more
+correct than remembering. The announcement latch clears with it, or a reviewer who gets the
+worktree back is never told it is usable again.
+
+**A switch is the only way out, so its listing cannot be built the obvious way.**
+`git.checkouts` is asked from the checkout the plugin is acting on, which is exactly the
+directory that went — `vim.system` raises on a cwd that is not there, the list comes back
+empty, and the reviewer is told no checkout can be opened. It is asked again from the global
+working directory, which is never moved. Strictly that lists the repository the reviewer is
+standing in rather than the one the dead review was of; nothing can list the latter, because
+a linked checkout's git directory is reached *through* the directory that is gone. The
+fallback is gated on the checkout being absent, not on the list being empty — an empty list
+from a checkout that exists means git named nothing openable in *that* repository, and
+answering it with another repository's checkouts is the cross-repository listing #171 rules
+out.
+
+**`open` resolving its own checkout was the other half of the stranding.** It read `getcwd()`
+raw, which answers `""` in such a tab, and `vim.system` raises on an empty cwd rather than
+reporting a failure — so `:CodeReview` said "not inside a git repository" to a reviewer
+sitting inside one. It resolves through `state.current_checkout` now, which already carried
+that fall-through. Note what this does *not* buy: with a review open, `current_checkout`
+answers that review's root, so reopening cannot rescue a review whose own checkout is the
+one that went. The switch is the gesture for that; this is for the tab afterwards.

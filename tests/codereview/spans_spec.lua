@@ -637,8 +637,9 @@ describe("what an annotation records", function()
     vim.api.nvim_win_set_cursor(V.win, { replacement_row(V), 0 })
     annotate.annotate("bug")
     local entry = vim.deepcopy(queue.all()[1])
-    -- The queue's own counter, which counts captures in this process and nothing else.
-    entry.id = nil
+    -- The queue's own counter, which counts captures in this process and nothing else,
+    -- and the capture stamp beside it, which is the clock and not the line.
+    entry.id, entry.at = nil, nil
     return entry, payload.render(queue.all(), V.root, { types = config.get().types })
   end
 

@@ -216,6 +216,19 @@ It works with no review open, which is how you open a review somewhere else in t
 place. The list is built from git's own worktree listing; replace the chooser with
 [`pick_checkout`](#adapters) to get it in the picker your config already uses.
 
+`:CodeReviewBack` goes back to the checkout you came from. It is the same journey, with the
+destination taken from where you have been rather than asked for — and the checkout you came
+from is also the **first entry the picker offers**, so going back is the gesture you already
+have. There is no forward and none is needed: after going back, going forward again is that
+same first entry.
+
+The checkouts you have been in are held one each, most recent first, so moving back and forth
+between two does not fill the list with repeats. One whose directory is gone is walked over
+and named, so a pruned agent worktree is visible rather than silent; one that is still there
+with nothing in its branch scope says so and is kept, so you have not lost it. The trail lives
+for the session and is never written to disk — it is where you have been, not what you were
+reviewing.
+
 Each checkout keeps its own queue, its own reviewed marks, its own trims and its own
 archive. Leaving one is lossless and returning gives back exactly what you left, so
 switching with annotations still queued is safe and is not confirmed. Your **global**

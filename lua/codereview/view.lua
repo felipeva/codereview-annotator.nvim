@@ -67,6 +67,7 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@field syntax_painted table<string, boolean>|nil      Path -> already replayed onto this render
 ---@field syntax_rows table<integer, CRFileRows>|nil     File index -> where its lines are drawn
 ---@field dims string|nil                 The size of every review window the last paint was made at
+---@field told_gone boolean|nil           Whether the reviewer has been told this checkout is gone
 
 ---@type CRView|nil
 local V = nil
@@ -97,6 +98,87 @@ end
 ---@param msg string
 local function info(msg)
   vim.notify(msg, vim.log.levels.INFO, { title = "Code review" })
+end
+
+--- A checkout that dies underneath a review ------------------------------------
+
+-- An agent prunes the worktree it was working in while the review of it is open. The diff
+-- and the annotations on it are already in memory and need no directory, so the review
+-- stays open and readable and the reviewer loses nothing they were in the middle of. What
+-- goes is only what genuinely needs the checkout, and it is refused with a reason rather
+-- than left to fail through git.
+--
+-- **Readable is not free, and it is not only about git.** Every path that absolutises a
+-- relative name reads the working directory, including paths inside Neovim's own library:
+-- the syntax pass asked `vim.filetype.match` for a language by a repository-relative name,
+-- and that raised on every paint and every cursor move once the tab had no working
+-- directory. `syntax.lua` joins from the review's root now, for the reason everything here
+-- resolves against it (ADR-0008).
+
+---The one sentence both doors say, because it is one fact.
+---
+---A reviewer who meets it at a refusal and again on coming back should recognise it, and a
+---second phrasing would be a second rule to keep true.
+local GONE = "The checkout under this review is gone"
+
+---Whether the **checkout** this review is on is still there.
+---
+---**Read from `V.root` and from nothing else.** This is the one question in the plugin
+---whose two candidate answers actually differ: the working directory reads `""` inside the
+---tab and, once that tab has been left and re-entered, the *global* checkout -- which is
+---live, unrelated and would report this review as perfectly healthy. That is ADR-0008's
+---whole case, and this predicate is where it is spent.
+---
+---**Never latched.** A directory that is briefly absent -- an unmounted volume, an agent
+---rebuilding a worktree at the same path -- costs nothing here but a refusal that stops
+---applying at the next keypress. The grace period the **orphan** sweep needs is for stored
+---state, which cannot be re-tested by pressing a key again; a live review can be.
+---@return boolean
+local function checkout_gone()
+  if not V then
+    return false
+  end
+  local stat = vim.uv.fs_stat(V.root)
+  if stat and stat.type == "directory" then
+    -- Back, so the announcement is owed again if it goes a second time.
+    V.told_gone = nil
+    return false
+  end
+  return true
+end
+
+---Refuse an operation that needs the checkout, naming what needed it.
+---
+---**Always speaks.** A key pressed twice says why twice: silence is the obscure failure this
+---replaces, and a reviewer holding `gs` must not be left watching nothing happen.
+---
+---Refusing rather than warning-and-continuing is the point for the reconciliation in
+---particular. `hash_worktree` stats each path before it runs git, so under a gone checkout
+---it returns nothing without spawning git at all -- and every working-tree annotation then
+---compares "no hash" against its capture blob, is flagged **stale**, and is written to the
+---store that way. The reviewer would be told a number that is a lie about work they still
+---have to send.
+---@param needed string What the refused operation needs the checkout for
+---@return boolean refused
+local function without_checkout(needed)
+  if not checkout_gone() then
+    return false
+  end
+  warn(("%s — %s needs it"):format(GONE, needed))
+  return true
+end
+
+---Say it once, unprompted.
+---
+---Latched separately from the refusals above: they answer an operation, this answers the
+---review. Being told at a key you pressed and again when you come back to the diff is two
+---different sentences at two different moments, not one sentence repeated.
+local function tell_gone()
+  if V.told_gone then
+    return
+  end
+  V.told_gone = true
+  warn(GONE .. " — the diff and its annotations are still here, and gS switches elsewhere")
 end
 
 ---@return CRView|nil
@@ -1171,6 +1253,9 @@ function M.refresh()
   if not M.current() then
     return
   end
+  if without_checkout("re-reading the diff") then
+    return
+  end
   local cfg = config.get()
   local files, err =
     git.collect(V.scope, V.root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
@@ -1206,6 +1291,13 @@ local function judge_archive()
     V.touched, V.untouched, V.judged = {}, nil, nil
     return
   end
+  -- Silently, and without disturbing what is already tallied. Two git invocations is what
+  -- this costs, so it is one of the operations a gone checkout switches off -- but it says
+  -- nothing a reviewer has to act on, exactly as its own docstring argues, so it does not
+  -- get a sentence of its own beside the refusal of whatever key led here.
+  if checkout_gone() then
+    return
+  end
   local state = require("codereview.state")
   V.touched, V.untouched = state.reconcile_archive(V.root, V.files)
   V.judged = state.archive_writes()
@@ -1215,6 +1307,9 @@ end
 ---the blob comparison invalidated.
 function M.reconcile()
   if not V then
+    return
+  end
+  if without_checkout("reconciling") then
     return
   end
   judge_archive()
@@ -1234,6 +1329,9 @@ end
 ---@param spec string|nil nil cycles to the next scope this repository offers
 function M.set_scope(spec)
   if not M.current() then
+    return
+  end
+  if without_checkout("changing scope") then
     return
   end
   if not spec then
@@ -1317,6 +1415,12 @@ function M.open_file()
   if not anchor then
     return
   end
+  -- Before the readability test below, which would otherwise answer this case with "the
+  -- file does not exist in the working tree" -- true, and misleading: it sends a reviewer
+  -- looking for a deleted file when what went is everything around it.
+  if without_checkout("opening the file") then
+    return
+  end
   local file = V.files[anchor.file]
   local abs = vim.fs.joinpath(V.root, file.path)
   if vim.fn.filereadable(abs) == 0 then
@@ -1378,6 +1482,12 @@ M.hand_to_diff = hand_to_diff
 ---than inventing line 1: a file header knows which file and nothing about where in it.
 function M.open_diff()
   if not M.current() then
+    return
+  end
+  -- The same act through the host's door. What is handed over is an absolute path inside
+  -- the checkout plus the refs its scope is between, and a diff tool given those runs git
+  -- in a directory that is not there.
+  if without_checkout("the diff tool") then
     return
   end
   local anchor = anchor_at_cursor()
@@ -1674,6 +1784,9 @@ function M.commit_list()
   if not v then
     return
   end
+  if without_checkout("listing the commits") then
+    return
+  end
   if v.scope.name ~= "branch" then
     info(("Commits are listed for a branch review — this review is %s"):format(v.scope.label))
     return
@@ -1712,6 +1825,9 @@ end
 function M.trim_to(skipped)
   local v = M.current()
   if not v then
+    return
+  end
+  if without_checkout("trimming") then
     return
   end
   local refused = require("codereview.git").trim_refusal(v.root, v.scope.identity, skipped)
@@ -1801,8 +1917,8 @@ end
 ---
 ---@param spec string|nil
 ---@param checkout string|nil The **checkout** to review, as a **switch** names one. nil
----       resolves it from the working directory, which is what `:CodeReview` does and what
----       every review did before a switch existed.
+---       asks which checkout the plugin is acting on, which is the open review's own and
+---       the working directory's with none open.
 ---@return boolean opened False has already said why: no repository, an unresolvable scope,
 ---        a failed diff, or a scope with nothing in it. A review that was already open is
 ---        still open in each of those cases -- nothing is closed until there is something
@@ -1811,13 +1927,19 @@ function M.open(spec, checkout)
   hl.setup()
   local cfg = config.get()
 
-  local root = checkout or git.root(vim.fn.getcwd())
+  -- Through the one question rather than around it. Resolving the working directory here
+  -- read `getcwd()` raw, which answers `""` in a tab whose own directory was deleted -- and
+  -- `vim.system` raises on an empty cwd rather than reporting a failure, so `:CodeReview`
+  -- was the second half of a stranding: neither a switch nor a reopen could get a reviewer
+  -- out of a review whose checkout had gone. `current_checkout` already carries the
+  -- fall-through that case needs, and a second copy of the resolution is a second chance to
+  -- answer it differently.
+  local state = require("codereview.state")
+  local root = checkout or state.current_checkout()
   if not root then
     warn("not inside a git repository")
     return false
   end
-
-  local state = require("codereview.state")
 
   -- The **scope** this checkout was last reviewed in, which is what a return to it reopens
   -- so that the reviewed marks coming back are the ones the reviewer earned.
@@ -1952,6 +2074,20 @@ function M.open(spec, checkout)
     callback = function()
       if M.current() and dimensions() ~= V.dims then
         M.paint()
+      end
+    end,
+  })
+
+  -- Nothing at all fires when a checkout is deleted (ADR-0008), so there is no moment to
+  -- announce it at except the two a reviewer makes for themselves: the operation they ask
+  -- for, which each refusal answers, and coming back to the review, which is this. It is the
+  -- only free moment there is -- a cursor move is on every keystroke and a paint is on every
+  -- resize, and neither may grow a syscall. One `fs_stat`, on entering this review's own tab.
+  vim.api.nvim_create_autocmd("TabEnter", {
+    group = V.augroup,
+    callback = function()
+      if M.current() and vim.api.nvim_get_current_tabpage() == V.tab and checkout_gone() then
+        tell_gone()
       end
     end,
   })

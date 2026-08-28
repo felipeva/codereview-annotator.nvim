@@ -88,8 +88,17 @@ local roots = {}
 ---thing worth more: a `git init` in the directory they are in is visible at the next redraw
 ---rather than after a restart.
 ---
----`M.root` is left alone for that same reason. Opening a review and capturing an annotation
----both ask it, and both have to see a repository the moment it exists.
+---`M.root` is left alone for that same reason, and **capture** still asks it directly: an
+---annotation taken in a directory that has just become a repository has to be filed in it.
+---
+---Opening a review no longer asks it. `open` resolves through `current_checkout`, which is
+---memoised here — because resolving it separately meant resolving it with a raw `getcwd()`,
+---and that answers `""` in a tab whose own directory was deleted, where `vim.system` raises
+---rather than reporting a failure. A second copy of the question was a second chance to
+---answer it differently, and it did. What the memo costs `open` is a `git init` *inside* a
+---checkout it has already resolved: the directory keeps naming the outer checkout until the
+---session ends. A repository appearing where there was none is unaffected, because that
+---answer was never remembered.
 ---@param dir string|nil
 ---@return string|nil root nil for a directory inside no checkout, and for no directory
 function M.root_cached(dir)
