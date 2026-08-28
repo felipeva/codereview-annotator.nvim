@@ -40,6 +40,14 @@ function M.setup(opts)
     desc = "Switch the review to another checkout of this repository",
   })
 
+  -- No key of its own, and that is the design rather than an omission: the previous
+  -- **checkout** is the first entry |:CodeReviewSwitch| offers, so going back already has a
+  -- gesture. A command, for the reason the switch is one -- it has to work with no review
+  -- open.
+  vim.api.nvim_create_user_command("CodeReviewBack", M.back, {
+    desc = "Go back to the checkout the review came from",
+  })
+
   -- Takes no arguments and needs no review open, for the reason the copy above does not:
   -- the batch it reads back has already gone, so nothing about the current window could
   -- change which one went last.
@@ -90,6 +98,22 @@ end
 ---`pick_checkout` adapter, whose default the plugin ships (ADR-0007).
 function M.switch()
   require("codereview.checkout").switch()
+end
+
+---Go back to the **checkout** the review came from.
+---
+---The same journey a **switch** makes, with the destination taken from where the reviewer
+---has been rather than asked for. There is no forward beside it: the checkout just left is
+---the first entry the picker offers, so going forward again is the same single keystroke.
+---
+---Checkouts that no longer exist are walked over and named. One that is still there and
+---declines to open -- an agent worktree whose branch has been merged has an empty branch
+---scope -- is left on the trail rather than spent, because nothing here could give it back.
+---
+---The trail lives for the session and is never written to disk. It is navigation history,
+---not review state.
+function M.back()
+  require("codereview.checkout").back()
 end
 
 ---Annotate the file in the current buffer, from anywhere.
