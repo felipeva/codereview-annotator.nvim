@@ -95,6 +95,7 @@ to close the review.
 | `gb` | Read the last dispatched batch back |
 | `gc` | List the commits on the branch, and check the ones to review |
 | `gA` | Show or hide archived entries, for the rest of the session |
+| `gS` | Switch the review to another checkout of this repository |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool ([`open_diff`](#adapters) only) |
 | `Q` | Read the queue |
@@ -204,6 +205,23 @@ press `gs` to cycle between the scopes in place.
 
 The plugin marks a file reviewed against its git blob. If the file changes underneath the
 mark, the mark stops meaning anything.
+
+### Review another checkout
+
+You run agents in git worktrees. `:CodeReviewSwitch`, or `gS` inside the review, moves the
+review to another **checkout** of the same repository — the main clone or any worktree of it
+— without a second Neovim and without disturbing the tab you were working in.
+
+It works with no review open, which is how you open a review somewhere else in the first
+place. The list is built from git's own worktree listing; replace the chooser with
+[`pick_checkout`](#adapters) to get it in the picker your config already uses.
+
+Each checkout keeps its own queue, its own reviewed marks, its own trims and its own
+archive. Leaving one is lossless and returning gives back exactly what you left, so
+switching with annotations still queued is safe and is not confirmed. Your **global**
+working directory never moves and the tab you started in keeps its own, so you can always
+get back to where you started; only the review's own tab is pointed at the checkout, for
+your LSP, your diff signs and a relative `:e`.
 
 ### Trim a branch review
 
@@ -705,7 +723,7 @@ linked, and none is yours to set.
 ## Adapters
 
 The plugin has no opinion about where a review goes, about which pickers you use, or about
-which diff tool you read a rewrite in. Five optional functions inject that. **None are
+which diff tool you read a rewrite in. Six optional functions inject that. **None are
 required.**
 
 | Adapter | What it supplies | Without it |
@@ -715,6 +733,7 @@ required.**
 | `pick_file` | Picks a file for `@` in the composer | `@` stays a literal `@`, and says so |
 | `compose` | Collects note text | The composer the plugin ships |
 | `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
+| `pick_checkout` | Chooses which checkout to switch to | The picker the plugin ships |
 
 ```lua
 opts = {
@@ -723,6 +742,7 @@ opts = {
   pick_file = function(cb) cb({ path = "src/main.lua", first = 12, last = 20 }) end,
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
   open_diff = function(spec) end,  -- spec: { path, before, after, line }
+  pick_checkout = function(checkouts, cb) cb(checkouts[1].path) end,
 }
 ```
 
@@ -778,6 +798,24 @@ opts = {
     local rev = spec.after and (spec.before .. ".." .. spec.after) or spec.before
     vim.cmd(("DiffviewOpen %s -- %s"):format(rev, vim.fn.fnameescape(spec.path)))
   end,
+
+  -- Choose which checkout `:CodeReviewSwitch` moves the review to. Without it you get the
+  -- picker the plugin ships, which implements this same contract -- wiring one replaces
+  -- that picker rather than upgrading a lesser one. `checkouts` is every checkout of the
+  -- current repository the plugin can open: each carries `path` (absolute and resolved),
+  -- `branch` (nil when detached) and `current`. Bare repositories and checkouts whose
+  -- directory is gone are already out of it.
+  --
+  -- Answer with a *path*, not with a row. The list is a convenience, not a restriction: an
+  -- adapter is free to offer a checkout that was never in it, which is what reviewing a
+  -- checkout of a different repository needs. Call back with nil for "none of them", which
+  -- is not an error and is not reported.
+  pick_checkout = function(checkouts, cb)
+    vim.ui.select(checkouts, {
+      prompt = "Switch the review to:",
+      format_item = function(c) return c.branch or c.path end,
+    }, function(chosen) cb(chosen and chosen.path) end)
+  end,
 }
 ```
 
@@ -805,7 +843,8 @@ which queue is which.
 ## Persistence
 
 The plugin stores reviewed marks, the queue and the batches already dispatched per
-repository, under `stdpath("state")/codereview/`. It keys them by scope and diff base, and
+**checkout** — the main clone and each worktree of a repository keep their own, and share
+none of it — under `stdpath("state")/codereview/`. It keys them by scope and diff base, and
 they survive a restart. Each entry records the git blob it was captured against.
 
 On reload:

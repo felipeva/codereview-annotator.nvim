@@ -81,6 +81,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `map_spec` | That `lua/codereview/CLAUDE.md` lists exactly the modules that exist — the only part of the map a machine can check |
 | `checkout_spec` | The queue scoped to its **checkout**: two checkouts of one repository in one session — what each store receives, the queue left in the second read back rather than hidden, the return to the first, the annotation about a checkout you are not in that is filed nowhere and says so, and the loose entry whose id one counter keeps clear of |
 | `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
+| `switch_spec` | Moving the review to another **checkout**: the listing it is chosen from — the three checkouts of one repository, each named as its own git names it, with a bare one and a deleted one left out — the picker the plugin ships and the `pick_checkout` adapter that replaces it, a switch with a review open and with none, the directories a switch must not move, the queue and the store and the id that follow the review rather than the working directory — asked from a tab standing in another checkout — the tab a real file opens into, `:CodeReviewSwitch` and `gS` in the diff and the tree, and the checkout with nothing in scope that is declined rather than opened |
 
 ## Fixtures
 
@@ -136,8 +137,8 @@ interchangeable, and the assertions know which one they are looking at.
   history has.
 - **`mkcheckouts.sh`** — one repository in three **checkouts** of it, and the only fixture
   whose checkouts are the point: `main` on master, plus `agent-a` and `agent-b`, each a
-  linked checkout on a branch of its own. Used by `checkout_spec` and
-  `checkout_restart_spec`. Unlike the other four it
+  linked checkout on a branch of its own. Used by `checkout_spec`,
+  `checkout_restart_spec` and `switch_spec`. Unlike the other four it
   builds a plain directory holding the three rather than a repository at the path it is
   given, which keeps the whole fixture inside one `rm` — a checkout added beside the
   repository would be left behind — and leaves that path itself inside no repository. A
@@ -148,7 +149,10 @@ interchangeable, and the assertions know which one they are looking at.
   identical to an entry captured in another everywhere but its absolute path, which is what
   gives "the owning checkout is derived from the entry's own paths" something to fail on.
   Give the checkouts different file names and a rule reading the repository-relative path
-  alone passes.
+  alone passes. `main` sits on `master`, which every other checkout is
+  reviewed *against*, so its branch scope is empty — the one checkout here that can stand
+  for "a **switch** to somewhere with nothing to review", which `switch_spec` needs and
+  which no other fixture offers.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
   well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
   asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
@@ -254,6 +258,13 @@ so the out-of-core language path is still checked locally without ever failing C
   which file it was is to rerun with `{ sequential = true, keep_going = true }` and read the
   failures in order. This is the same trap as "the plenary tally lies", arriving through the
   scheduler instead of through ANSI codes.
+- **Re-opening a review does not re-read that checkout's stored queue.** The read-back
+  latch is per **checkout**, and once it is set memory is the truth — a reopen points the
+  queue back at the checkout and reads nothing. So a block that clears the queue by hand and
+  then re-opens the review has an *empty* queue, not the stored one: `split_spec`'s
+  note-count case used to get its one entry that way, and it went quiet the moment the
+  review's open started going through the same read-back everything else uses. Queue what a
+  case needs where the case needs it.
 - **The queue is restored once per session, so a second session means a second process.**
   `state.ensure_queue()` latches after the first read, which is what stops a statusline
   calling `count()` from hitting the disk on every redraw. Clearing the queue in-process

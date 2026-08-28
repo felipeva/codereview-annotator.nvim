@@ -404,6 +404,38 @@ queue's own wording. Silence there would be the failure this whole scoping exist
 remove. What stops producing such an entry is a review whose checkout is its own root
 (ADR-0008), not this rule.
 
+**The checkout everything resolves against is one question, and the review wins it.**
+`state.current_checkout` is the only place that answers it: the open review's root when
+there is one, and the working directory's checkout otherwise. The two agreed until a
+**switch** existed, because a review could only be opened where the reviewer was standing —
+so every working-directory read in the plugin was correct by accident, and four of them
+became wrong on the same day. The queue's read-back is the loud one; `gb` reading the last
+**batch**, a submit deciding which archive to write, and the composer relativizing an `@ref`
+are the quiet three. Reading the *review tab's* directory instead looks equivalent and is
+worse than reading the global one, because it is right until it silently is not — see
+ADR-0008. A second copy of this question is a second chance to answer it differently, which
+is why `ambient_root` was replaced rather than joined.
+
+**A checkout's store is read back once per session, and re-opening a review is not a second
+read.** The latch is per checkout, and once it is set that checkout's entries are in memory
+and memory is the truth — leaving a checkout is lossless, so returning to one costs nothing
+but pointing the queue back at it. `state.restore` used to re-read the store on every open
+whenever the in-memory queue for that checkout happened to be empty, which was a second
+read-back with a looser rule beside the real one. It cannot fire in ordinary use — the only
+thing that empties the queue is a **dispatch**, which writes the emptied queue to the disk
+in the same breath — but a spec that clears the queue by hand and re-opens is relying on it,
+and `split_spec`'s note-count case was. A review opening now goes through
+`state.ensure_queue_for`, the same read-back the resolved path uses, for the checkout it is
+opening.
+
+**Every path in the checkout listing is realpathed, and that is correctness rather than
+tidiness.** A store's file name is a base name plus a hash of the *full path*, and
+`git.root` answers with symlinks resolved. A listed path differing by one symlink therefore
+gives that checkout a **second store**: the queue left in the first is not misfiled, it is
+invisible, and nothing says so. git resolves these itself on the platforms this was written
+against, which is exactly why the call has to be there — the alternative is a correctness
+property held up by a platform's behaviour.
+
 **The store that needs no root is guarded by its own emptiness, not by the visited
 checkout's latch.** There is one such store and every checkout shows what is in it. Read it
 under the checkout's guard and moving to a second checkout queues every loose entry a
@@ -619,6 +651,23 @@ case the header exists for.
 
 **`nvim_win_call` propagates only the first return value.** Returning `line("w0"), line("w$")`
 from it silently loses the end of the range.
+
+**A tab spawned from a tab that has a local directory inherits it; one spawned from a tab
+that has none inherits nothing.** Measured, because a review's `:tcd` and the tab `<CR>`
+opens out of it both ride on it:
+
+```
+tab with no local dir  -> :tabnew  haslocaldir=0, follows the global
+tab with :tcd <B>      -> :tabnew  haslocaldir=1, cwd=<B>
+```
+
+So a file opened out of a review is already rooted in the review's **checkout** without
+anything being set. It is set anyway, from `V.root`. An inherited value is a *copy* taken at
+the moment the tab opened, from a source Neovim resets to the global directory with no event
+when it is deleted (ADR-0008) — so the inheritance is right until the review's checkout goes
+away, which is the one case any of this exists for. The same measurement is what says the
+reviewer's own tab is unaffected: it never had a local directory, so nothing a switch does
+reaches it, and `:tcd` rather than `:cd` is what keeps that true.
 
 **A key bound in visual mode has to leave visual mode itself, and on a float whose `<Esc>`
 closes it that is not free.** A Lua callback runs without leaving visual mode — which is what
