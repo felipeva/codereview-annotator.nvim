@@ -694,6 +694,12 @@ end
 ---once that directory is deleted, and fires no `DirChanged` when it does. `V.root` is the
 ---authority and the `:tcd` beside it is a courtesy to the **host**.
 ---
+---**The fall-through is on the redraw path, so it is memoised.** The queued count asks
+---this question first, and a statusline asks the count on every redraw. A review being
+---open is answered from `V.root` and costs nothing at all; with none open the working
+---directory goes through `git.root_cached`, which spawns one git process per checkout ever
+---seen rather than one per redraw.
+---
 ---The view is required function-locally, as `git` is above: the two require each other, and
 ---Lua resolves a require inside a function lazily.
 ---@return string|nil checkout nil outside every checkout, with no review open
@@ -702,13 +708,32 @@ function M.current_checkout()
   if view then
     return view.root
   end
-  return require("codereview.git").root(vim.fn.getcwd())
+  -- A tab whose own local directory has been deleted reports no working directory at all,
+  -- and fires no `DirChanged` when it happens -- the finding the paragraph above rests on,
+  -- one step further along. Neovim adopts the global directory when that tab is next
+  -- entered, and the event that arrives then is the one for leaving it, so this reads the
+  -- same answer one moment earlier. Without it the empty string reads as "outside every
+  -- checkout" everywhere: the count drops to the entries that belong to no checkout, and
+  -- `persist_queue` files everything owned as an entry about somewhere else.
+  --
+  -- The tab-local read is no help either: `getcwd(0, 0)` still answers the directory that
+  -- is gone, which is the paragraph above's lie wearing the other hat.
+  local cwd = vim.fn.getcwd()
+  if cwd == "" then
+    cwd = vim.fn.getcwd(-1, -1)
+  end
+  return require("codereview.git").root_cached(cwd)
 end
 
--- Restored lazily, and once per **checkout**. `count()` is the sort of thing a statusline
--- calls on every redraw, so reading the state file each time is not an option; and eagerly
--- at startup is worse, because the working directory that decides which checkout's queue to
--- load may not be the one the user ends up in.
+-- Restored lazily, and once per **checkout**. Eagerly at startup is worse, because the
+-- working directory that decides which checkout's queue to load may not be the one the user
+-- ends up in.
+--
+-- The queued count does not come through here at all, and that is the rule rather than an
+-- oversight: a statusline asks it on every redraw, and a state file read per redraw is not
+-- an option. It reports what the queue holds for a checkout rather than what that checkout's
+-- store holds, so a checkout reached by a bare directory change counts 0 until the next
+-- capture, submit, copy or queue float reads it back.
 --
 -- Per checkout rather than per session, or the second checkout a session visits never reads
 -- its own store: the latch was set by the first, so unsent work in the second is invisible

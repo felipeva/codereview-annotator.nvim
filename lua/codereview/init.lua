@@ -133,9 +133,25 @@ function M.last_batch()
   require("codereview.archive").open()
 end
 
+---How many annotations are queued for the **checkout** being reviewed -- the number a
+---statusline shows.
+---
+---The review's own checkout when one is open, and the one the caller is standing in
+---otherwise, which is `current_checkout`'s answer and not a second reading of the question.
+---After a **switch** those are different checkouts, and the review's is the right one: the
+---number beside a diff has to be about the diff.
+---
+---Cheap by contract, because a statusline asks it on every redraw. With a review open it is
+---a field read and two table lengths and touches git not at all; with none open it is a
+---working-directory read, a memoised resolution and the same two lengths, and the git
+---process behind that resolution is spawned once per checkout ever seen.
+---
+---Reports what the queue *holds* for that checkout, not what its store holds. A checkout
+---nothing has read back yet counts 0 until a capture, submit, copy, switch or queue float
+---restores it; reading a state file per redraw is the cost this number has never paid.
 ---@return integer
 function M.count()
-  return require("codereview.queue").count()
+  return require("codereview.queue").count_for(require("codereview.state").current_checkout())
 end
 
 ---@return boolean

@@ -1311,7 +1311,16 @@ require("codereview").last_batch()                 *codereview.last_batch()*
         Read the last dispatched batch back, read-only and with no review view
         involved. See |:CodeReviewLastBatch|.
 require("codereview").count()                           *codereview.count()*
-        Number of queued annotations -- useful in a statusline.
+        Number of queued annotations -- useful in a statusline. Cheap enough
+        for one: a working directory read, a memoised checkout resolution and
+        two table lengths, with a git process spawned once per checkout ever
+        seen rather than once per redraw.
+
+        Counts the queue of the checkout you are in, plus the annotations
+        that belong to no checkout at all -- those ride along everywhere.
+        It reports what the queue holds, not what the store holds, so a
+        checkout nothing has read back yet counts 0 until a capture, submit,
+        copy or queue float restores it.
 require("codereview").is_open()                       *codereview.is_open()*
 
 ==============================================================================
