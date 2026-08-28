@@ -1178,9 +1178,18 @@ end)
 
 describe("syntax highlighting in the split layout", function()
   -- Re-opened with syntax on: the rest of this file turns it off so that repaints are
-  -- about the render and nothing else.
+  -- about the render and nothing else. The compose stub is carried across with it -- this
+  -- is the one `setup` call in the file that does not go through the helper at the top, and
+  -- without the stub the next block's annotation opens a real composer float and takes the
+  -- focus the winbars below are read under.
   view.close()
-  require("codereview").setup({ layout = "split", syntax = true })
+  require("codereview").setup({
+    layout = "split",
+    syntax = true,
+    compose = function(ctx, on_accept, _)
+      on_accept(nil, "note about " .. ctx.label)
+    end,
+  })
   view.open("branch")
   V = view.current()
 
@@ -1221,6 +1230,18 @@ end)
 -- Last in this file: it widens the terminal, which nothing below it would survive.
 describe("the sticky header in the split layout", function()
   local V = view.current()
+
+  -- One annotation, queued here rather than inherited from a block above. The count on this
+  -- bar is what one case below is about, and the review was re-opened a moment ago: a queue
+  -- is read back from the store once per **checkout** per session, so re-opening a review
+  -- does not re-read one -- its entries never left memory, and memory is what a reopen is
+  -- showing again. A setup that leans on a reopen refilling the queue is a setup that any
+  -- earlier block clearing it can take away.
+  queue.clear()
+  focus(V.win)
+  vim.api.nvim_win_set_cursor(V.win, { line_row(V, V.render, "src/main.lua", ADDED), 0 })
+  annotate.annotate("bug")
+
   -- Both bars have to hold a 40-character revision and a path at once, and a third of a
   -- 120-column terminal is not enough for that -- the pane would truncate its way to a pass
   -- or a fail for reasons that have nothing to do with which side it names. Widening the

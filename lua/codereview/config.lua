@@ -1,6 +1,7 @@
 ---Configuration and adapter injection.
 ---
----The adapters (`send`, `pick_target`, `pick_file`, `compose`, `open_diff`) are what keep
+---The adapters (`send`, `pick_target`, `pick_file`, `compose`, `open_diff`,
+---`pick_checkout`) are what keep
 ---this plugin distributable. With none of them wired it still renders, annotates and
 ---queues -- the payload just reaches the `+` register instead of an agent, the batch stays
 ---queued because nothing consumed it, and `gd` is bound to nothing. A host config injects
@@ -177,6 +178,23 @@ M.defaults = {
   ---detour: you cannot annotate in there.
   ---@type fun(spec: { path: string, before: string, after: string|nil, line: integer|nil })|nil
   open_diff = nil,
+  ---Choose which **checkout** to move the review to, calling back with its path. Replaces
+  ---the picker the plugin ships, which is the default implementation of this same contract
+  ---rather than a fallback beside it (ADR-0007, on ADR-0003's shape) -- both are handed the
+  ---same list and both answer the same way.
+  ---
+  ---`checkouts` is every checkout of the current repository the plugin could open: the main
+  ---clone and each linked worktree, each carrying `path` (absolute and resolved), `branch`
+  ---(nil when detached) and `current`. Bare repositories and checkouts whose directory is
+  ---gone are already out of it.
+  ---
+  ---**Answer with a path, not with a row.** The list is a convenience and not a
+  ---restriction: an adapter is free to offer a checkout that was never in it, which is what
+  ---reviewing a checkout of a *different* repository needs until cross-repository listing
+  ---exists. Call back with nil for "none of them", which is not an error and is not
+  ---reported.
+  ---@type fun(checkouts: CRCheckout[], cb: fun(chosen: string|nil))|nil
+  pick_checkout = nil,
 }
 
 ---@type table

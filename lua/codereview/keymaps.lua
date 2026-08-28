@@ -124,6 +124,11 @@ function M.diff(buf, view)
     -- `gA` for **archived** entries, and uppercase because `ga` is `:ascii`. It overrides
     -- the configured switch for the session rather than editing it.
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
+    -- `gS` for the **switch**, from the same `g` family, and it reads as the reserved word.
+    -- `gw` was rejected because it would teach "worktree", which the glossary avoids; `gC`
+    -- and `gB` because they are confusable with the commit list and the last batch. It is
+    -- free in a nomodifiable buffer for the reason `a` became the annotation prefix.
+    ["gS"] = { view.switch, "Switch the review to another checkout" },
     ["<CR>"] = { view.open_file, "Open the real file here" },
     ["Q"] = { view.review_queue, "Review the queue" },
     -- `gy`, not `Y`: yank is not dead in this buffer the way append is, and pulling a code
@@ -215,6 +220,7 @@ function M.panel(buf, view)
     ["gb"] = { view.last_batch, "Read the last batch back" },
     ["gc"] = { view.commit_list, "List the commits on the branch, and trim the review" },
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
+    ["gS"] = { view.switch, "Switch the review to another checkout" },
     ["R"] = { view.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { view.close, "Close the review" },
   })

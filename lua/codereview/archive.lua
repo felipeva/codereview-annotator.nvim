@@ -318,11 +318,13 @@ end
 
 ---Read the last dispatched batch back.
 ---
----Keyed on the repository the queue itself is keyed on, which is the working directory's.
----A review view is not consulted and does not have to be open: a batch has already gone,
----so nothing about which window is current could change which one went last.
+---Keyed on the **checkout** the queue itself is keyed on: the review's own when one is
+---open, and the working directory's otherwise. A review does not have to be open -- a batch
+---has already gone, so nothing about which window is current could change which one went
+---last -- but when one *is* open it decides, because a reviewer who has switched is asking
+---about the checkout on their screen and not about the one they are standing in.
 function M.open()
-  local batch = M.last(state.ambient_root())
+  local batch = M.last(state.current_checkout())
   local entries = batch and batch.entries or {}
   if #entries == 0 then
     -- Said rather than opened onto nothing. An empty archive is an ordinary state -- every

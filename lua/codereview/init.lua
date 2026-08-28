@@ -33,6 +33,13 @@ function M.setup(opts)
     desc = "Copy the queued batch to the + register, without submitting it",
   })
 
+  -- A command as well as `gS`, because a **switch** has to work with no review open --
+  -- which is how a reviewer opens a review in another **checkout** in the first place --
+  -- and keys exist only inside a review.
+  vim.api.nvim_create_user_command("CodeReviewSwitch", M.switch, {
+    desc = "Switch the review to another checkout of this repository",
+  })
+
   -- Takes no arguments and needs no review open, for the reason the copy above does not:
   -- the batch it reads back has already gone, so nothing about the current window could
   -- change which one went last.
@@ -71,6 +78,18 @@ end
 
 function M.close()
   require("codereview.view").close()
+end
+
+---**Switch** the review to another **checkout** of this repository.
+---
+---Works with no review open, which is how a reviewer opens a review somewhere else in the
+---first place: opening with nothing already open is simply the case with nothing to close
+---first, and there is no second entry point for it.
+---
+---The list is built from git's own worktree listing and put in front of the reviewer by the
+---`pick_checkout` adapter, whose default the plugin ships (ADR-0007).
+function M.switch()
+  require("codereview.checkout").switch()
 end
 
 ---Annotate the file in the current buffer, from anywhere.

@@ -71,6 +71,24 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@type CRView|nil
 local V = nil
 
+---Point the current tab page's working directory at a **checkout**.
+---
+---`:tcd` and never `:cd`. The global working directory is the reviewer's: it is the
+---checkout they are standing in, it is what the tab they were working in keeps, and it is
+---what guarantees they can always get back to where Neovim started. A **switch** that moved
+---it would take that away to buy nothing.
+---
+---**Set for the host and read back by nothing here.** The LSP root, the diff-sign base and
+---a relative `:e` all come off this; every operation in the plugin resolves against
+---`V.root` instead (ADR-0008), because Neovim silently resets a tab's local directory to
+---the global one once that directory is deleted and fires no event when it does. So this
+---failing costs the host and costs the review nothing, which is why it is a `pcall` rather
+---than a checked step.
+---@param root string
+local function root_this_tab(root)
+  pcall(vim.cmd, "tcd " .. vim.fn.fnameescape(root))
+end
+
 ---@param msg string
 local function warn(msg)
   vim.notify(msg, vim.log.levels.WARN, { title = "Code review" })
@@ -788,7 +806,7 @@ function M.persist()
   end
   -- Passed even when nil: there may still be annotations with no repository to write, and
   -- skipping would leave a submitted batch's entries on disk to come back next start.
-  state.persist_queue(state.ambient_root())
+  state.persist_queue(state.current_checkout())
 end
 
 --- Cursor queries --------------------------------------------------------------
@@ -1304,6 +1322,12 @@ function M.open_file()
   local line = anchor.kind == "line" and worktree_line(file, anchor) or 1
   -- A new tab keeps the review intact: `gT` returns to exactly where you were.
   vim.cmd("tabedit " .. vim.fn.fnameescape(abs))
+  -- Rooted in the review's checkout, so the LSP, the diff signs and a relative path in
+  -- here agree with the diff it was opened out of. A tab spawned from the review tab does
+  -- inherit that tab's directory, measured on this platform -- but an inherited value is a
+  -- copy taken from a source Neovim can reset with no event, so it is set from the
+  -- authority instead of trusted to arrive.
+  root_this_tab(V.root)
   pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
   vim.cmd("normal! zz")
 end
@@ -1757,33 +1781,52 @@ function M.toggle_archived()
   M.paint()
 end
 
+--- Switching checkout -----------------------------------------------------------
+
+-- The switch is `checkout.lua`'s: the listing, the picker in front of it and the open it
+-- ends in. What is left here is the name `keymaps.lua` binds to `gS` in both the diff and
+-- the file tree, exactly as `gb`, `gp` and `gl` are named here.
+
+function M.switch()
+  require("codereview.checkout").switch()
+end
+
 --- Opening --------------------------------------------------------------------
 
+---Open a review.
+---
 ---@param spec string|nil
-function M.open(spec)
+---@param checkout string|nil The **checkout** to review, as a **switch** names one. nil
+---       resolves it from the working directory, which is what `:CodeReview` does and what
+---       every review did before a switch existed.
+---@return boolean opened False has already said why: no repository, an unresolvable scope,
+---        a failed diff, or a scope with nothing in it. A review that was already open is
+---        still open in each of those cases -- nothing is closed until there is something
+---        to put in its place.
+function M.open(spec, checkout)
   hl.setup()
   local cfg = config.get()
 
-  local root = git.root(vim.fn.getcwd())
+  local root = checkout or git.root(vim.fn.getcwd())
   if not root then
     warn("not inside a git repository")
-    return
+    return false
   end
 
   local scope, err = git.resolve_scope(spec or "branch", root)
   if not scope then
     warn(err or "could not resolve the review scope")
-    return
+    return false
   end
 
   local files, derr = git.collect(scope, root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
   if not files then
     warn("git: " .. (derr or "diff failed"))
-    return
+    return false
   end
   if #files == 0 then
     info(("No changes in scope '%s'"):format(scope.label))
-    return
+    return false
   end
 
   if M.current() then
@@ -1792,6 +1835,13 @@ function M.open(spec)
 
   vim.cmd("tabnew")
   local tab = vim.api.nvim_get_current_tabpage()
+  -- **After the tab exists, and not before.** The review's checkout was decided above and
+  -- the tab it lives in exists only now, so this is the first moment the two can be made to
+  -- agree at all. Resolving the checkout from the working directory and then changing that
+  -- directory -- the obvious way to write a switch -- leaves the review's root naming one
+  -- checkout while the tab it is drawn in names another, and moves the reviewer's own
+  -- directory to do it.
+  root_this_tab(root)
   local main_win = vim.api.nvim_get_current_win()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_win_set_buf(main_win, buf)
@@ -1877,6 +1927,7 @@ function M.open(spec)
 
   M.paint()
   view_layout.place(V, 1)
+  return true
 end
 
 return M

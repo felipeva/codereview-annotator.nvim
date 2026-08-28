@@ -1,7 +1,7 @@
 # `lua/codereview/`
 
 What each module owns, and the three things their headers cannot say from inside: how they
-stack, where the one cycle is, and which of them are settled.
+stack, where the cycles are, and which of them are settled.
 
 Every module opens with a docstring that says more than its row here does. The rows are for
 choosing which of those to read — not for skipping them.
@@ -16,8 +16,9 @@ change there is felt through.
 | `annotate.lua` | The review path: cursor to entry, the deleted-line and hunk inlining rules, drop, grouping | stateful (queue, view) |
 | `archive.lua` | The archive read back: which batch went last, the read-only float listing it and the **preamble** it went under, and the projection of archived entries onto the diff's anchors | stateful (float) |
 | `capture.lua` | The capture path: the same entry from an ordinary buffer, no review view involved | stateful (queue, buffer) |
+| `checkout.lua` | Moving the review to another **checkout**: the listing behind the choice, the picker the plugin ships as the default `pick_checkout` adapter, and the open a **switch** ends in | stateful (view) |
 | `composer.lua` | The shipped composer and its `@` reference picker — the default `compose` adapter, not a lesser one | stateful (float) |
-| `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff` | stateful (options) |
+| `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff`, `pick_checkout` | stateful (options) |
 | `delivery.lua` | Where a batch is going, how that is chosen, the **preamble** composed at submit time, and the submit that empties the queue only on dispatch | stateful (target, queue) |
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
@@ -31,7 +32,7 @@ change there is felt through.
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named, and how a winbar is assembled from typed segments | pure |
-| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, the blob comparisons over it — staleness, and touchedness kept in a function of its own — and each branch's **trim**, checked against `HEAD` before it is handed back | stateful (disk) |
+| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — and each branch's **trim**, checked against `HEAD` before it is handed back | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalization, labels, and the directive that earns a type its keystroke | pure |
@@ -43,13 +44,13 @@ change there is felt through.
 
 - **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
-  `archive`, `delivery`, `keymaps`, `syntax`; then `composer`, `hl`, `fade`, `queue_float`,
-  `trim_float`, `view_layout`; then `view_panel`.
+  `archive`, `delivery`, `keymaps`, `syntax`; then `checkout`, `composer`, `hl`, `fade`,
+  `queue_float`, `trim_float`, `view_layout`; then `view_panel`.
 - **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
 - **On top**: `capture`, then `init`.
 
-## The three cycles
+## The four cycles
 
 `view` and `annotate` require each other. This is known and accepted — not a defect to fix
 in passing. `annotate` needs the focused pane, the current view, the repaint and the anchor
@@ -74,8 +75,17 @@ footer it draws names the batch's target, and routing is delivery's. Function-lo
 sides, as above. The alternative was handing the composer in from every caller, which buys
 nothing and spreads the one rule ADR-0003 exists to keep in one place.
 
+`state` and `view` are the fourth, and the newest. `state` answers which **checkout**
+everything resolves against, and after a **switch** that answer is the open review's root
+rather than the working directory's — so it has to be able to ask whether a review is open
+(ADR-0008). Function-local, as above, and one-directional in spirit: `view` requires `state`
+function-locally already, and `state` reads one field off the view it is handed back. The
+alternative was `view` *telling* `state` which checkout it is on, which is a second copy of
+"which review is open" that can drift the moment a tab is closed from outside — and
+ADR-0008 exists because a copy of exactly this fact goes stale silently.
+
 `keymaps`, `queue_float`, `trim_float`, `view_layout` and `view_panel` would each be a
-fourth. All five run the view's exported actions, and all five take them as an argument —
+fifth. All five run the view's exported actions, and all five take them as an argument —
 `view` hands itself in — rather than requiring `view` for them. That is deliberate, and it is
 what leaves `keymaps` a function of its arguments and the configured annotation types.
 `queue_float` reads no view state either: the one field it needs, the window a float is open
