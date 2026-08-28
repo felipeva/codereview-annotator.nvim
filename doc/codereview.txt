@@ -59,20 +59,31 @@ takes commits off the start of the branch included, works on any git.
 :CodeReviewSwitch
         Switch the review to another **checkout** of this repository -- the
         main clone, or any `git worktree` of it. Offers the checkouts git
-        itself lists, minus a bare repository and any whose directory is gone,
-        and opens the branch review in whichever you choose. Also bound to
-        `gS` in the diff and in the file tree.
+        itself lists, minus a bare repository and any whose directory is gone.
+        Also bound to `gS` in the diff and in the file tree.
+
+        Opens the **scope** that checkout was last reviewed in, so the reviewed
+        marks that come back are the ones you earned there -- they are kept per
+        scope, so which scope opens decides which marks you get. A checkout you
+        have never reviewed opens the branch review, and so does one whose
+        remembered scope cannot be shown: a revspec whose branch has since gone,
+        or a `staged` scope you have since committed. A remembered scope is a
+        default, and a default never refuses to open.
+
+        A restart is not a return. |:CodeReview| with no argument always means
+        the branch review, wherever you are and whatever you last read: only a
+        switch reopens the scope a checkout was left in.
 
         Needs no review open, which is how you open a review somewhere else in
         the first place: opening with nothing already open is simply the case
-        with nothing to close first. A checkout with nothing in its branch
-        scope says so and leaves the review you were reading exactly where it
+        with nothing to close first. A checkout with nothing in the scope it
+        opens at says so and leaves the review you were reading exactly where it
         was.
 
         Each checkout keeps its own queue, reviewed marks, trims and archive,
         and shares none of them -- so leaving one is lossless and returning
-        gives back what you left. Switching with annotations still queued is
-        therefore safe, and is not confirmed.
+        gives back what you left, in the scope you left it in. Switching with
+        annotations still queued is therefore safe, and is not confirmed.
 
         Your **global** working directory never moves and the tab you started
         in keeps its own, so you can always reach the checkout Neovim started

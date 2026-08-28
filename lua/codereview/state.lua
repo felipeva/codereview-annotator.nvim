@@ -640,6 +640,59 @@ function M.persist_queue(root)
   M.save(root, data)
 end
 
+--- The scope a checkout was last reviewed in --------------------------------------
+
+---The **scope** a review was last opened at in a **checkout**, as the spec that resolved it.
+---
+---**The spec, and not the scope's own name, and not the key its reviewed marks are filed
+---under.** A key is `name:identity`, and an identity is a resolved sha for three of the five
+---scopes, so nothing can ever resolve one again. A name is the spec for four of them and the
+---literal `"revspec"` for the fifth, which resolves to nothing at all -- so a record spelled
+---that way is right until a reviewer leaves a checkout on `HEAD~1`, which is one of the two
+---cases this exists for. What a return needs is the string `git.resolve_scope` was given,
+---and both of the places that record it are already holding it.
+---
+---Beside the reviewed marks it decides, in the same document, rather than in a store of its
+---own: it is one string about one checkout, it is written by whatever wrote those marks, and
+---a document swept for a checkout that has gone takes it with it.
+---
+---An absent key is a checkout no review has ever been opened in, and it reads as the
+---default. A document written before this key existed is exactly that case, which is the
+---whole of what it takes to read one -- the same way the **archive** and the **trims**
+---arrived, and for the reason recorded there: a `VERSION` bump would throw away every
+---reviewed mark in the file to add a key those files simply lack.
+---@param root string
+---@return string|nil spec nil for a checkout nothing has been reviewed in
+function M.last_scope(root)
+  return M.load(root).last_scope
+end
+
+---Record the scope a review has just opened at.
+---
+---**Written when a scope is entered, and never when one is left**, because there is no
+---leaving to hang it on: `view.close` writes nothing, `persist` runs only from a mutation,
+---and quitting runs neither of them. A reviewer who cycles `gs` onto another scope, marks
+---nothing and switches away has still last reviewed this checkout in that scope, and a
+---record hung on a mutation loses precisely that reviewer.
+---
+---Merged over the stored document rather than written beside it, for the reason `persist`
+---is: everything else in there belongs to somebody. Skipped when nothing moved, because
+---`gs` is a key held down.
+---
+---**Opening a review now creates a document for a checkout that had none.** Nothing about
+---opening one ever wrote before. It costs a file per checkout ever reviewed, and it moves
+---the stamp an orphan sweep ages against -- see `docs/design-notes.md`.
+---@param root string
+---@param spec string What resolved the scope, as `git.resolve_scope` was handed it
+function M.set_last_scope(root, spec)
+  local data = M.load(root)
+  if data.last_scope == spec then
+    return
+  end
+  data.last_scope = spec
+  M.save(root, data)
+end
+
 ---Load the queue from disk when nothing has been captured in this session yet.
 ---
 ---Separate from `restore`, which needs a view and a scope to put reviewed marks back.

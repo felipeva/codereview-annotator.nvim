@@ -418,6 +418,65 @@ tree, and the whole batch silently degrades to absolute paths with pasted snippe
 resolves once per submit rather than per entry, and falls back to the string it was given:
 a routed agent can name a directory that does not exist on this machine at all.
 
+## The scope a checkout was last reviewed in
+
+**What is recorded is the spec that resolved the scope, and neither of the two things that
+look like it.** A progress key is `name:identity`, and an identity is a resolved sha for
+three of the five scopes, so nothing can resolve one again. A scope's own `name` is the spec
+for four of them and the literal `"revspec"` for the fifth — so a record spelled that way is
+right until a reviewer leaves a checkout on `HEAD~1`, which is one of the two cases the
+feature exists for. What a return needs is the string `git.resolve_scope` was handed, and
+both places that record it are already holding it. The pair of revspec cases in
+`last_scope_spec` is what stops the name passing: one says the return is not the default, the
+other says *which* revspec came back.
+
+**It is written when a scope is entered, because there is no leaving to hang it on.**
+`view.close` writes nothing, `state.persist` runs only from a mutation, and quitting runs
+neither. A reviewer who cycles `gs` onto another scope, reads it, marks nothing and switches
+away has still last reviewed that checkout in that scope — and a record hung on a mutation
+gives them back wherever they last happened to toggle something. That is not a hypothetical:
+it is the headline story of the ticket, and it is the only case in the spec that separates
+the two moments.
+
+**The consequence, which nothing else about opening a review ever had: an open now writes.**
+A checkout that has been reviewed and never annotated now has a document, where before it had
+none. It costs one file per checkout ever opened, and it moves the stamp the orphan sweep
+ages against — a checkout whose review was merely opened looks recently written. The sweep
+skips a checkout this session has read back anyway, so this makes it more conservative rather
+than less. Its window is stated as *without a write or an open* for this reason; it said
+*without a write* when it landed, and this is the slice that made that untrue.
+
+**A remembered scope is a default, and a default must never turn an open into a refusal.**
+A revspec whose branch has gone stops resolving; a `staged` scope emptied by a commit resolves
+perfectly and holds nothing. Each of those hits one of `open`'s two early returns, and the
+reviewer who asked to move to a checkout is left with no review at all — where the same
+gesture, before any of this existed, always opened. Both fall back to the branch scope,
+silently, and what actually opened is what gets recorded, so a return never reopens a scope
+the reviewer was declined.
+
+**That is not the rule an empty scope is otherwise declined under, and the two look
+identical.** A switch to a checkout with nothing in its branch scope still says so and leaves
+the review where it was (`switch_spec` owns that). There the reviewer named the scope and the
+honest answer is to say so; here nobody named it in this session at all. The difference is
+where the spec came from and not what it found, which is why it is decided at the point the
+remembered spec is chosen rather than at the point the diff comes back empty. Deleting the
+fall-back reds `last_scope_spec` and leaves `switch_spec` green, which is the shape of the
+distinction.
+
+**Only a switch consults it, and a restart is therefore not a return.** `:CodeReview` with
+no argument still means the branch review. Reading the memory on every argument-less open is
+one rule instead of two and was rejected: the front door's answer would drift with whatever
+was read through it days ago, and a reviewer who looked at `HEAD~1` once would get it every
+morning until they said `branch` out loud. It is held by a test rather than by this
+paragraph — consulting the memory with no checkout named reds `trim_float_spec`, where a
+review opened on `HEAD~1` is followed by argument-less opens whose `gc` then has no branch
+review to list.
+
+**A trim needs nothing here, and the reason is worth keeping.** A branch review's identity is
+the merge base and does not move when a **trim** moves the pre-image, so a remembered
+`"branch"` reads the same marks back under every trim — including one applied while the
+reviewer was in another checkout.
+
 ## The queue and its checkout
 
 **One id counter for every checkout, and seeding it per checkout is not the same thing.**
@@ -502,12 +561,18 @@ before anything can read that store again.
 
 ## Sweeping orphaned state
 
-**The seven-day window is seven days WITHOUT A WRITE, not seven days missing.** The stamp
-the age test reads is rewritten on every save, and only a mutation saves — opening a review
-does not, and closing one does not. So a checkout last written to nine days ago and deleted
-a minute ago has **no protection at all**: the next **switch** sweeps it, and whatever was
-unsent in it goes. The protection is proportional to how recently the document was written,
-which is not what a grace period against a directory that may come back would give you.
+**The seven-day window is seven days WITHOUT A WRITE OR AN OPEN, not seven days missing.**
+The stamp the age test reads is rewritten on every save. This said "only a mutation saves —
+opening a review does not", which was true when the sweep landed and stopped being true one
+slice later: recording the **scope** a checkout was last reviewed in writes the document when
+a review opens, so an open now refreshes the stamp and closing one still does not. The
+direction is safe — it makes a document harder to sweep, never easier, and a checkout this
+session has read back is skipped anyway — but the sentence has to name it, because the window
+is what a reviewer is being promised. So a checkout last written to *and last opened* nine
+days ago and deleted a minute ago has **no protection at all**: the next **switch** sweeps
+it, and whatever was unsent in it goes. The protection is proportional to how recently the
+document was touched, which is not what a grace period against a directory that may come back
+would give you.
 This is a deliberate deviation from "kept for a while after its checkout disappears". The
 alternative — a stamp written the first time a sweep finds the directory gone, swept only
 once *that* is a week old — needs two sweeps seven days apart, and sweeps happen only on a

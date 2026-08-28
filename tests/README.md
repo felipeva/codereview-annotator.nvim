@@ -28,6 +28,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
 | `codereview/checkout_child.lua` | Spawned by `checkout_restart_spec` to work in two **checkouts** and dispatch from each — deliberately not a spec. |
 | `codereview/trail_child.lua` | Spawned by `trail_spec` to build a **checkout** trail and go back along it, so the parent can find one absent after a restart — deliberately not a spec. |
+| `codereview/last_scope_child.lua` | Spawned by `last_scope_spec` to leave a checkout reviewed at a scope of its own and exit — deliberately not a spec. |
 | `codereview/layout_child.lua` | Spawned by `layout_spec` — deliberately not a spec. |
 | `codereview/archived_child.lua` | Spawned by `render_spec` to archive a batch and turn archived entries off — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
@@ -84,6 +85,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
 | `switch_spec` | Moving the review to another **checkout**: the listing it is chosen from — the three checkouts of one repository, each named as its own git names it, with a bare one and a deleted one left out — the picker the plugin ships and the `pick_checkout` adapter that replaces it, a switch with a review open and with none, the directories a switch must not move, the queue and the store and the id that follow the review rather than the working directory, and what belongs to no checkout riding along into one reached by switching — asked from a tab standing in another checkout — the tab a real file opens into, `:CodeReviewSwitch` and `gS` in the diff and the tree, and the checkout with nothing in scope that is declined rather than opened |
 | `trail_spec` | Going back along the **checkout** trail: the return and the previous checkout offered first, the eight switches between two that leave the trail holding each once, the third checkout the ordering cannot be seen without, the reopen and the declined switch that put nothing on it, the checkout that is there and refuses being kept rather than spent, the ones that are gone being named and walked over, the landing in the checkout Neovim started in, the bottom of the trail said rather than silent, and the trail absent in the session after the one that built it |
+| `last_scope_spec` | The **scope** a **checkout** was last reviewed in, and the return that reopens it: the marks that come back being that scope's rather than the branch scope's, the revspec whose own name resolves to nothing, the scope reached with `gs` and left with nothing marked in it, the two remembered scopes that must fall back rather than refuse — one that stopped resolving and one that emptied — the document written before the key existed, the argument-less `:CodeReview` that still means the branch review, the staleness a return reports in the queue's own wording, and the scope a previous process left behind |
 | `count_spec` | The queued count a statusline asks for: which **checkout** it is about after a bare directory change, the bare note that is in the number everywhere, what a redraw costs in git processes cold and warm, the answer of "no checkout" that is deliberately not remembered so a `git init` is visible at once, the tab whose own directory was deleted underneath it, and the intersection with the **switch** — the number read from the tab the reviewer is standing in, about the checkout the review is on |
 | `frozen_spec` | A **checkout** deleted underneath an open review, which is the one place the review's root and the tab's working directory give different answers — so this is where ADR-0008 is proved and not merely restated. In two acts, because the two halves need different tab states: never having left the tab, where there is no working directory at all and the review has to stay readable through it; then having left and returned, where the tab has adopted a *live* sibling checkout and a working-directory read resolves, succeeds and is wrong. The paint, the cursor move and the file tree that all raised; the highlighting the diff keeps; the queue still readable; each operation needing the checkout refused by name rather than through git; the reviewer told on coming back; the store the annotation still reaches; the **switch** out that a deletion took away; `:CodeReview` from a tab with no directory of its own — and the executed mutation that replaces the review's root with a working-directory read and shows the review opening a file out of the wrong checkout |
 | `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
@@ -143,9 +145,10 @@ interchangeable, and the assertions know which one they are looking at.
 - **`mkcheckouts.sh`** — one repository in three **checkouts** of it, and the only fixture
   whose checkouts are the point: `main` on master, plus `agent-a` and `agent-b`, each a
   linked checkout on a branch of its own. Used by `checkout_spec`,
-  `checkout_restart_spec`, `switch_spec`, `frozen_spec` and `sweep_spec`. Unlike the other four it
-  builds a plain directory holding the three rather than a repository at the path it is
-  given, which keeps the whole fixture inside one `rm` — a checkout added beside the
+  `checkout_restart_spec`, `switch_spec`, `trail_spec`, `frozen_spec`, `sweep_spec` and
+  `last_scope_spec`.
+  Unlike the other four it builds a plain directory holding the three rather than a
+  repository at the path it is given, which keeps the whole fixture inside one `rm` — a checkout added beside the
   repository would be left behind — and leaves that path itself inside no repository. A
   second *copy* of a repository will not do: two copies are two repositories, and what is
   scoped per checkout can only be seen in checkouts that share one, which is also what
@@ -923,6 +926,16 @@ so the out-of-core language path is still checked locally without ever failing C
   from `view.lua`'s `follow_file` when `V.panel_win` is nil must red the tree-dismissed case
   in `render_spec` — it freezes on the file that was being read when the tree went away —
   and one case in `panel_spec`. That is the whole reason #103 moved the latch.
+- **A fall-back case is green before the thing it falls back from exists.** Every rule about
+  a *remembered* scope failing — one that stopped resolving, one that emptied — is satisfied
+  on a trunk with no memory at all, because opening the branch scope is what already happens.
+  `last_scope_spec`'s two fall-back blocks passed before a line of `state.lua` was written,
+  and green there said nothing whatsoever. What pins them is deleting each half of the
+  fall-back on the finished implementation: the unresolvable one must red as a **refusal**,
+  with the review still on the checkout it was leaving and `not a valid revision` on screen,
+  and the emptied one must red with `No changes in scope 'staged'` — while `switch_spec`
+  stays green, because the empty scope a reviewer *asked* for is still declined. Same shape
+  as the sweep guards in `sweep_spec`.
 - **A set comparison passes when one set was never read.** `map_spec` matches the module
   map's rows with a pattern over the table's first column, so reformatting that column —
   dropping the backticks, say — silently yields no rows, and "no row names a module that is
