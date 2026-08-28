@@ -32,7 +32,7 @@ change there is felt through.
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file is called wherever it is named, and how a winbar is assembled from typed segments | pure |
-| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — and each branch's **trim**, checked against `HEAD` before it is handed back | stateful (disk) |
+| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, and the **sweep** that discards the state of checkouts that are gone | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalization, labels, and the directive that earns a type its keystroke | pure |

@@ -82,7 +82,28 @@ end
 local function enter(path)
   -- Before the open, which replaces the review this reads from.
   local from = require("codereview.state").current_checkout()
-  if not require("codereview.view").open(nil, path) then
+  local opened = require("codereview.view").open(nil, path)
+
+  -- The sweep of **orphaned** state, #178's, moved here from the pick callback when these
+  -- two slices met. Its own reasoning is unchanged and is what puts it at this line rather
+  -- than another: a switch is the moment a checkout's existence is most likely to have just
+  -- changed, it is rare and nowhere near a hot path -- so no startup scan and no timer --
+  -- and it runs **after** the open so a line reporting work destroyed is the last thing
+  -- said rather than the first thing buried under the review's own sentences.
+  --
+  -- What the move buys is `:CodeReviewBack`. A switch is a switch whichever door it came
+  -- through -- the glossary's **Switch** has no clause about the gesture -- and going back
+  -- is the door most likely to arrive at a checkout that has just stopped existing, being
+  -- the only one in the plugin that already tests for a gone directory. Left in the pick
+  -- callback it was the one switch that never swept.
+  --
+  -- Before the failure return, not after it, so the picker path behaves exactly as it did
+  -- when it lived one function out: a switch the *plugin* refused swept then and sweeps
+  -- now. A picker the reviewer dismissed still never reaches this at all -- declining a
+  -- menu is not a switch.
+  require("codereview.state").sweep_orphans()
+
+  if not opened then
     return false
   end
   forget(path)
@@ -189,6 +210,30 @@ function M.switch()
   end
 
   local checkouts = git.checkouts(root)
+
+  -- **A review whose checkout was deleted underneath it can still be left.**
+  --
+  -- The listing is built by asking git from the checkout the plugin is acting on, and that
+  -- is exactly the directory that went: `vim.system` raises on a cwd that is not there, so
+  -- the answer is an empty list and the reviewer is told no checkout can be opened. With
+  -- `:CodeReview` resolving through the same question, a switch is the only way out of such
+  -- a review -- so the one gesture that must keep working is the one a deletion took away.
+  --
+  -- Asked again from the *global* working directory, which is the checkout Neovim started
+  -- in: it is never moved (ADR-0008), which is the whole of why a reviewer can always get
+  -- back to where they began. Strictly the repository it lists is the one the reviewer is
+  -- standing in rather than the one the dead review was of. Nothing can list the latter --
+  -- a linked checkout's git directory is reached through the directory that is gone -- and
+  -- in the case this exists for the two are the same repository anyway.
+  --
+  -- Gated on the checkout being gone, not merely on an empty list. An empty list from a
+  -- checkout that is *there* means git named nothing openable in that repository, and
+  -- answering that with another repository's checkouts would be the cross-repository
+  -- listing #171 rules out.
+  if #checkouts == 0 and (vim.uv.fs_stat(root) or {}).type ~= "directory" then
+    checkouts = git.checkouts(vim.fn.getcwd(-1, -1))
+  end
+
   if #checkouts == 0 then
     -- Reachable only when git listed nothing this plugin could open: every checkout it
     -- named was bare, or gone, or unresolvable. Said rather than opening an empty picker,
@@ -215,6 +260,8 @@ function M.switch()
     -- review's scope across would be wrong rather than convenient: a revspec resolved in
     -- one checkout need not exist in another, and `since-batch` names the archive of the
     -- checkout being left. Which scope a checkout was last reviewed at is #175's.
+    -- The sweep of **orphaned** state (#178) is inside `enter`, which is why it is not
+    -- here: it belongs to the journey and not to this door onto it.
     enter(path)
   end)
 end
@@ -239,21 +286,33 @@ end
 function M.back()
   local skipped, landed = {}, false
 
+  ---Name what was walked over, and only once however often this is reached.
+  ---
+  ---Said *before* the open rather than after this function has finished, so that the sweep
+  ---the open ends in keeps the last word. #178 puts a line about destroyed work last on
+  ---purpose, and reporting the walk afterwards would have buried it -- the one thing the
+  ---move of that sweep into `enter` changed about it.
+  local function say_skipped()
+    if #skipped > 0 then
+      warn(skipped_line(skipped))
+      skipped = {}
+    end
+  end
+
   while #trail > 0 do
     local path = trail[1]
     if (vim.uv.fs_stat(path) or {}).type ~= "directory" then
       table.remove(trail, 1)
       skipped[#skipped + 1] = path
     else
+      say_skipped()
       -- `enter` takes it off the trail itself, and only once the open has succeeded.
       landed = enter(path)
       break
     end
   end
 
-  if #skipped > 0 then
-    warn(skipped_line(skipped))
-  end
+  say_skipped()
   -- Nothing was refused and there is nothing left: said, for the reason an empty listing is
   -- said rather than opened as an empty picker. A refusal has already spoken for itself and
   -- has left its checkout on the trail, so it is not this.
