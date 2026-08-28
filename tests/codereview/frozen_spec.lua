@@ -464,15 +464,19 @@ end)
 -- Last in the file because a switch rebuilds the review, and everything above is about the
 -- one that was open.
 describe("switching out of a review whose checkout is gone", function()
+  -- `agent-b` and not `main`: a switch opens nothing where nothing is in scope, and `main`
+  -- is the branch every other checkout here is cut from, so its own branch review is empty.
+  -- `switch_spec` owns that refusal; what is being asserted here is that the reviewer gets
+  -- out, so the checkout they get out to has to be one there is something to read in.
   it("offers the checkouts that are still there", function()
-    picked = MAIN
+    picked = B
     local msgs = said(codereview.switch)
     assert.is_false(h.notified(msgs, "no checkout of this repository can be opened"), vim.inspect(msgs))
     assert.same({ B, MAIN }, paths_of(offered))
   end)
 
   it("opens the review on the one that was chosen", function()
-    assert.same(MAIN, current().root)
+    assert.same(B, current().root)
   end)
 
   -- The work left behind is the checkout's, not the reviewer's position's. It was written
@@ -480,6 +484,7 @@ describe("switching out of a review whose checkout is gone", function()
   -- it: sweeping orphaned state is #178's, and this slice must not do any of it.
   it("leaves the annotation in the store of the checkout it was about", function()
     assert.is_true(vim.tbl_contains(stored_notes(A), NOTE), vim.inspect(stored_notes(A)))
+    assert.is_false(vim.tbl_contains(stored_notes(B), NOTE), vim.inspect(stored_notes(B)))
     assert.is_false(vim.tbl_contains(stored_notes(MAIN), NOTE), vim.inspect(stored_notes(MAIN)))
   end)
 end)
