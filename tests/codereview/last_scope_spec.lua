@@ -175,6 +175,38 @@ describe("a return to a checkout left in a scope of its own", function()
   end)
 end)
 
+--- A scope nothing was marked in --------------------------------------------------
+
+-- The headline story of the ticket, and the case that says *when* the record is written. A
+-- reviewer holds `gs` down, lands somewhere, reads it and switches away having marked
+-- nothing at all -- and that is still the scope this checkout was last reviewed in.
+--
+-- Nothing runs when a review is closed and nothing runs when Neovim quits, so a record
+-- hung on a mutation is a record this reviewer never makes: what they would come back to is
+-- wherever they last happened to toggle something.
+describe("a scope reached with `gs` and left with nothing marked in it", function()
+  vim.api.nvim_set_current_win(current().win)
+  -- Through the key, and three presses, because the cycle from here passes through the
+  -- branch scope -- which is the default, and would be reached by a return that remembered
+  -- nothing at all -- and through the staged scope, which is empty in this checkout.
+  h.feed("gs")
+  h.feed("gs")
+  h.feed("gs")
+
+  it("really is a scope this reviewer only looked at", function()
+    assert.same("unstaged", current().scope.name)
+    assert.is_true(#current().files > 0)
+    assert.same({}, marked())
+  end)
+
+  switch_to(B)
+  switch_to(A)
+
+  it("is the scope the return opens", function()
+    assert.same("unstaged", current().scope.name)
+  end)
+end)
+
 --- A scope whose name is not a spec ----------------------------------------------
 
 -- The case the naive implementation fails. Every named scope is its own spec, so recording

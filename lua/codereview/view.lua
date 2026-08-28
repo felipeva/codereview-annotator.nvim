@@ -1274,6 +1274,10 @@ function M.set_scope(spec)
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
   require("codereview.state").restore(V, key)
+  -- Entered rather than left, which is the only moment there is: nothing runs when a review
+  -- is closed or when Neovim quits, and a reviewer who cycles here and marks nothing has
+  -- still last reviewed this checkout in this scope.
+  require("codereview.state").set_last_scope(V.root, spec)
   M.reconcile()
 
   if #files == 0 then
@@ -1813,15 +1817,53 @@ function M.open(spec, checkout)
     return false
   end
 
-  local scope, err = git.resolve_scope(spec or "branch", root)
-  if not scope then
-    warn(err or "could not resolve the review scope")
-    return false
+  local state = require("codereview.state")
+
+  -- The **scope** this checkout was last reviewed in, which is what a return to it reopens
+  -- so that the reviewed marks coming back are the ones the reviewer earned.
+  --
+  -- Only where a checkout was named and a scope was not. Naming a checkout is what a
+  -- **switch** does, and a return is a switch. `:CodeReview` with no argument is the front
+  -- door and still means the branch review: a command whose answer drifts with what was read
+  -- through it days ago is a worse trade than a restart not counting as a return.
+  local remembered = (checkout and not spec) and state.last_scope(root) or nil
+
+  ---Resolve a scope and read the diff for it, which the fall-back below does a second time.
+  ---@param name string
+  ---@return CRScope|nil, CRFile[]|nil, string|nil err
+  local function read(name)
+    local resolved, rerr = git.resolve_scope(name, root)
+    if not resolved then
+      return nil, nil, rerr or "could not resolve the review scope"
+    end
+    local drawn, derr =
+      git.collect(resolved, root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
+    if not drawn then
+      return nil, nil, "git: " .. (derr or "diff failed")
+    end
+    return resolved, drawn
   end
 
-  local files, derr = git.collect(scope, root, { context = cfg.context, untracked = cfg.untracked, spans = cfg.spans })
-  if not files then
-    warn("git: " .. (derr or "diff failed"))
+  local opened_as = remembered or spec or "branch"
+  local scope, files, err = read(opened_as)
+
+  -- **A remembered scope is a default, and a default must never turn an open into a
+  -- refusal.** A revspec whose branch has gone stops resolving, and a `staged` scope emptied
+  -- by a commit resolves perfectly and holds nothing -- and each of those refuses below,
+  -- leaving a reviewer who asked to move somewhere with no review at all. What they asked
+  -- for is the checkout, so they get the review they would have got before any of this
+  -- existed.
+  --
+  -- Deliberately not the rule an empty scope is otherwise declined under. There the scope is
+  -- the one the reviewer named, and saying so is the honest answer -- a checkout with nothing
+  -- in its branch scope is still declined rather than opened. The two look alike, so this one
+  -- is decided on where the spec came from rather than on what it found.
+  if remembered and (not scope or #files == 0) then
+    opened_as = "branch"
+    scope, files, err = read(opened_as)
+  end
+  if not scope then
+    warn(err)
     return false
   end
   if #files == 0 then
@@ -1872,7 +1914,10 @@ function M.open(spec, checkout)
   }
   V.reviewed = V.per_scope[key].reviewed
   V.expanded = V.per_scope[key].expanded
-  require("codereview.state").restore(V, key)
+  state.restore(V, key)
+  -- What actually opened, which after a fall-back is not what was remembered. A return finds
+  -- the review the reviewer was last shown here, and never one they were declined.
+  state.set_last_scope(V.root, opened_as)
   M.reconcile()
 
   -- Before the windows below it: every one of them takes focus while it is being built, and
