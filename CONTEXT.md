@@ -8,6 +8,24 @@ receives it.
 
 ### Reviewing
 
+**Checkout**:
+One working directory of a repository — the main clone or any git worktree of it. It is the
+unit everything is scoped to: a **queue**, an **archive**, the **trims** and the reviewed
+marks belong to one checkout, and two checkouts of one repository share none of them.
+_Avoid_: session (a session is an agent's, see **Target**), worktree (a **scope** name),
+repository, root, project
+
+**Switch**:
+Move the review from one **checkout** to another, in place. Said of checkouts only — changing
+what a review covers is a change of **scope** and is never a switch.
+_Avoid_: jump, cd, change directory, move, retarget
+
+**Orphaned**:
+Said of a **checkout** whose stored review state is still on disk after its directory is gone,
+so nothing can reach the queue, archive or marks inside it. Removed by a *sweep*, which is
+the plugin's word for discarding aged stored state — not git's *prune*.
+_Avoid_: stale (an annotation's line anchors, see **Stale**), pruned, dead, abandoned, expired
+
 **Scope**:
 What a review covers — a branch, the staged or unstaged changes, the whole worktree,
 whatever changed since the last **batch** went out, or any git revspec.
@@ -199,7 +217,7 @@ The prose a reviewer writes above a **batch**, addressed to the receiving agent,
 an **annotation**. It says what the batch is about as a whole — which part matters most,
 what to ignore, how the pieces relate — and the payload renders it above the header, where
 it is read before the findings. Composed at **submit** time and never held in the **queue**,
-which keeps **entries** and nothing else. A **draft** of one is kept per repository, because
+which keeps **entries** and nothing else. A **draft** of one is kept per **checkout**, because
 a preamble is about a batch and not about a file. An **immediate send** carries none
 (ADR-0004), and a copied payload carries none either: only a **dispatch** carries one — and
 a dispatch keeps it, in the **archive**, because it is part of what was sent. It belongs to
@@ -231,7 +249,7 @@ Delivering a single annotation on its own, without it joining the queue.
 _Avoid_: quick note, one-off, direct send
 
 **Archive**:
-The batches already dispatched from a repository, kept after the queue that held them was
+The batches already dispatched from a **checkout**, kept after the queue that held them was
 cleared — the **entries** as they went and the **preamble** they went under. Only a
 **dispatch** writes it, so a payload copied to a register is not in it. Read-only, which is
 a claim about the record and not a feature left unwritten.

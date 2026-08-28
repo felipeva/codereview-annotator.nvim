@@ -91,7 +91,7 @@ to close the review.
 | `gs` | Cycle scope and draw again in place |
 | `gr` | Read the diff again from git |
 | `gp` | Show or hide the file tree |
-| `gl` | Switch between the unified and split layouts |
+| `gl` | Toggle the unified and split layouts |
 | `gb` | Read the last dispatched batch back |
 | `gc` | List the commits on the branch, and check the ones to review |
 | `gA` | Show or hide archived entries, for the rest of the session |

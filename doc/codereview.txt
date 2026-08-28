@@ -99,7 +99,7 @@ Buffer-local, inside the review view:
                      joins once a batch has been dispatched
     gr               Re-read the diff from git
     gp               Show or hide the file tree
-    gl               Switch between the unified and split layouts
+    gl               Toggle the unified and split layouts
     gb               Read the last dispatched batch back
     gc               List the commits on the branch and check the ones to
                      review -- see |codereview-commits|
@@ -146,7 +146,7 @@ In the file tree:                                         *codereview-tree*
     <C-p>            Jump to a file by name
     <Tab>            Back to the diff
     gp               Dismiss the tree, landing back in the diff
-    gl               Switch between the unified and split layouts
+    gl               Toggle the unified and split layouts
     gb               Read the last dispatched batch back
     gc               List the commits on the branch and check the ones to
                      review -- see |codereview-commits|

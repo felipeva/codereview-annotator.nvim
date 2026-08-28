@@ -585,7 +585,7 @@ local function belongs_to_before(V, anchor)
   return render.is_before_key(render.line_key(file.path, file.hunks[anchor.hunk].lines[anchor.line]))
 end
 
----Switch between the unified and split layouts, from either pane or from the file tree.
+---Toggle the unified and split layouts, from either pane or from the file tree.
 ---
 ---Configuration decides the layout a review opens in; this decides it from there on, and
 ---the choice is remembered for the rest of the session rather than for this review only.

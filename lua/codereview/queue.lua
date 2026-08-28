@@ -1,7 +1,7 @@
 ---The annotation queue.
 ---
 ---Annotate many places, submit once. Module-level rather than per-view because the queue
----is what you submit, not what you are looking at: switching scope or reopening the view
+---is what you submit, not what you are looking at: changing scope or reopening the view
 ---must not scatter a review you have not sent yet.
 local M = {}
 
