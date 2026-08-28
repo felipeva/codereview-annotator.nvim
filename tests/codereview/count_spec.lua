@@ -18,12 +18,18 @@
 -- process: counting `git.root` would pass for a memo that never hits, and counting nothing
 -- at all would pass for a resolver that always answers nil.
 --
--- **Owed at the rebase onto #174.** Which checkout the count is about when a review is open
--- is `state.current_checkout()`'s to answer there, not this slice's: by ADR-0008 the
--- review's own root wins and the working directory is read only when there is no review.
--- The case neither slice can make alone -- after a **switch**, the count agrees with the
--- checkout the review is actually on, while the reviewer's own tab is still in the one they
--- came from -- belongs here once this branch sits on top of that one.
+-- **The intersection with the switch is the last block, and it belongs to neither slice
+-- alone.** `state.current_checkout` answers the review's own root when a review is open and
+-- falls through to the working directory only when there is none (ADR-0008). #174 built
+-- that precedence and has no resolution of its own to disagree with it; this slice built the
+-- resolution and had no switch to make the two answers differ. Their combination implies a
+-- behaviour neither pinned: after a **switch**, the number a statusline shows is about the
+-- checkout the review is on, read from a tab that is standing somewhere else.
+--
+-- That block is also where the honest thing about the memo gets said. With a review open the
+-- count consults it **not at all** -- the review is already holding the answer, which is
+-- cheaper than any memo -- so the blocks that count git processes are deliberately the ones
+-- with no review open. The memo is the fall-through's, and only the fall-through's.
 local h = require("tests.helpers")
 
 h.ui(110, 40)
@@ -42,12 +48,19 @@ local codereview = require("codereview")
 local git = require("codereview.git")
 local queue = require("codereview.queue")
 local state = require("codereview.state")
+local view = require("codereview.view")
 
 local note = "unset"
+-- The checkout the picker answers with, set before each switch. Stubbed exactly as the send,
+-- target and compose adapters are stubbed throughout this suite.
+local chosen = nil
 codereview.setup({
   syntax = false,
   compose = function(_, on_accept)
     on_accept(nil, note)
+  end,
+  pick_checkout = function(_, cb)
+    cb(chosen)
   end,
 })
 
@@ -59,6 +72,14 @@ local function annotate_in(checkout, text)
   vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(checkout, "src/main.lua")))
   note = text
   codereview.annotate("bug")
+end
+
+---The notes the queue holds right now.
+---@return string[]
+local function queued_notes()
+  return vim.tbl_map(function(e)
+    return e.note
+  end, queue.all())
 end
 
 ---How many git processes a call spawns.
@@ -152,8 +173,11 @@ describe("a bare note in hand", function()
   end)
 end)
 
--- What the redraw costs. Both halves are needed: a memo that never hits fails the second,
--- and a resolver that answers nil without asking anything fails the first.
+-- What the redraw costs, on the path that costs anything: no review is open here, so
+-- `current_checkout` falls through to the working directory and the memo is what answers.
+-- Both halves are needed -- a memo that never hits fails the second case, and a resolver
+-- that answers nil without asking anything fails the first. The review case is cheaper still
+-- and is the last block's, where the number is asked with a review on screen.
 describe("asking for the count over and over in one checkout", function()
   vim.cmd("cd " .. vim.fn.fnameescape(MAIN))
 
@@ -278,4 +302,84 @@ describe("a tab whose own directory was deleted underneath it", function()
   vim.api.nvim_del_autocmd(au)
   vim.cmd("tabclose")
   vim.cmd("cd " .. vim.fn.fnameescape(A))
+end)
+
+-- The intersection neither slice owns: the **switch** and the resolution, together.
+--
+-- After a switch the review is on one checkout and the reviewer's own tab is still standing
+-- in another -- deliberately, because the global working directory is never moved and that
+-- is what guarantees they can get back to where Neovim started. The number a statusline
+-- shows has to be about the review, not about where they are standing: it sits beside the
+-- diff, and the queue it counts is the one a submit from that review would send.
+--
+-- Asked from the reviewer's own tab on purpose. The switch sets `:tcd` on the review's tab,
+-- so inside that tab the working directory holds the right answer by coincidence and a
+-- count reading it would pass. One tab over it does not, which is where the two readings
+-- come apart.
+describe("the count after a switch, read from the tab the reviewer is standing in", function()
+  local WAITING = "left unsent in agent-b"
+  local left = state.load(B)
+  left.queue = {
+    {
+      id = 80,
+      type = "fix",
+      kind = "file",
+      path = "src/main.lua",
+      abs_path = vim.fs.joinpath(B, "src/main.lua"),
+      key = "src/main.lua:f:0",
+      inline = false,
+      note = WAITING,
+    },
+  }
+  state.save(B, left)
+
+  -- The reviewer is standing in the first checkout, and never leaves it.
+  vim.cmd("cd " .. vim.fn.fnameescape(A))
+  local standing = codereview.count()
+
+  chosen = B
+  codereview.switch()
+
+  local review = assert(view.current(), "the switch opened no review")
+  -- Back to the tab the reviewer was in, which the switch did not move.
+  vim.cmd("tabprev")
+
+  it("switched the review to the other checkout", function()
+    assert.same(B, review.root)
+  end)
+
+  it("left the reviewer standing where they were", function()
+    assert.same(A, vim.fn.getcwd())
+  end)
+
+  -- Without this the case is vacuous: if the two checkouts held the same number, a count
+  -- reading the working directory would pass while being about the wrong queue.
+  it("has a different number to report for each of the two", function()
+    assert.are_not.same(standing, codereview.count())
+  end)
+
+  it("reports the checkout the review is on", function()
+    assert.same(2, codereview.count())
+    assert.is_true(vim.tbl_contains(queued_notes(), WAITING), vim.inspect(queued_notes()))
+  end)
+
+  it("agrees with itself asked from inside the review tab", function()
+    vim.cmd("tabnext")
+    assert.same(2, codereview.count())
+    vim.cmd("tabprev")
+  end)
+
+  -- Cheaper than the memo, and not because of it: the review is already holding its own
+  -- root, so nothing is resolved and nothing is looked up. Stated here rather than folded
+  -- into the cost block above, which is about the fall-through and has no review open.
+  it("spawns no git process at all, the memo not being consulted", function()
+    assert.same(
+      0,
+      git_spawns(function()
+        for _ = 1, 20 do
+          codereview.count()
+        end
+      end)
+    )
+  end)
 end)

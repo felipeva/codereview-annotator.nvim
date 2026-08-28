@@ -291,6 +291,15 @@ annotation both ask it, and both have to see a repository the moment there is on
 `count_spec` holds both halves: two counts outside a checkout must spawn two processes, and
 the count must be about the new checkout the moment `git init` makes one.
 
+**The count and the switch imply a behaviour neither of them tests alone.** After a
+**switch** the review is on one checkout and the reviewer's own tab is still standing in
+another, so the number beside the diff has to be the review's — it counts the queue a submit
+from that review would send. Inside the review tab the `:tcd` holds the same answer, so a
+count reading the working directory passes every case written from in there; one tab over it
+does not. `count_spec`'s last block asks from the tab the reviewer never left, and guards
+that the two checkouts have different numbers to report, or a working-directory read would
+pass while being about the wrong queue.
+
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
 that lengthens opening by roughly a third; paid per repaint it would be a ~50% regression on
