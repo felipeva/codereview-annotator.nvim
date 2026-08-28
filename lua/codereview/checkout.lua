@@ -123,6 +123,16 @@ function M.switch()
     -- one checkout need not exist in another, and `since-batch` names the archive of the
     -- checkout being left. Which scope a checkout was last reviewed at is #175's.
     require("codereview.view").open(nil, path)
+
+    -- The sweep of **orphaned** state, here and nowhere else. A switch is the moment a
+    -- checkout's existence is most likely to have just changed, it is rare, and it is
+    -- nowhere near a hot path -- so there is no startup scan and no timer.
+    --
+    -- After the open rather than before it, so a line reporting work destroyed is the last
+    -- thing said rather than the first thing buried under the review's own sentences. A
+    -- picker the reviewer dismissed never reaches this at all: declining a menu is not a
+    -- switch.
+    require("codereview.state").sweep_orphans()
   end)
 end
 
