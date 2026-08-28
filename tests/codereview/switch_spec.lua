@@ -342,9 +342,11 @@ end)
 describe("a switch made with a review open", function()
   it("moves the review rather than opening a second one", function()
     local before = #vim.api.nvim_list_tabpages()
-    switch_to(MAIN)
-    assert.same(MAIN, current().root)
+    local was = current().tab
+    switch_to(A)
+    assert.same(A, current().root)
     assert.same(before, #vim.api.nvim_list_tabpages())
+    assert.is_false(vim.api.nvim_tabpage_is_valid(was), "the review it moved from is still on screen")
   end)
 
   it("still leaves the global working directory alone", function()
@@ -352,9 +354,14 @@ describe("a switch made with a review open", function()
     assert.same(0, vim.fn.haslocaldir(-1, 1))
   end)
 
-  it("gives the new review's tab the new checkout", function()
+  -- The checkout switched to is the one the reviewer is standing in here, so the *path* a
+  -- tab reports would be right whatever this did. What cannot be right by accident is the
+  -- tab having a directory of its own at all: without the `:tcd` it would be following the
+  -- global one, and it is the following that ADR-0008 says can resume with no event.
+  it("gives the new review's tab a directory of its own", function()
     local nr = vim.api.nvim_tabpage_get_number(current().tab)
-    assert.same(MAIN, vim.fn.getcwd(-1, nr))
+    assert.same(1, vim.fn.haslocaldir(-1, nr))
+    assert.same(A, vim.fn.getcwd(-1, nr))
   end)
 end)
 
@@ -555,14 +562,43 @@ describe("the surface a switch is reached through", function()
 
   it("switches the review when it is pressed", function()
     vim.api.nvim_set_current_win(current().win)
-    chosen = MAIN
+    chosen = A
     h.feed("gS")
-    assert.same(MAIN, current().root)
+    assert.same(A, current().root)
   end)
 
   it("switches the review when the command is run", function()
-    chosen = A
+    chosen = B
     vim.cmd("CodeReviewSwitch")
-    assert.same(A, current().root)
+    assert.same(B, current().root)
+  end)
+end)
+
+--- A checkout with nothing to review -------------------------------------------------
+
+-- `main` sits on the branch every other checkout is reviewed against, so its branch scope
+-- is empty -- which is the one checkout in this fixture that can say so. A switch is an
+-- open, and an open with nothing in scope reports it and stops before it closes anything:
+-- landing a reviewer on an empty review, having taken away the one they were reading, would
+-- be a worse answer than declining to move.
+describe("a switch to a checkout with nothing in the branch scope", function()
+  local msgs, restore
+
+  it("says so, in the wording an ordinary open uses", function()
+    msgs, restore = h.capture_notify()
+    switch_to(MAIN)
+    restore()
+    assert.is_true(h.notified(msgs, "No changes in scope"), vim.inspect(msgs))
+  end)
+
+  it("leaves the review the reviewer was reading exactly where it was", function()
+    assert.same(B, current().root)
+    local nr = vim.api.nvim_tabpage_get_number(current().tab)
+    assert.same(B, vim.fn.getcwd(-1, nr))
+  end)
+
+  it("moves no directory on its way to saying nothing happened", function()
+    assert.same(A, vim.fn.getcwd(-1, -1))
+    assert.same(0, vim.fn.haslocaldir(-1, 1))
   end)
 end)
