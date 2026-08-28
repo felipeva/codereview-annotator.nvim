@@ -81,6 +81,33 @@ takes commits off the start of the branch included, works on any git.
         nothing in the plugin reads it back. Replace the chooser with
         |codereview-opt-pick_checkout|.
 
+                                                            *:CodeReviewBack*
+:CodeReviewBack
+        Go back to the **checkout** the review came from. The same journey
+        |:CodeReviewSwitch| makes, with the destination taken from where you
+        have been rather than asked for.
+
+        There is no forward, and none is needed: the checkout you just left is
+        the first entry |:CodeReviewSwitch| offers, so going forward again is
+        the same single keystroke as going back. That is also why there is no
+        key of its own -- the picker's first row already is one.
+
+        The checkouts you have been in are held one each, most recent first,
+        and that order is the order the picker offers them in. Moving back and
+        forth between two does not fill it with repeats.
+
+        A checkout whose directory is gone is walked over and named, so a
+        pruned agent worktree is visible rather than silent, and the walk
+        carries on to the one underneath it. A checkout that is still there and
+        has nothing in its branch scope says so and is kept, so you have not
+        lost it -- press again once there is something to review in it. With
+        nothing left to go back to it says that too.
+
+        Lives for the session only, and is never written to disk: it is where
+        you have been, not what you were reviewing, and restoring it would
+        offer a path through checkouts that may no longer exist. Needs no
+        review open.
+
                                                        *:CodeReviewLastBatch*
 :CodeReviewLastBatch
         Read the last dispatched batch back: its annotations, grouped by type

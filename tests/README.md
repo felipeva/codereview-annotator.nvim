@@ -27,6 +27,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
 | `codereview/checkout_child.lua` | Spawned by `checkout_restart_spec` to work in two **checkouts** and dispatch from each — deliberately not a spec. |
+| `codereview/trail_child.lua` | Spawned by `trail_spec` to build a **checkout** trail and go back along it, so the parent can find one absent after a restart — deliberately not a spec. |
 | `codereview/layout_child.lua` | Spawned by `layout_spec` — deliberately not a spec. |
 | `codereview/archived_child.lua` | Spawned by `render_spec` to archive a batch and turn archived entries off — deliberately not a spec. |
 | `codereview/viewless_child.lua` | Spawned by `viewless_spec` — deliberately not a spec. |
@@ -82,6 +83,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `checkout_spec` | The queue scoped to its **checkout**: two checkouts of one repository in one session — what each store receives, the queue left in the second read back rather than hidden, the return to the first, the annotation about a checkout you are not in that is filed nowhere and says so, and the loose entry whose id one counter keeps clear of |
 | `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
 | `switch_spec` | Moving the review to another **checkout**: the listing it is chosen from — the three checkouts of one repository, each named as its own git names it, with a bare one and a deleted one left out — the picker the plugin ships and the `pick_checkout` adapter that replaces it, a switch with a review open and with none, the directories a switch must not move, the queue and the store and the id that follow the review rather than the working directory, and what belongs to no checkout riding along into one reached by switching — asked from a tab standing in another checkout — the tab a real file opens into, `:CodeReviewSwitch` and `gS` in the diff and the tree, and the checkout with nothing in scope that is declined rather than opened |
+| `trail_spec` | Going back along the **checkout** trail: the return and the previous checkout offered first, the eight switches between two that leave the trail holding each once, the third checkout the ordering cannot be seen without, the reopen and the declined switch that put nothing on it, the checkout that is there and refuses being kept rather than spent, the ones that are gone being named and walked over, the landing in the checkout Neovim started in, the bottom of the trail said rather than silent, and the trail absent in the session after the one that built it |
 | `count_spec` | The queued count a statusline asks for: which **checkout** it is about after a bare directory change, the bare note that is in the number everywhere, what a redraw costs in git processes cold and warm, the answer of "no checkout" that is deliberately not remembered so a `git init` is visible at once, the tab whose own directory was deleted underneath it, and the intersection with the **switch** — the number read from the tab the reviewer is standing in, about the checkout the review is on |
 | `frozen_spec` | A **checkout** deleted underneath an open review, which is the one place the review's root and the tab's working directory give different answers — so this is where ADR-0008 is proved and not merely restated. In two acts, because the two halves need different tab states: never having left the tab, where there is no working directory at all and the review has to stay readable through it; then having left and returned, where the tab has adopted a *live* sibling checkout and a working-directory read resolves, succeeds and is wrong. The paint, the cursor move and the file tree that all raised; the highlighting the diff keeps; the queue still readable; each operation needing the checkout refused by name rather than through git; the reviewer told on coming back; the store the annotation still reaches; the **switch** out that a deletion took away; `:CodeReview` from a tab with no directory of its own — and the executed mutation that replaces the review's root with a working-directory read and shows the review opening a file out of the wrong checkout |
 | `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
@@ -962,6 +964,34 @@ the end of `frozen_spec` replaces the review's root with a working-directory rea
 the review opens a file out of an unrelated checkout. It is a sensitivity check on every case
 above it rather than a behaviour case, and reading it as a failing test to fix would delete
 the proof.
+
+## The checkout trail
+
+A section of its own, because `tests/README.md` has conflicted on every merge in this stack.
+
+- **The trail has no surface, so every claim about it is read through the picker's
+  ordering.** That is where the rule was written — the trail's order *is* the picker's — and
+  it is the only place a reviewer sees it. Nothing in `trail_spec` asserts how it is stored,
+  and the spec would survive the storage being replaced.
+- **Two checkouts cannot tell the ordering rules apart.** A trail that removes the checkout
+  being arrived at and one that merely de-duplicates its pushes agree at every step of an
+  A↔B dance, head included. The fixture's third checkout is what separates them: with three,
+  the wrong rule ranks the checkout you are standing in above one you have never opened. A
+  case written against two checkouts is a case that cannot fail.
+- **A refused open and a deleted directory are opposite cases and need separate fixtures.**
+  Deleting a directory is easy; making a checkout *refuse* takes `git reset --hard master`,
+  which empties its branch scope while leaving it listed. Without the second one, the rule
+  that a refusal costs the reviewer nothing has no case at all.
+- **The restart child is inverted.** Every other child in this suite writes something for
+  the parent to read; `trail_child.lua` builds a trail so the parent can find one *absent*.
+  It shares the parent's `XDG_STATE_HOME`, so the parent looks for a trail with that
+  session's stores in front of it, and it asserts its own half — that it switched and got
+  back — so the case cannot pass by asserting nothing came back from nothing.
+- **The block order in `trail_spec` is load-bearing twice.** The restart case is first,
+  because it is about a process that has not switched anything and every block below
+  switches. The exhausted-trail case is last, because it deletes checkouts the blocks above
+  need — the trail holds every checkout visited except the current one, so emptying it means
+  deleting all of them.
 
 ## Deliberately not covered
 

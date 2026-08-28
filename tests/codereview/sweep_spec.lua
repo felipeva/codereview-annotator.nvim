@@ -486,3 +486,65 @@ describe("a switch", function()
     assert.same(A, assert(view.current(), "no review view open").root)
   end)
 end)
+
+--- On going back ------------------------------------------------------------------
+
+-- `:CodeReviewBack` is a **switch** with its destination taken from where the reviewer has
+-- been rather than asked for, so it sweeps for the same reason the picker does -- and with
+-- more reason than the picker, being the one gesture that walks *backwards over history*
+-- and the only one in the plugin that already tests for a gone directory. The hook lives in
+-- the entry both doors funnel through (#176); left in the pick callback, where it landed,
+-- going back was the one switch that never swept.
+--
+-- The orphan here is a plain directory rather than a checkout of the fixture, unlike the
+-- switch's above. Going back reads the trail and never asks git for a listing, so a
+-- repository behind it would be testing something else -- which is the reason every other
+-- orphan in this file is a plain directory too.
+
+-- A third checkout, so there is somewhere to come back *from*. `main` cannot serve: it is
+-- the branch the others are reviewed against, so its branch scope is empty and it declines
+-- to open at all.
+local ELSEWHERE = vim.fs.joinpath(base, "elsewhere")
+assert(
+  vim
+    .system({ "git", "worktree", "add", "-q", "-b", "elsewhere", ELSEWHERE }, { cwd = A, text = true })
+    :wait(60000).code == 0,
+  "could not add the checkout to come back from"
+)
+
+chosen = ELSEWHERE
+codereview.switch()
+local went = view.current() and view.current().root
+
+-- Written after the switch, so the sweep that switch ran cannot be what took it.
+local BACK_ORPHAN = checkout_dir("gone-before-going-back")
+store(BACK_ORPHAN, {
+  queue = { entry(BACK_ORPHAN, 60, "left in a checkout removed before the reviewer went back") },
+}, { checkout = BACK_ORPHAN, saved = AGED })
+vim.fn.delete(BACK_ORPHAN, "rf")
+
+local orphan_before_back = stored(BACK_ORPHAN)
+local back_said, restore_back = h.capture_notify()
+codereview.back()
+restore_back()
+
+describe("going back", function()
+  -- The guard. Without it every case below is satisfied by a `back` that went nowhere,
+  -- which is exactly what a session with an empty trail would do.
+  it("had somewhere to come back from, and came back", function()
+    assert.same(ELSEWHERE, went)
+    assert.same(A, assert(view.current(), "no review view open").root)
+  end)
+
+  it("had the orphan on disk on the way in", function()
+    assert.is_true(orphan_before_back)
+  end)
+
+  it("sweeps", function()
+    assert.is_false(stored(BACK_ORPHAN), state.path(BACK_ORPHAN))
+  end)
+
+  it("says what it took", function()
+    assert.is_true(h.notified(back_said, "orphaned checkout"), vim.inspect(back_said))
+  end)
+end)
