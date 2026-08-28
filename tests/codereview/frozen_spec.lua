@@ -53,6 +53,10 @@ local view = require("codereview.view")
 
 -- The checkout the reviewer is standing in, for the whole file, and never moved.
 --
+-- The last describe in this file leans on that directly rather than merely assuming it: a
+-- tab with no working directory of its own falls back to this one, and what `:CodeReview`
+-- resolves there is the whole of what that case is about.
+--
 -- It has to be a checkout that is *alive* and is *not* the one being reviewed. That is the
 -- whole trap: once the review's tab falls back to this directory, a working-directory read
 -- names a real repository with a real `src/main.lua` in it, so it does not fail -- it
@@ -486,5 +490,50 @@ describe("switching out of a review whose checkout is gone", function()
     assert.is_true(vim.tbl_contains(stored_notes(A), NOTE), vim.inspect(stored_notes(A)))
     assert.is_false(vim.tbl_contains(stored_notes(B), NOTE), vim.inspect(stored_notes(B)))
     assert.is_false(vim.tbl_contains(stored_notes(MAIN), NOTE), vim.inspect(stored_notes(MAIN)))
+  end)
+end)
+
+--- Opening from a tab that has lost its own directory --------------------------------
+
+-- The other half of the stranding, and the half a switch does not cover.
+--
+-- `open` resolved its checkout with a raw `getcwd()`, which answers `""` in a tab whose own
+-- directory was deleted -- and `vim.system` raises on an empty cwd rather than reporting a
+-- failure, so `:CodeReview` said "not inside a git repository" about a reviewer sitting
+-- inside one. Resolved through `current_checkout` instead, the fall-through #179 already
+-- shipped applies and the global directory answers.
+--
+-- **With no review open**, which is what makes this a different case from everything above
+-- rather than a second spelling of it. With a review open `current_checkout` answers that
+-- review's root, and if the review is the frozen one that root is the checkout that went --
+-- so a reopen cannot rescue it and a **switch** is the gesture that does. This is the tab a
+-- reviewer is left in afterwards, or one they never had a review in at all.
+--
+-- Last in the file: it closes the review and registers a checkout of its own, and nothing
+-- above should have to know either.
+describe("opening a review from a tab whose own directory is gone", function()
+  local doomed = vim.fs.joinpath(base, "doomed")
+  h.git_lines(MAIN, { "worktree", "add", "-q", "-b", "doomed", doomed })
+
+  codereview.close()
+  vim.cmd("tabnew")
+  vim.cmd("tcd " .. vim.fn.fnameescape(doomed))
+  vim.fn.delete(doomed, "rf")
+
+  it("stands in a tab with no working directory and no review", function()
+    assert.same("", vim.fn.getcwd())
+    assert.is_nil(view.current())
+  end)
+
+  -- Two assertions, because the negative alone would pass for a resolution that failed some
+  -- other way. What it resolved to is named by what it went on to say: `main` is the branch
+  -- every checkout here is cut from, so its own branch review is empty, and being *declined*
+  -- for having nothing in scope is proof it reached a checkout at all.
+  it("resolves the checkout the reviewer's own directory names", function()
+    local msgs = said(function()
+      codereview.open(nil)
+    end)
+    assert.is_false(h.notified(msgs, "not inside a git repository"), vim.inspect(msgs))
+    assert.is_true(h.notified(msgs, "No changes in scope"), vim.inspect(msgs))
   end)
 end)
