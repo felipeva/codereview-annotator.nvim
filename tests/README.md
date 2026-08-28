@@ -82,6 +82,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `checkout_spec` | The queue scoped to its **checkout**: two checkouts of one repository in one session — what each store receives, the queue left in the second read back rather than hidden, the return to the first, the annotation about a checkout you are not in that is filed nowhere and says so, and the loose entry whose id one counter keeps clear of |
 | `checkout_restart_spec` | The same scoping across a genuine restart: what two checkouts worked in one session left on the disk, each store holding only what it is about, and the id a new annotation takes in a checkout whose **archive** the counter has never been seeded from |
 | `switch_spec` | Moving the review to another **checkout**: the listing it is chosen from — the three checkouts of one repository, each named as its own git names it, with a bare one and a deleted one left out — the picker the plugin ships and the `pick_checkout` adapter that replaces it, a switch with a review open and with none, the directories a switch must not move, the queue and the store and the id that follow the review rather than the working directory — asked from a tab standing in another checkout — the tab a real file opens into, `:CodeReviewSwitch` and `gS` in the diff and the tree, and the checkout with nothing in scope that is declined rather than opened |
+| `count_spec` | The queued count a statusline asks for: which **checkout** it is about after a bare directory change, the bare note that is in the number everywhere, what a redraw costs in git processes cold and warm, the answer of "no checkout" that is deliberately not remembered so a `git init` is visible at once, and the tab whose own directory was deleted underneath it |
 
 ## Fixtures
 
@@ -175,6 +176,20 @@ so the out-of-core language path is still checked locally without ever failing C
   state was restored, and inheriting the real one writes into
   `~/.local/state/nvim/codereview/`, where you have genuine review state. Nothing in the
   suite writes outside a temporary directory.
+- **Count git *processes*, not resolver calls.** A memo sits above the process, so a case
+  that counts `git.root` calls is satisfied by a memo that never hits — which is the thing
+  being tested. `count_spec` wraps `vim.system` and counts the calls whose `argv[1]` is
+  `git`, restoring it afterwards. Both directions need a case: the cold call must spawn one,
+  or a resolver that answers nil without asking anything passes; the warm calls must spawn
+  none. A third case asserts the *answer* on both, because "quiet" and "correct" are
+  different claims.
+- **A tab whose own directory is deleted reports no working directory at all.** Not the
+  global one, and not a stale one: `getcwd()` is `""`, `vim.uv.cwd()` is nil, and **no
+  `DirChanged` fires**. Neovim adopts the global directory when that tab is next entered,
+  and the event that arrives then is the one for leaving it. `getcwd(0, 0)` still answers
+  the deleted directory, so a tab-local read is a lie in exactly this case; `getcwd(-1, -1)`
+  is what answers. `count_spec`'s last block asserts the empty string and the absent event
+  as guards, because without them it is a test of an ordinary directory change.
 - **`state_spec` is two processes on purpose.** Persistence is only meaningfully tested
   across a genuine restart; calling `state.load()` twice in one process proves nothing
   about what reached the disk. `state_child.lua` writes, the spec restarts and reads. Do

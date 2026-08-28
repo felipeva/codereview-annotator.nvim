@@ -62,6 +62,51 @@ function M.root(cwd)
   return line({ "rev-parse", "--show-toplevel" }, cwd)
 end
 
+---Directories already resolved to the checkout they are in, keyed by the directory string.
+---
+---One entry per distinct string ever asked about. The same shape as the state store's
+---realpath memo, and small for the same reason: a reviewer visits a handful of directories,
+---not a filesystem.
+local roots = {}
+
+---The **checkout** a directory is in, resolved once and then remembered.
+---
+---For the redraw path, and for nothing that can afford to be wrong. `count()` is asked on
+---every redraw and has to decide which checkout its number is about, so the resolution
+---behind it cannot be a process per redraw.
+---
+---Keyed on the directory *string*, never on `DirChanged`. That is the whole reason it is
+---sound: a tab whose own directory is deleted falls back to the global one and fires no such
+---event (ADR-0008), so a cache hung on the event goes stale in precisely the case it would
+---exist for -- while the string simply reads as the new directory and memoises to the right
+---checkout.
+---
+---**An answer of "no checkout" is never remembered, and the shape is what enforces that
+---rather than this sentence.** `roots[dir] = M.root(dir)` stores nothing at all when the
+---answer is nil, so a directory inside no checkout is asked again every time. That costs a
+---git process per redraw for a reviewer sitting outside every checkout, and it buys the one
+---thing worth more: a `git init` in the directory they are in is visible at the next redraw
+---rather than after a restart.
+---
+---`M.root` is left alone for that same reason. Opening a review and capturing an annotation
+---both ask it, and both have to see a repository the moment it exists.
+---@param dir string|nil
+---@return string|nil root nil for a directory inside no checkout, and for no directory
+function M.root_cached(dir)
+  -- A tab whose own directory was deleted answers with nothing at all, and `vim.system`
+  -- raises on an empty cwd rather than reporting a failure. Refused here rather than at
+  -- every caller, because the caller is holding whatever the working directory read gave it.
+  if not dir or dir == "" then
+    return nil
+  end
+  local hit = roots[dir]
+  if hit then
+    return hit
+  end
+  roots[dir] = M.root(dir)
+  return roots[dir]
+end
+
 ---The repository's default branch, e.g. `origin/master`.
 ---
 ---Read from `origin/HEAD` rather than assumed: "main" is not universal -- repos on this

@@ -252,6 +252,45 @@ the closure is never even created, and it is still the difference. Hoisted to a 
 this one with repeated `render.build` calls rather than `make perf`, whose repaint line is a
 single sample and hid the regression inside its own spread.
 
+**The queued count resolves its own checkout, and the resolution is memoised on the
+directory string.** A statusline asks `codereview.count()` on every redraw, and since the
+queue became per checkout the number has to say which checkout it is about. Resolving that
+with `git rev-parse` per redraw is not an option, and taking it from the pointer the queue
+holds is what left the count reporting whichever checkout something else had last resolved —
+right again only at the next capture, submit, copy or queue float. The count asks
+`state.current_checkout` instead, and adds `count_in` to `loose_count`.
+
+**Only the fall-through of that question costs anything, and it is the only half a memo can
+help.** With a review open `current_checkout` answers from `V.root` and touches git not at
+all, so the count is a field read and two table lengths — cheaper than any memo, and the
+memo is not consulted at all on that path. Say that plainly rather than claiming the memo
+covers the review case: what makes the count cheap with a review open is the review already
+holding the answer. With no review open the working directory goes through
+`git.root_cached`, one git process per checkout ever seen.
+
+**Memoising on `DirChanged` is unsound, and this is verified rather than argued.** A tab
+whose own local directory is deleted falls back to the global one, and Neovim fires no such
+event when it does — see ADR-0008, which is the same finding a review's root rests on. A
+cache keyed on that event is therefore stale in exactly the case it exists to handle. Keying
+on the directory *string* survives it for nothing: the read returns the new directory and
+memoises to the right checkout. What the string does not survive on its own is the window
+before the tab is re-entered, when `getcwd()` answers `""` and `vim.uv.cwd()` answers nil —
+`vim.system` raises on an empty cwd rather than reporting a failure, and the empty string
+then reads as *outside every checkout* everywhere, which costs the count its number and
+files every owned entry as an entry about somewhere else. `state.current_checkout` reads
+`getcwd(-1, -1)` there, which is the global directory Neovim itself adopts a moment later.
+The tab-local read is no help: `getcwd(0, 0)` still answers the directory that is gone.
+
+**That memo never remembers an answer of "no checkout", and the shape is what enforces it.**
+`roots[dir] = git.root(dir)` stores nothing when the answer is nil, so a directory inside no
+checkout is asked again on every redraw. That is a deliberate price: the alternative is a
+`git init` in the directory the reviewer is sitting in staying invisible until Neovim
+restarts, which is a plugin that refuses to open a review of a repository that exists.
+`git.root` itself is left uncached for the same reason — opening a review and capturing an
+annotation both ask it, and both have to see a repository the moment there is one.
+`count_spec` holds both halves: two counts outside a checkout must spawn two processes, and
+the count must be about the new checkout the moment `git init` makes one.
+
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
 that lengthens opening by roughly a third; paid per repaint it would be a ~50% regression on
@@ -435,6 +474,14 @@ gives that checkout a **second store**: the queue left in the first is not misfi
 invisible, and nothing says so. git resolves these itself on the platforms this was written
 against, which is exactly why the call has to be there — the alternative is a correctness
 property held up by a platform's behaviour.
+
+**The count a reviewer is shown is both lists, and the guard that reads one of them is a
+different question.** `queue.count_in` answers "does this checkout already hold entries, so
+do not restore over them", which the whole queue's count cannot answer — a bare note in hand
+would block every checkout visited from ever reading its own store. `queue.count_for` is the
+number, and it adds the **loose** entries back: asked of the owned half alone it reads 0 for
+that same reviewer, with that same note still unsent. Two functions, one letter apart, and
+the wrong one is silent.
 
 **The store that needs no root is guarded by its own emptiness, not by the visited
 checkout's latch.** There is one such store and every checkout shows what is in it. Read it

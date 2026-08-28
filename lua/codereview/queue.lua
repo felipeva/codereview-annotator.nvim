@@ -52,9 +52,11 @@ local loose = {}
 ---The checkout the queue is showing; nil outside every checkout.
 ---
 ---Moved by whatever has just resolved a checkout for its own reasons -- the restore, the
----read-back latch, a review opening -- rather than resolved here. `count()` is what a
----statusline calls on every redraw, and a `git rev-parse` per redraw is the cost this
----module has never paid.
+---read-back latch, a review opening -- rather than resolved here. Nothing in this module
+---shells out, which is why the number a statusline asks for goes through `count_for`,
+---taking a checkout from a caller that has already resolved it cheaply, rather than through
+---`count` and this pointer: the pointer is right whenever something has just moved it, and
+---a redraw is not one of those things.
 ---@type string|nil
 local current = nil
 
@@ -110,10 +112,25 @@ function M.all()
   return out
 end
 
+---The queue as a number: a checkout's entries and the ones that belong to none.
+---
+---The number a reviewer is shown, for any checkout. Counted rather than built and measured,
+---because this is on the redraw path -- see `codereview.count`, which resolves the checkout
+---and calls it.
+---
+---Both lists, never the owned half alone. They are one queue to everything above this
+---module, and a reviewer holding a **bare note** with nothing else queued would otherwise
+---read 0 with unsent work in hand.
+---@param checkout string|nil nil outside every checkout
+---@return integer
+function M.count_for(checkout)
+  return #list_for(checkout) + #loose
+end
+
+---The queue being shown, as a number.
 ---@return integer
 function M.count()
-  -- Counted rather than built and measured: a statusline asks this on every redraw.
-  return #list_for(current) + #loose
+  return M.count_for(current)
 end
 
 ---How many entries a checkout holds, whichever one the queue is showing.
@@ -121,6 +138,9 @@ end
 ---What "this checkout has entries already, do not restore over them" is asked with. The
 ---whole queue's count cannot answer it: a reviewer with a bare note in hand would block
 ---every checkout they visited from ever reading its own store.
+---
+---Not the number to show anybody, for the mirror of that reason -- `count_for` is. The owned
+---half alone reads 0 for the same reviewer, with the same note still unsent.
 ---@param checkout string|nil
 ---@return integer
 function M.count_in(checkout)
