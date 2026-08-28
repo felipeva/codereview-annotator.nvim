@@ -116,6 +116,15 @@ end
 -- stored queue cannot do it -- id 7 is below both -- which is what stops the case passing
 -- with the seeding deleted.
 local ARCHIVED_IDS = { 40, 41 }
+
+-- An entry with no repository behind it, left by an earlier session. It belongs to no
+-- checkout, so it rides along in whichever one the reviewer is in -- including one they
+-- arrive in by switching, which is a checkout this session has never read back. Stored
+-- before any switch, because a checkout's store is read once per session: it can only be
+-- picked up by the read-back a first arrival makes.
+local LOOSE = "a thought with no repository behind it"
+state.save_global({ { id = 3, type = "issue", kind = "note", key = "note:0", note = LOOSE } })
+
 do
   local left = state.load(B)
   left.queue = {
@@ -371,6 +380,15 @@ describe("the queue a review opened by a switch is showing", function()
   it("is the queue that checkout was left holding", function()
     switch_to(B)
     assert.is_true(vim.tbl_contains(queued_notes(), "left unsent in agent-b"), vim.inspect(queued_notes()))
+  end)
+
+  -- Arriving in a checkout for the first time is a first read of that checkout, and it owes
+  -- everything a first read owes -- not just the queue filed under it. Without this the open
+  -- can swap the stored queue in on its own and the loose entry is left on the disk until
+  -- something else happens to resolve a checkout, which is a restore with a quieter rule
+  -- beside the real one.
+  it("brings what belongs to no checkout along with it", function()
+    assert.is_true(vim.tbl_contains(queued_notes(), LOOSE), vim.inspect(queued_notes()))
   end)
 
   -- The number a statusline reads, against the checkout the review is on rather than
