@@ -370,6 +370,48 @@ tree, and the whole batch silently degrades to absolute paths with pasted snippe
 resolves once per submit rather than per entry, and falls back to the string it was given:
 a routed agent can name a directory that does not exist on this machine at all.
 
+## The queue and its checkout
+
+**One id counter for every checkout, and seeding it per checkout is not the same thing.**
+The counter is seeded from a checkout's **archive** as that checkout is read back, and it
+only ever rises, so an id issued anywhere in the process is unique everywhere in it. A
+counter *per* checkout is the obvious reading of "the queue is per checkout" and it is
+wrong: a **loose** entry rides along in every checkout, so a fresh checkout issuing 1 puts
+that id beside a loose entry restored as 1 — in one queue, on one screen. `remove` matches
+the first entry carrying the id it is given, dropping an annotation resolves by anchor key
+and then by id, and `archive.last` rejoins the two halves of one dispatched **batch** by
+sorting on it. All three go quietly wrong, and the one a reviewer sees is `x` deleting the
+other annotation. `checkout_spec`'s last block is that case: an empty archive beside a
+loose entry holding id 1.
+
+**The checkout an entry is about is derived from the entry, and the derivation has to be
+resolved.** Its absolute path with its repository-relative path removed — no git call, for
+an answer the entry has carried since it was captured. Two checkouts of one repository hold
+the same repository-relative path, which is why the *absolute* one is what decides, and it
+is also why a fixture for this needs one file at one path in both. `git rev-parse
+--show-toplevel` answers with symlinks resolved and buffer capture realpaths to match, so
+the two agree wherever the plugin built both — but an absolute path that arrived any other
+way is about a checkout no root can equal, and the entry is then filed nowhere at all. It
+is resolved through a memo keyed on the directory, which is the shape the **target**'s
+working directory already uses and for the same macOS reason.
+
+**The queue you are in is decided when an entry is added, not when it is written.** An
+entry about another checkout — annotate a file that is not in the checkout you are in — is
+kept in the queue you are in and filed under nothing: not here, because it is not about
+here, and not there, because a queue nothing has read back must not be written over. It
+goes out with the batch and it does not survive a restart, so it is said once, in the
+queue's own wording. Silence there would be the failure this whole scoping exists to
+remove. What stops producing such an entry is a review whose checkout is its own root
+(ADR-0008), not this rule.
+
+**The store that needs no root is guarded by its own emptiness, not by the visited
+checkout's latch.** There is one such store and every checkout shows what is in it. Read it
+under the checkout's guard and moving to a second checkout queues every loose entry a
+second time; read it under the session's latch alone and a checkout visited later never
+gets them at all. Both halves of a restore therefore ask their own question, and the answer
+is safe because every `queue.add` is followed by a write: a loose entry is on the disk
+before anything can read that store again.
+
 ## The archive
 
 **The state document's `VERSION` must not be bumped to add a key.** A mismatched version
@@ -386,7 +428,9 @@ but not the screen, so a session that dispatched ids 1..n and then restarted han
 annotation an id already drawn on the diff — and dropping an annotation resolves by anchor
 key and then by id, so `x` removes the wrong one. The restore therefore seeds from the
 archive as well, *after* both stores have been read, because entries are split between them
-and an id is unique across the pair.
+and an id is unique across the pair. It is seeded once per **checkout**, from that
+checkout's archive, and the counter itself is still one counter — see "The queue and its
+checkout" for what a counter per checkout costs.
 
 **`since-batch` resolves through the same function every other scope does, and must.** The
 temptation is a marker — a scope that says "the archive" and is special-cased downstream —

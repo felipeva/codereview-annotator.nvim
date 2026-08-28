@@ -46,6 +46,11 @@ codereview.setup({
 ---One queued annotation with a repository behind it, so a batch is of a known size.
 ---@param note string
 local function queue_one(note)
+  -- The **checkout** this session is in, resolved before anything is queued: a queue
+  -- belongs to a checkout, and an entry added before one is resolved joins the queue of
+  -- nowhere. Here rather than in the preamble because the block on ids below runs before
+  -- anything has touched the queue, and says so.
+  state.ensure_queue()
   queue.clear()
   queue.add({
     type = "bug",
@@ -330,8 +335,21 @@ describe("a batch dispatched from a clean working tree", function()
     assert.same({}, h.git_lines(clean, { "status", "--porcelain" }))
   end)
 
-  queue_one("from a clean tree")
+  -- Queued *in* the clean checkout rather than carried into it. A queue belongs to the
+  -- checkout it is about, so an annotation about the dirty fixture is not in this
+  -- checkout's batch however the reviewer moves -- which is the whole of what the queue
+  -- being per checkout means.
   vim.cmd("cd " .. vim.fn.fnameescape(clean))
+  state.ensure_queue()
+  queue.clear()
+  queue.add({
+    type = "bug",
+    kind = "file",
+    path = "src/main.lua",
+    abs_path = vim.fs.joinpath(clean_root, "src/main.lua"),
+    key = "src/main.lua:f:0",
+    note = "from a clean tree",
+  })
   local msgs, restore = h.capture_notify()
   codereview.submit()
   restore()

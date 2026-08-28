@@ -130,19 +130,91 @@ function M.global_path()
   return vim.fs.joinpath(vim.fn.stdpath("state"), "codereview", "no-repository.json")
 end
 
----Split the queue by whether an entry belongs to a repository.
+---Directories already resolved, keyed by what was asked about.
 ---
----Having a repository-relative path *is* the test: a capture outside a checkout and a bare
----thought both lack one, and both are exactly the entries with nowhere repository-shaped
----to live. No extra field to set, and nothing to keep in sync with reality.
----@param items CRAnnotation[]
----@return CRAnnotation[] owned, CRAnnotation[] loose
-local function partition(items)
-  local owned, loose = {}, {}
-  for _, item in ipairs(items) do
-    table.insert(item.path and owned or loose, item)
+---A directory per distinct string ever compared, rather than a `realpath` per entry per
+---write: progress is written on every mutation, and a queue routinely holds several entries
+---about one checkout. The same shape, and the same reason, as the **target**'s working
+---directory being resolved once per submit rather than once per `@ref`.
+local resolved = {}
+
+---@param path string
+---@return string
+local function canonical(path)
+  local hit = resolved[path]
+  if not hit then
+    -- Falls back to what it was given, which is what keeps a directory that has since been
+    -- deleted comparable with itself rather than with nothing.
+    hit = vim.uv.fs_realpath(path) or path
+    resolved[path] = hit
   end
-  return owned, loose
+  return hit
+end
+
+---The **checkout** an entry is about: its absolute path with its repository-relative path
+---removed.
+---
+---Derived from what the entry already carries rather than asked of git. Both halves have
+---been on it since it was captured, and a `git rev-parse` per entry would be a process per
+---annotation on every write, for an answer that cannot have changed.
+---
+---Resolved before it is handed back, and this is not belt and braces. `git rev-parse
+-----show-toplevel` answers with symlinks resolved and buffer capture realpaths to match, so
+---the two agree wherever the plugin built both -- but on macOS a directory reached through
+---`/var` is a symlink into `/private/var`, and an entry whose absolute path arrived any
+---other way would then be about a checkout that no root can ever equal. What that costs is
+---an annotation quietly filed nowhere, which is the failure this whole slice exists to
+---remove.
+---@param item CRAnnotation
+---@return string|nil checkout nil for an entry with no repository behind it
+local function checkout_of(item)
+  if not item.path or not item.abs_path then
+    return nil
+  end
+  local suffix = "/" .. item.path
+  if item.abs_path:sub(-#suffix) ~= suffix then
+    return nil
+  end
+  return canonical(item.abs_path:sub(1, #item.abs_path - #suffix))
+end
+
+---Split the queue by the checkout each entry is about.
+---
+---Three lists, not two. Having a repository-relative path is no longer the whole test:
+---a checkout keeps its own store, so an entry is filed under the checkout it is *about*
+---and never under the one the reviewer happens to be in. Two worktrees of one repository
+---hold the same repository-relative path, so the path alone cannot tell them apart -- the
+---absolute path is what does.
+---
+---  * **owned** -- about this checkout, and filed in its document.
+---  * **loose** -- no repository behind it at all: a capture outside every checkout and a
+---    **bare note** both lack a repository-relative path, and both are exactly the entries
+---    with nowhere repository-shaped to live. They go to the one store that needs no root.
+---  * **elsewhere** -- about another checkout, which is reachable by annotating a file that
+---    is not in the checkout you are in. Filed nowhere: writing it here would be the
+---    misfiling this split exists to refuse, and writing it into a queue that is not being
+---    shown would overwrite entries nothing has read back. The reviewer is told -- see
+---    `say_unfiled`.
+---@param items CRAnnotation[]
+---@param root string|nil The checkout being written; nil outside every checkout, where
+---       nothing with a repository behind it can be filed at all
+---@return CRAnnotation[] owned, CRAnnotation[] loose, CRAnnotation[] elsewhere
+local function partition(items, root)
+  local owned, loose, elsewhere = {}, {}, {}
+  -- Both sides through one resolver. A root arrives from `git rev-parse` or off a review,
+  -- so it is already resolved; putting it through anyway is what stops the comparison
+  -- depending on which of the two it came from.
+  root = root and canonical(root) or nil
+  for _, item in ipairs(items) do
+    if not item.path then
+      loose[#loose + 1] = item
+    elseif root and checkout_of(item) == root then
+      owned[#owned + 1] = item
+    else
+      elsewhere[#elsewhere + 1] = item
+    end
+  end
+  return owned, loose, elsewhere
 end
 
 ---Whatever is still inside the window, by each record's own stamp.
@@ -382,7 +454,15 @@ end
 ---       as the stamp and the target are, and neither half is the thing it was written
 ---       about.
 function M.archive_batch(items, target, root, preamble)
-  local owned, loose = partition(items)
+  local owned, loose, elsewhere = partition(items, root)
+  -- An archive records what was *sent*, and everything in the batch went. So the split
+  -- here stays the one it has always been -- a repository-relative path to the repository's
+  -- own document -- and an entry about another checkout is recorded beside the rest rather
+  -- than left out of the record of its own dispatch. What produces such an entry is a
+  -- capture rooted in the working directory instead of in the review, which is what
+  -- ADR-0008 removes; there is nothing for this file to do about it that does not cost the
+  -- record more than it buys.
+  vim.list_extend(owned, elsewhere)
   -- One stamp for the batch, taken once: the two stores are recording the same dispatch.
   local at = os.time()
   -- Once for the dispatch rather than once per store, and before the writes rather than
@@ -467,6 +547,33 @@ end
 
 --- Writing and reading ----------------------------------------------------------
 
+---Annotations the reviewer has already been told cannot be filed, by id.
+---
+---Said once for each, and never again. Progress is written on every mutation, so a
+---sentence said per write would be said again on the next annotation, the next reviewed
+---mark and the next drop -- about an entry the reviewer has already heard about and can do
+---nothing more about until they are in its checkout.
+local said_unfiled = {}
+
+---Say that annotations are in the queue with nowhere to be saved.
+---
+---In the queue's own wording, because it is a fact about entries in the queue rather than
+---about this file's stores, and here because nothing above this module can see it: by the
+---time a write returns, an entry that was filed and one that was not look exactly alike.
+---@param elsewhere CRAnnotation[]
+local function say_unfiled(elsewhere)
+  local fresh = 0
+  for _, item in ipairs(elsewhere) do
+    if item.id and not said_unfiled[item.id] then
+      said_unfiled[item.id] = true
+      fresh = fresh + 1
+    end
+  end
+  if fresh > 0 then
+    info(queue.unfiled_phrase(fresh))
+  end
+end
+
 ---Write the view's progress and the current queue.
 ---
 ---Merged over the stored document rather than rebuilt from the view. A view only knows the
@@ -476,8 +583,9 @@ end
 ---Monday's reviewed marks were gone the first time anything touched the file.
 ---@param view CRView
 function M.persist(view)
-  local owned, loose = partition(queue.all())
+  local owned, loose, elsewhere = partition(queue.all(), view.root)
   M.save_global(loose)
+  say_unfiled(elsewhere)
 
   local data = M.load(view.root)
   data.queue = owned
@@ -505,8 +613,9 @@ end
 ---@param root string|nil nil when the working directory is not inside a repository, in
 ---       which case there is only the global store to write
 function M.persist_queue(root)
-  local owned, loose = partition(queue.all())
+  local owned, loose, elsewhere = partition(queue.all(), root)
   M.save_global(loose)
+  say_unfiled(elsewhere)
   if not root then
     return
   end
@@ -522,22 +631,40 @@ end
 ---@param root string|nil nil outside a repository, where only the global store applies
 ---@return integer staled
 function M.restore_queue(root)
-  if queue.count() > 0 then
+  -- The queue this restores is the queue the reviewer has from here on. A restore is how a
+  -- checkout's entries are reached at all, so pointing at it here is what keeps the two in
+  -- step -- the alternative is a caller that reads back one checkout's store and is then
+  -- shown another's.
+  queue.use(root)
+
+  -- The guard, once per store rather than once for the pair. This checkout may already
+  -- hold entries this session queued, and so may the store that needs no root -- and the
+  -- two are independent, because every checkout shows the same loose entries. Asked of the
+  -- whole queue instead, a reviewer holding one bare note would stop every checkout they
+  -- visited from ever reading its own store, and reading the loose store per checkout would
+  -- queue every loose entry again on the second one.
+  local read_owned = queue.count_in(root) == 0
+  local read_loose = queue.loose_count() == 0
+  if not read_owned and not read_loose then
     return 0
   end
+
   -- Both stores, as one queue. Which store an entry came from is a persistence detail; the
   -- queue is the queue.
   local loose = read_global()
   local data = root and M.load(root) or nil
-  local items = data and data.queue or {}
-  vim.list_extend(items, loose.queue)
-  if #items > 0 then
-    queue.replace(items)
+  if read_owned then
+    queue.replace(root, data and data.queue or {})
+  end
+  if read_loose then
+    queue.replace_loose(loose.queue)
   end
   -- Taken once both stores have been read, because an id is unique across the pair and the
   -- entries carrying one are split between them. Restoring the queue alone is not enough:
   -- a session that dispatched everything it queued restores nothing at all and still has
-  -- ids on the diff to keep clear of.
+  -- ids on the diff to keep clear of. This checkout's archive, because the counter is one
+  -- counter that only rises: each checkout lifts it past its own archive as it is read
+  -- back, and none of them can ever lower it past another's.
   queue.seed(highest_archived_id({ data and data.archive or {}, loose.archive }))
   if not root then
     return 0
@@ -558,11 +685,20 @@ function M.ambient_root()
   return require("codereview.git").root(vim.fn.getcwd())
 end
 
--- Restored lazily, and once. `count()` is the sort of thing a statusline calls on every
--- redraw, so reading the state file each time is not an option; and eagerly at startup is
--- worse, because the working directory that decides which repository's queue to load may
--- not be the one the user ends up in.
-local queue_restored = false
+-- Restored lazily, and once per **checkout**. `count()` is the sort of thing a statusline
+-- calls on every redraw, so reading the state file each time is not an option; and eagerly
+-- at startup is worse, because the working directory that decides which checkout's queue to
+-- load may not be the one the user ends up in.
+--
+-- Per checkout rather than per session, or the second checkout a session visits never reads
+-- its own store: the latch was set by the first, so unsent work in the second is invisible
+-- for the rest of the session and is then written over.
+---@type table<string, boolean>
+local queue_restored = {}
+
+---The key a latch is held under outside every checkout, where there is still a queue to
+---read back -- the store that needs no root -- and nil is not a table key.
+local NO_CHECKOUT = ""
 
 ---Load the persisted queue if this session has not seen it yet.
 ---
@@ -574,15 +710,20 @@ local queue_restored = false
 ---Counted rather than announced, as reconciliation is: how many restored annotations are
 ---untrustworthy is a fact about the store, and the sentence a reviewer reads belongs to
 ---whichever surface asked.
----@return integer staled 0 once the queue has already been read back this session
+---@return integer staled 0 once this checkout's queue has already been read back
 function M.ensure_queue()
-  if queue_restored then
+  local root = M.ambient_root()
+  if queue_restored[root or NO_CHECKOUT] then
+    -- Still pointed at, and this is the whole of what a return to a checkout costs: its
+    -- entries never left memory, so what is owed is the queue being the one this checkout
+    -- is about rather than the one the reviewer was last shown.
+    queue.use(root)
     return 0
   end
-  queue_restored = true
+  queue_restored[root or NO_CHECKOUT] = true
   -- No root is not a reason to skip: annotations with no repository behind them live in a
   -- store that does not need one, and they would otherwise never come back.
-  return M.restore_queue(M.ambient_root())
+  return M.restore_queue(root)
 end
 
 ---Restore saved progress into a freshly opened view.
@@ -590,6 +731,9 @@ end
 ---@param scope_key string
 function M.restore(view, scope_key)
   local data = M.load(view.root)
+  -- The review's own checkout, which is the checkout its queue is about (ADR-0008). The
+  -- working directory is not asked: what a review is reading is the review's to say.
+  queue.use(view.root)
 
   local saved = data.scopes and data.scopes[scope_key]
   if saved and saved.reviewed then
@@ -599,8 +743,10 @@ function M.restore(view, scope_key)
     end
   end
 
-  if data.queue and #data.queue > 0 and queue.count() == 0 then
-    queue.replace(data.queue)
+  -- Per checkout, as the restore's own guard is: a bare note in hand is not a reason to
+  -- leave this checkout's stored queue unread.
+  if data.queue and #data.queue > 0 and queue.count_in(view.root) == 0 then
+    queue.replace(view.root, data.queue)
   end
 end
 

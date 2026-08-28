@@ -37,6 +37,12 @@ local state = require("codereview.state")
 -- form would read a document nothing ever wrote.
 local root = assert(vim.uv.fs_realpath(fixture))
 
+-- The **checkout** this session is in, resolved before anything is queued. It is what the
+-- capture path does first, and what the entries built by hand below stand in for: a queue
+-- belongs to a checkout, so an entry added before one is resolved joins the queue of
+-- nowhere. Harmless here beyond that -- nothing is on disk yet to be read back.
+state.ensure_queue()
+
 local NS = vim.api.nvim_create_namespace("codereview_queue")
 
 ---The reserved gutter and the bar, as the float draws them. Multibyte on purpose: every

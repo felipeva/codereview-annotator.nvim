@@ -51,6 +51,12 @@ end)
 -- is what makes "work in flight does not appear" an assertion rather than a coincidence.
 local in_flight = h.git_lines(fixture, { "diff", "--name-only", "HEAD" })
 
+-- The **checkout** this session is in, resolved before anything is queued. It is what the
+-- capture path does first, and what the entry built by hand below stands in for: a queue
+-- belongs to a checkout, so an entry added before one is resolved joins the queue of
+-- nowhere. Nothing is on disk yet, so it reads nothing back.
+state.ensure_queue()
+
 queue.add({
   type = "bug",
   kind = "file",
