@@ -500,6 +500,49 @@ gets them at all. Both halves of a restore therefore ask their own question, and
 is safe because every `queue.add` is followed by a write: a loose entry is on the disk
 before anything can read that store again.
 
+## The checkout trail
+
+A section of its own, because `docs/design-notes.md` has conflicted on every merge in this
+stack.
+
+**Only a successful open is a journey.** `view.open` declines an empty scope, an
+unresolvable one and a failed diff, and it declines each of them *before* it closes
+anything — the review the reviewer was reading is still on screen. A push made on the switch
+rather than on the open therefore records a departure that never happened, and the checkout
+it records is the one the reviewer is standing in. The picker then offers the row marked
+`(current)` first and going back goes nowhere, which is two of this feature's rules broken
+by a keystroke that told the reviewer only "No changes in scope".
+
+**Arriving removes; leaving pushes. De-duplicating the push is not the same rule.** The
+parent spec's wording — "pushing a checkout removes any earlier occurrence of it first" —
+holds each checkout once and still leaves the checkout the reviewer is *standing in* on the
+trail, ranked above one they have never opened. Removing the checkout being arrived at is
+what makes the trail "where I have been" rather than "where I have been, plus here". It also
+makes a duplicate push impossible without a second rule: a checkout can only be pushed by
+being left, and can only be left after being entered, which removed it. Two checkouts cannot
+tell the two rules apart at any step — `trail_spec` needs the fixture's third for it, and
+deleting the removal reds the ordering case with `agent-a` ranked above `main`.
+
+**A checkout that is gone and a checkout that refuses are opposite cases.** Gone: walk over
+it, name it, carry on — consuming the entry is the point. There and refusing: consume
+nothing. An agent worktree whose branch has been merged has an empty branch scope, so
+refusing is the *ordinary* end state rather than an exotic one, and a trail entry once spent
+cannot be got back — there is no forward, by design. An implementation that pops before it
+opens loses that checkout permanently and says nothing about it.
+
+**Skipping terminates because the trail is finite, not because anything is protected.** The
+parent spec said it terminates because the checkout Neovim started in is never switched away
+from and stays reachable. The first half is true — the global working directory never moves.
+The second does not follow: that checkout reaches the trail by being left, like any other,
+and its directory can be deleted, like any other. Every skip takes one entry off a finite
+list, which is the real reason, and it means the bottom of the trail is reachable and has to
+say so rather than be a press that does nothing.
+
+**The trail is never persisted, and the only way to test that is a process that did not
+build it.** `trail_child.lua` is inverted from every other child in the suite: it builds a
+trail so the parent can find one absent, and it shares the parent's state directory so the
+parent looks for one with that session's stores on the disk in front of it.
+
 ## The archive
 
 **The state document's `VERSION` must not be bumped to add a key.** A mismatched version
