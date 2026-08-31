@@ -1095,14 +1095,25 @@ end
 ---The point of marking files reviewed is to stop looking at them, so the common motion is
 ---"take me to the next thing I have not done" -- not "the next file", which walks back
 ---through everything already finished.
+---
+---**The candidates are walked out of the review's files, not out of `file_rows`.** The two
+---read the same today, because the render draws every file and the map is therefore dense
+---from 1 -- so `ipairs` over it happens to visit every index. It is dense by accident, and a
+---render that draws fewer files than the review holds makes the map sparse: `ipairs` stops
+---at the first missing index, and over a map whose one entry is not at 1 it yields nothing
+---at all. The whole list is then empty, and this reports that everything is reviewed while
+---unreviewed files remain -- the one sentence a reviewer has to be able to trust. The files
+---are dense whatever the render does, so they are what decides which files there are, and
+---the map is asked where each of them is drawn.
 ---@param forward boolean
 function M.jump_unreviewed(forward)
   if not M.current() or not V.render then
     return
   end
   local rows = {}
-  for index, row in ipairs(V.render.file_rows) do
-    if not V.reviewed[V.files[index].path] then
+  for index, file in ipairs(V.files) do
+    local row = V.render.file_rows[index]
+    if row and not V.reviewed[file.path] then
       rows[#rows + 1] = row
     end
   end
