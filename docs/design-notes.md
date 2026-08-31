@@ -136,6 +136,28 @@ a review does not need to say it is one. That, with the words the glyphs replace
 thirty columns handed to the path — enough that a 45-column pane keeps the directory above
 the file as well as the file.
 
+**Wrap is window options, and it must not be set in the shared window helper.** That helper
+gives every review window its options — the two panes *and* the file tree — and a tree row is
+truncated to the panel width rather than folded, so a folded path would put one file on two
+rows. Wrap is applied to the after pane after a paint instead, which is also when the gutter
+width is known and what re-applies it on a resize. The options are `wrap`, `breakindent`,
+`breakindentopt` and `showbreak`, all window-local; `showbreak` is global-local and
+`vim.wo[win]` does set only the window's copy.
+
+**`breakindentopt=shift:N,sbr` is what puts the marker in the change bar's column.** A diff
+row begins with the change bar, which is not whitespace, so Neovim computes a natural indent
+of zero for every row and `breakindent` alone folds a continuation back to column zero — under
+no bar at all, which is the same failure the queue float turns `wrap` off to avoid. The
+`shift` supplies the whole gutter, and `sbr` draws `showbreak` at the *start* of that indent
+rather than in front of it, so the code goes on starting where it starts. Both measured in a
+prototype.
+
+**A `line_hl_group` background reaches every screen row a folded line occupies**, so an added
+line stays visibly added past the fold with nothing emitted for the continuation rows.
+Measured. **`virt_lines` still clip at the window edge under `wrap`**, also measured, which is
+why the renderer goes on breaking a **note** to the pane's width itself: turning wrap on does
+not make that pre-breaking redundant.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.

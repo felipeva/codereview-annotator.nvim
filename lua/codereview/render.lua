@@ -37,6 +37,7 @@ local M = {}
 ---@field marks table[]                     { row, col, opts } for nvim_buf_set_extmark
 ---@field file_rows integer[]               1-indexed header row of each file
 ---@field hunk_rows integer[]               1-indexed row of every visible hunk header
+---@field gutter integer                    Display columns before the code on a diff row
 
 local SEP = " │ "
 
@@ -108,6 +109,27 @@ local function gutter_digits(files)
     end
   end
   return #tostring(max)
+end
+
+---How many display columns a diff line row spends before its code starts.
+---
+---The change bar, the line number padded to `digits`, the separator and the sign -- the
+---prefix `line_text` below assembles, measured rather than counted: the bar and the
+---separator are both multibyte, and this answers a question about the screen.
+---
+---Reported on the render so that the view, which indents a folded line's continuation rows
+---by exactly this, reads it rather than working it out again. Two answers about where the
+---code starts would drift apart on the first review whose line numbers grew a digit.
+---
+---Measured against a *changed* row, whose prefix opens with the change bar. A context row
+---opens with a single space instead, so a host that configures a bar wider than one column
+---already draws its context code one column to the left of its changed code -- and this
+---follows the changed rows, which are what the bar column is there for.
+---@param icons table
+---@param digits integer
+---@return integer
+local function gutter_width(icons, digits)
+  return vim.fn.strdisplaywidth(icons.change_bar) + digits + vim.fn.strdisplaywidth(SEP) + 1
 end
 
 ---@param n integer
@@ -246,9 +268,10 @@ local function header_ranges(header, hunk)
   return old or ("-%d"):format(hunk.old_start), new or ("+%d"):format(hunk.new_start)
 end
 
+---@param gutter integer Display columns every diff line row spends before its code
 ---@return table
-local function new_pane()
-  return { lines = {}, anchors = {}, marks = {}, file_rows = {}, hunk_rows = {} }
+local function new_pane(gutter)
+  return { lines = {}, anchors = {}, marks = {}, file_rows = {}, hunk_rows = {}, gutter = gutter }
 end
 
 ---@class CRFileLabel
@@ -436,9 +459,10 @@ function M.build(files, opts)
   local width = math.max(40, opts.width or 80)
   local before_width = math.max(40, opts.before_width or width)
   local digits = gutter_digits(files)
+  local gutter = gutter_width(icons, digits)
 
-  local after = new_pane()
-  local before = split and new_pane() or nil
+  local after = new_pane(gutter)
+  local before = split and new_pane(gutter) or nil
 
   ---@param pane table
   ---@param row integer 1-indexed
@@ -624,6 +648,7 @@ function M.build(files, opts)
   ---@return string text, integer code_col, integer bar_len
   local function line_text(ln, number, sign)
     local bar = ln.side ~= "ctx" and icons.change_bar or " "
+    -- The prefix `gutter_width` above measures. Change one and the other is wrong.
     local prefix = bar .. rpad_num(number, digits) .. SEP .. sign
     -- Byte offset, not display width: extmark columns are byte offsets, and both the
     -- change bar and the separator are multibyte.

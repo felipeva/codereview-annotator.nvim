@@ -268,6 +268,10 @@ end
 
 ---@param win integer
 function M.window_opts(win)
+  -- **Never set true here.** This helper is also what the **file tree**'s window goes
+  -- through, and a tree row is truncated to the panel width rather than folded: a folded
+  -- path would put one file on two rows and stop the tree being a list. Which window folds
+  -- is `apply_wrap` below, and it names one.
   vim.wo[win].wrap = false
   vim.wo[win].number = false
   vim.wo[win].relativenumber = false
@@ -282,6 +286,47 @@ function M.window_opts(win)
   vim.wo[win].list = false
   vim.wo[win].spell = false
   enroll(win)
+end
+
+---Fold the after pane's long lines, or stop folding them.
+---
+---**Window options and nothing else.** No row is added to the buffer, no **anchor** is
+---created or moved, and no mark changes -- which is what leaves every count, every reviewed
+---mark and every row an annotation hangs on exactly what it was. A reviewer who turns this
+---on is changing how they read the diff and not what the diff is.
+---
+---**The after pane only, and only in the unified layout.** The before pane is left as
+---`window_opts` made it: two panes that fold by different amounts stop being row-aligned on
+---screen, and row alignment is what the split layout exists for. Nothing has to be unwound
+---when a layout toggle rebuilds that pane, because a rebuilt pane comes back unwrapped.
+---
+---**Read on every paint rather than remembered.** Switching to split unwraps because split
+---does not fold, and switching back folds again because nothing about the choice changed --
+---so there is no "wrap was on before the split" for the two paths to disagree about.
+---
+---`gutter` is the render's own answer for how many columns a diff row spends before its
+---code, and it is what the continuation rows are shifted by. A diff row opens with the
+---change bar, which is not whitespace, so Neovim computes a natural indent of zero for
+---every one of them: the shift supplies the whole gutter, which is also what makes it the
+---same for every row in the review and therefore what makes a folded line line up under
+---itself. `sbr` puts `showbreak` at the *start* of that indent, so the marker lands in the
+---change bar's column and the code goes on starting where it starts.
+---@param V CRView
+---@param gutter integer Display columns a diff line row spends before its code
+function M.apply_wrap(V, gutter)
+  local win = V.win
+  if not vim.api.nvim_win_is_valid(win) then
+    return
+  end
+  vim.wo[win].wrap = config.get().wrap and not M.has_before(V)
+  -- Inert while `wrap` is off, so they are written unconditionally rather than unwound: one
+  -- code path, and no leftover for the next paint to disagree with.
+  vim.wo[win].breakindent = true
+  vim.wo[win].breakindentopt = ("shift:%d,sbr"):format(gutter)
+  vim.wo[win].showbreak = config.get().icons.continuation
+  -- Break on a space where there is one. A word is cut in half only when the word alone is
+  -- wider than the pane, which is the rule the renderer's own `wrap` already follows.
+  vim.wo[win].linebreak = true
 end
 
 --- Muting ---------------------------------------------------------------------

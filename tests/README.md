@@ -53,7 +53,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `layout_spec` | Switching layout: the anchor round trip, which pane receives the cursor, the filler fallback, centering, what a toggle leaves alone, and how long the choice lasts — including across a real restart |
 | `spans_spec` | What is emphasized inside a changed line and how it is drawn: pairing, unequal runs, suppression and character boundaries at the parser; the priority band, background-only groups, byte offsets and both panes at the render; then the switch, the repaint and the entry that must not move |
 | `syntax_spec` | Treesitter harvest/replay, caching, the row map the replay looks rows up in and everything that drops it, guardrails |
-| `bounded_spec` | Emission bounded by the viewport: what a paint writes and what it leaves out, the bound it shares with the harvest, what a scroll adds and what scrolling back does not, both panes at once — on a diff taller than the window, guarded |
+| `bounded_spec` | Emission bounded by the viewport: what a paint writes and what it leaves out, the bound it shares with the harvest, what a scroll adds and what scrolling back does not, both panes at once — on a diff taller than the window, guarded; and a wrapped window, which tightens that bound rather than loosening it |
+| `wrap_spec` | Folding a line too wide for its window: the gutter the render reports, at the pure-data seam and on a diff whose line numbers need five digits; then the screen — where a continuation row's code lands, the marker in the change bar's column, the line's own background carried onto every row it folds onto, a narrower pane folding sooner — the mark set that does not move, the entry a folded line queues, the split layout and the file tree that never fold, and the key: both directions, from the diff and from the tree, refused out loud in a split, and gone the moment the session is |
 | `repaint_spec` | When a paint runs on a resize and when it must not: either event with nothing resized, in both layouts; a pane that really changed width; one terminal resize, which fires both events, repainting once; an event that arrives before anything moved; a window resized in another tab page; and the file tree summoned and dismissed |
 | `annotate_spec` | Targeting, cross-file clamp, deleted-line rule, types, drop, grouping |
 | `payload_spec` | Grouping, `@ref` vs inline, out-of-tree fallback, staleness, submit, and the **preamble**: above the header, the empty one that renders nothing, and the same arguments rendering the same message |
@@ -478,6 +479,18 @@ so the out-of-core language path is still checked locally without ever failing C
   column 80 is drawn into cells nothing can read; and the cell has to be located with
   `screenpos`, because the change bar and the `│` separator are multibyte and a buffer
   column is not a screen column.
+- **`screenpos`, `screenstring` and `screenattr` answer in a headless Neovim, and answer
+  repeatably.** Measured, not assumed — and the difference from `nvim__inspect_cell` above is
+  what lets `wrap_spec` make every one of its screen claims in one process instead of one
+  child per reading. `screenattr` returns an opaque attribute id rather than a color, so it
+  says "these two cells are drawn the same way" and nothing more; that is enough for a
+  **wrap** claim, where the question is whether an added line's background reached the rows it
+  folded onto, and it is read against a context cell so that "the same as everything else"
+  cannot pass. The 80-column ceiling in the bullet above belongs to `nvim -l`, which attaches
+  no UI at all: under `--headless` the grid follows `columns`, and a cell at column 100 reads.
+  Two traps ride with these: a *screen* column is not a *window* column — the file tree is
+  drawn to the left of the pane, so column 1 of the screen is in the tree — and a screen row
+  is not a buffer row the moment anything folds, which is the whole point.
 - **A lit row cannot be read on a changed line.** `line_hl_group` wins over `CursorLine` —
   measured, not assumed — so every added line, every deleted line and every header prints its
   own background whether or not the cursor is on that row. A painted cell taken there says

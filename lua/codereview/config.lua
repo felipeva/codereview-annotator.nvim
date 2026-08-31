@@ -28,6 +28,19 @@ M.defaults = {
   ---comparable review tool does. It lengthens opening a large review by roughly a third and
   ---a repaint by nothing at all, because the work is done once per git read.
   spans = true, ---@type boolean
+  ---Fold a line too wide for its window onto further rows -- **wrap** -- rather than making
+  ---the reviewer scroll sideways to read it. The rows are the window's and never the diff's:
+  ---nothing is added to the buffer, so every **anchor**, every row an annotation hangs on and
+  ---every count stay what they were.
+  ---
+  ---Said of the **unified** layout only. A **split** layout stays unwrapped, because two
+  ---**panes** that fold by different amounts stop being row-aligned on screen, and row
+  ---alignment is what split exists for. The **file tree** never folds either.
+  ---
+  ---Off by default, and the precedent it follows is the layout's rather than the spans': a
+  ---reviewer with a terminal wide enough for their code has no problem to solve, and
+  ---upgrading the plugin should not re-draw their review.
+  wrap = false, ---@type boolean
   ---Draw **archived** entries on the diff, dimmed, beneath the code they were about. A
   ---reviewer who keeps working while an agent does is otherwise looking at a review view
   ---with no memory of what it already sent, and reports the same finding twice. Every
@@ -120,6 +133,10 @@ M.defaults = {
     expanded = "▾",
     change_bar = "▌",
     untouched = "↺",
+    ---What a continuation row of a folded line carries where the change bar would be.
+    ---Neither the bar nor the line number repeats there, and their absence is worth
+    ---explaining rather than merely noticing.
+    continuation = "↳",
   },
 
   --- Annotations ---
@@ -289,6 +306,7 @@ function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
   validate_layout(M.options.layout)
   validate_boolean("spans", M.options.spans)
+  validate_boolean("wrap", M.options.wrap)
   validate_boolean("archived", M.options.archived)
   validate_blend("muted", M.options.muted)
   validate_boolean("muted.enabled", M.options.muted.enabled)
