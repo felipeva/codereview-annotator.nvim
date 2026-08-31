@@ -211,7 +211,82 @@ describe("reading file content and blobs", function()
   it("returns nil for a path that does not exist at that ref", function()
     assert.is_nil(git.file_content("src/fresh.lua", scope.before, root))
   end)
+end)
 
+-- One process for every side the render path is about to parse. The claim is not that this
+-- is faster -- timing lives in `perf.lua` -- but that it answers *the same thing* the
+-- single-file fetch does, for every kind of side a review contains, because the render path
+-- prefers it and falls back to the other one.
+describe("reading many files in one batch", function()
+  it("answers every side with what the single-file fetch answers", function()
+    local items = {}
+    -- A modification, a rename -- whose post-image name has no pre-image blob under that
+    -- name at all -- and the file with no trailing newline, which is what catches a reader
+    -- that ends a record where a line ends rather than where its declared length does.
+    for _, path in ipairs({ "src/main.lua", "src/newname.lua", "src/nonl.md" }) do
+      items[#items + 1] = { path = path, ref = scope.before }
+    end
+    local batched = git.file_contents(items, root)
+    for _, it in ipairs(items) do
+      local spec = git.spec(it.ref, it.path)
+      local got = batched[spec]
+      assert.is_not_nil(got, spec .. " was left uncovered by the batch")
+      -- `false` is the batch's spelling of the nil the single-file fetch answers with. The
+      -- two are the same answer; only the batch can afford to say it, which is the point.
+      assert.same(git.file_content(it.path, it.ref, root), got or nil, spec)
+    end
+  end)
+
+  -- `false`, not absent. Absent means "the batch did not cover this", which sends the
+  -- caller back to a process per file; a side git has already said does not exist has been
+  -- covered, and asking again buys the same nothing.
+  it("answers false for a path that does not exist at that ref", function()
+    local spec = git.spec(scope.before, "src/fresh.lua")
+    assert.same(false, git.file_contents({ { path = "src/fresh.lua", ref = scope.before } }, root)[spec])
+  end)
+
+  it("leaves a working-tree side out: no ref, no blob to batch", function()
+    assert.same({}, git.file_contents({ { path = "src/main.lua", ref = nil } }, root))
+  end)
+
+  it("takes the index as a ref like any other", function()
+    local staged = assert(git.resolve_scope("staged", root))
+    local spec = git.spec(staged.after, "src/routes.lua")
+    local batched = git.file_contents({ { path = "src/routes.lua", ref = staged.after } }, root)
+    assert.same(git.file_content("src/routes.lua", staged.after, root), batched[spec])
+  end)
+
+  -- The one case that cannot be answered from a batch at all: `cat-file` runs no textconv
+  -- filter, so a path with one attached would come back as the raw bytes the filter exists
+  -- to hide. It is left out instead, and its neighbour in the same repository is not --
+  -- which is what says the rule is about the path rather than about the repository.
+  describe("a repository with a textconv filter", function()
+    local tc = h.fixture("mktextconv")
+    local tc_scope = assert(git.resolve_scope("branch", tc))
+    local batched = git.file_contents({
+      { path = "src/filtered.bin", ref = tc_scope.before },
+      { path = "src/plain.lua", ref = tc_scope.before },
+    }, tc)
+
+    it("leaves the filtered path out of the batch entirely", function()
+      assert.is_nil(batched[git.spec(tc_scope.before, "src/filtered.bin")])
+    end)
+
+    -- Absent, so the caller fetches it the old way -- and that is what still runs the
+    -- filter. Without this the exclusion would be indistinguishable from dropping the file.
+    it("still reads the filtered path through the single-file fetch", function()
+      -- Filtered, and the blob behind it says RAW: what a batch would have answered with is
+      -- exactly what the filter is configured to hide.
+      assert.same("COOKED one\nCOOKED two\n", git.file_content("src/filtered.bin", tc_scope.before, tc))
+    end)
+
+    it("still batches every other path in that repository", function()
+      assert.same('local plain = "old"\n', batched[git.spec(tc_scope.before, "src/plain.lua")])
+    end)
+  end)
+end)
+
+describe("blobs", function()
   it("hashes every file to a blob", function()
     assert.is_truthy((by["src/main.lua"].blob or ""):match("^%x%x%x%x%x%x%x+$"))
   end)

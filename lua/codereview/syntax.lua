@@ -150,6 +150,37 @@ local function harvest(content, lang, wanted)
   return walked and out or false
 end
 
+---Where a side's captures are memoised on the view.
+---@param file CRFile
+---@param side "before"|"after"
+---@return string
+local function cache_key(file, side)
+  return file.path .. "|" .. side
+end
+
+---The spec a side would be fetched by, or nil when it would not be fetched at all.
+---
+---Asked before anything is painted, so that every side coming into view this pass can be
+---fetched in one process. It must answer exactly what `apply_side` decides for itself a
+---moment later: a side missing from the batch costs the process the batch was for, and a
+---side in it that nothing reads is a blob fetched for nothing.
+---@param view CRView
+---@param file CRFile
+---@param side "before"|"after"
+---@param map table<integer, { row: integer, col: integer }>
+---@param ref string|nil
+---@return string|nil
+local function fetch_spec(view, file, side, map, ref)
+  -- A nil ref is the working tree, which is read from disk and costs no process at all.
+  if ref == nil or vim.tbl_isempty(map) then
+    return nil
+  end
+  if view.syntax_cache[cache_key(file, side)] ~= nil then
+    return nil
+  end
+  return git.spec(ref, file.path)
+end
+
 ---@param view CRView
 ---@param ns integer
 ---@param buf integer Buffer the rows in `map` are rows of
@@ -159,17 +190,29 @@ end
 ---@param ref string|nil
 ---@param lang string
 ---@param group_of (fun(group: string): string)|nil What the caller wants a token drawn in
-local function apply_side(view, ns, buf, file, side, map, ref, lang, group_of)
+---@param fetched table<string, string|false> What the pass already fetched in one process
+local function apply_side(view, ns, buf, file, side, map, ref, lang, group_of, fetched)
   if vim.tbl_isempty(map) then
     return
   end
 
   local cfg = config.get()
-  local key = file.path .. "|" .. side
+  local key = cache_key(file, side)
   local caps = view.syntax_cache[key]
 
   if caps == nil then
-    local content = git.file_content(file.path, ref, view.root)
+    -- Three answers, not two. A string is the content. `false` is git saying there is no
+    -- blob on this side -- an added or deleted file -- and asking again buys the same
+    -- nothing for a whole process. nil is a side the batch did not cover: a working-tree
+    -- side, a textconv path, or a batch that failed, all of which the single-file fetch is
+    -- still here for.
+    local hit = ref and fetched[git.spec(ref, file.path)]
+    local content
+    if hit == nil then
+      content = git.file_content(file.path, ref, view.root)
+    elseif hit then
+      content = hit
+    end
     -- `false` is the memo for "do not try this file again": a missing side (added or
     -- deleted file), an oversized file, or a parse that failed.
     if not content or #content > cfg.max_syntax_bytes or git.looks_binary(content) then
@@ -315,6 +358,11 @@ function M.apply(view, ns, group_for)
   local lo, hi = M.viewport(view)
   local split = view.before_render ~= nil
 
+  -- Which files come into view this pass, decided before any of them is painted. The two
+  -- halves used to be one loop, and the split is what lets every side one scroll brings
+  -- into view be fetched together: one file at a time, each one's content was a `git show`
+  -- of its own, so a jump onto a screenful of small files paid a process for every one.
+  local due, wanted = {}, {}
   for fi, maps in pairs(view.syntax_rows) do
     local file = view.files[fi]
     -- A file is parsed whole once any part of it is near the window: parsing only the
@@ -328,17 +376,43 @@ function M.apply(view, ns, group_for)
       -- the same authority, which is the pattern ADR-0008 names.
       local lang = M.lang_for(vim.fs.joinpath(view.root, file.path))
       if lang then
-        local group_of = group_for and group_for(fi) or nil
         -- An untracked file has no committed pre-image; its "after" is the working tree.
-        local after_ref = file.status == "U" and nil or view.scope.after
-        apply_side(view, ns, view.buf, file, "after", maps.after, after_ref, lang, group_of)
-        -- Each image paints onto the pane that shows it. With one pane, that is the same
-        -- buffer twice, which is what the unified layout has always done.
-        local before_buf = split and view.before_buf or view.buf
-        apply_side(view, ns, before_buf, file, "before", maps.before, view.scope.before, lang, group_of)
+        local work = {
+          fi = fi,
+          file = file,
+          lang = lang,
+          maps = maps,
+          after = file.status == "U" and nil or view.scope.after,
+          before = view.scope.before,
+        }
+        due[#due + 1] = work
+        for _, side in ipairs({ "after", "before" }) do
+          if fetch_spec(view, file, side, maps[side], work[side]) then
+            wanted[#wanted + 1] = { path = file.path, ref = work[side] }
+          end
+        end
       end
+      -- Set here rather than after the paint, and for a file with no parser too: the
+      -- question this answers is "has this file had its chance", which a file treesitter
+      -- cannot read has had.
       view.syntax_painted[file.path] = true
     end
+  end
+  if #due == 0 then
+    return
+  end
+
+  -- Empty when there was nothing a batch could take, which costs nothing: each side then
+  -- falls through to the single-file fetch exactly as it always did.
+  local fetched = #wanted > 0 and git.file_contents(wanted, view.root) or {}
+
+  for _, work in ipairs(due) do
+    local group_of = group_for and group_for(work.fi) or nil
+    apply_side(view, ns, view.buf, work.file, "after", work.maps.after, work.after, work.lang, group_of, fetched)
+    -- Each image paints onto the pane that shows it. With one pane, that is the same
+    -- buffer twice, which is what the unified layout has always done.
+    local before_buf = split and view.before_buf or view.buf
+    apply_side(view, ns, before_buf, work.file, "before", work.maps.before, work.before, work.lang, group_of, fetched)
   end
 end
 

@@ -857,7 +857,24 @@ local function read_worktree(root, path)
   return content
 end
 
+---The `<ref>:<path>` spelling git reads a blob by.
+---
+---One function rather than the same concatenation at every call site, because two of them
+---now have to agree exactly: the batch keys what it fetched by this string, and the caller
+---looks its answer up by it. A second spelling anywhere is a lookup that silently misses
+---and quietly pays for a process per file again.
+---@param ref string Ref for one side; ":0" is the index, and needs no case of its own --
+---                  the index's `:0:<path>` is what this concatenation already produces
+---@param path string Relative to root
+---@return string
+function M.spec(ref, path)
+  return ref .. ":" .. path
+end
+
 ---Whole-file content on one side of the diff, for syntax highlighting.
+---
+---One process per call. `file_contents` answers many at once and is what the render path
+---uses; this stays the single-file answer, and the fallback for a path a batch cannot take.
 ---@param path string Relative to root
 ---@param ref string|nil nil = working tree, ":0" = index, otherwise a commit-ish
 ---@param root string
@@ -866,12 +883,232 @@ function M.file_content(path, ref, root)
   if ref == nil then
     return read_worktree(root, path)
   end
-  local spec = ref == ":0" and (":0:" .. path) or (ref .. ":" .. path)
   -- Exit 128 is the normal answer for "this path does not exist at that ref" (an added or
   -- deleted file), not a failure worth reporting.
-  local out = run({ "show", "--textconv", spec }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
+  local out = run({ "show", "--textconv", M.spec(ref, path) }, { cwd = root, timeout = DIFF_TIMEOUT_MS })
   return out
 end
+
+--- Batched file content ---------------------------------------------------------
+
+---Which diff drivers this repository gives a `textconv`, remembered per checkout.
+---
+---`cat-file` does not run textconv filters and has no option to, so a path whose content
+---only becomes readable through one cannot come out of a batch. Finding those paths starts
+---here because the filter is a *config* key (`diff.<driver>.textconv`) while the driver is
+---attached to paths by `.gitattributes` -- so a repository that configures no textconv at
+---all can have no textconv path, which is very nearly every repository, and that single
+---answer is what lets the batch skip asking about paths entirely.
+---
+---Remembered rather than asked per pass: this is on the scroll path, where a process per
+---pass to learn "no filters here" would cost more than the batch saves. The price is that
+---editing the config mid-session does not take effect until the next one, which is the same
+---bargain `roots` already makes.
+local textconv_drivers = {}
+
+---@param root string
+---@return table<string, true>|nil Driver names; empty when the repository configures none,
+---        and nil when the question could not be answered at all
+local function drivers_with_textconv(root)
+  local hit = textconv_drivers[root]
+  if hit then
+    return hit
+  end
+  local out = {}
+  -- ERE, not a Lua pattern -- git reads this one. `--get-regexp` searches every config
+  -- level, so a filter set in the user's global config counts exactly as a repository's
+  -- own does; exit 1 is its answer for "nothing matched", not a failure.
+  local res = run({ "config", "--get-regexp", "^diff\\..*\\.textconv$" }, { cwd = root, ok_codes = { 0, 1 } })
+  -- nil rather than the empty table, and nothing memoised: a read that failed is not the
+  -- same answer as a repository with no filters, and recording it as one is how a textconv
+  -- path ends up in a batch and comes back as the bytes the filter exists to hide -- for the
+  -- rest of the session, since the wrong answer would be the memoised one.
+  if not res then
+    return nil
+  end
+  for _, ln in ipairs(vim.split(res, "\n", { trimempty = true })) do
+    -- `key value`, and a driver name may itself contain dots, so the name is what lies
+    -- between the two fixed ends of the key rather than the second dotted field.
+    local name = (ln:match("^(%S+)") or ""):match("^diff%.(.+)%.textconv$")
+    if name then
+      out[name] = true
+    end
+  end
+  textconv_drivers[root] = out
+  return out
+end
+
+---Diff attributes already looked up, keyed by root and then by path.
+---
+---Only ever consulted in a repository that configures a textconv, and a path's attribute
+---is as fixed within a session as the config behind it, so the same bargain applies.
+local path_drivers = {}
+
+---Which of `paths` git would run a textconv filter over.
+---@param paths string[]
+---@param root string
+---@return table<string, true>
+local function textconv_paths(paths, root)
+  local out = {}
+  local drivers = drivers_with_textconv(root)
+  if not drivers then
+    -- Unanswerable, so every path stays out of the batch and is fetched the old way. That
+    -- is slow, which is the right way for this to fail.
+    for _, p in ipairs(paths) do
+      out[p] = true
+    end
+    return out
+  end
+  if vim.tbl_isempty(drivers) then
+    return out
+  end
+
+  local known = path_drivers[root]
+  if not known then
+    known = {}
+    path_drivers[root] = known
+  end
+  local ask = {}
+  for _, p in ipairs(paths) do
+    if known[p] == nil then
+      ask[#ask + 1] = p
+    end
+  end
+
+  if #ask > 0 then
+    -- `-z` rather than the readable format: the default prints `<path>: diff: <value>`,
+    -- which a path containing `: ` splits wrongly. With `-z` the input is NUL-separated too.
+    local ok, res = pcall(function()
+      return vim
+        .system({ "git", "check-attr", "diff", "-z", "--stdin" }, {
+          cwd = root,
+          stdin = table.concat(ask, "\0") .. "\0",
+        })
+        :wait(DIFF_TIMEOUT_MS)
+    end)
+    -- A failure leaves nothing memoised, so the next pass asks again rather than deciding
+    -- from an answer it never got. Every path stays out of the batch until it does.
+    if ok and res.code == 0 then
+      -- Triples: path, attribute, value.
+      local fields = vim.split(res.stdout or "", "\0", { plain = true })
+      for i = 1, #fields - 2, 3 do
+        known[fields[i]] = drivers[fields[i + 2]] or false
+      end
+    end
+  end
+
+  for _, p in ipairs(paths) do
+    -- `false` is the only answer that lets a path into the batch. nil is "we could not find
+    -- out", which in a repository that configures filters is not a licence to guess: an
+    -- unanswered path stays out until `check-attr` has answered for it.
+    if known[p] ~= false then
+      out[p] = true
+    end
+  end
+  return out
+end
+
+---Whole-file content for many sides of a diff, in one process.
+---
+---`git cat-file --batch` takes `<ref>:<path>` specs on stdin and answers them all from one
+---invocation, which is the same shape the blob hashing beside it already uses. It exists
+---because the syntax pass fetches content as files come near the window, and a scroll that
+---brings a screenful of small files into view otherwise pays a process for every one.
+---
+---**This is a pre-warm, not a substitution.** Three kinds of side are simply absent from the
+---answer -- a working-tree side, a path a textconv filter applies to, and anything a batch
+---that failed never reached -- and the caller fetches those the single-file way. That is
+---what keeps the failure mode no worse than one process per file: a batch that dies costs a
+---pass its head start, not its content.
+---
+---@param items { path: string, ref: string|nil }[] A nil ref is the working tree, which no
+---                                                 batch can answer; it is skipped here
+---@param root string
+---@return table<string, string|false> Keyed by `M.spec`. `false` means git answered "no such
+---        blob" -- an added or deleted file -- and is a real answer, not a gap. Absent means
+---        the batch did not cover it, and the caller must ask the old way.
+function M.file_contents(items, root)
+  local out = {}
+
+  -- Deduplicated: a modified file is two sides of one path, and the textconv question is
+  -- about the path.
+  local paths, asked = {}, {}
+  for _, it in ipairs(items) do
+    if it.ref and not asked[it.path] then
+      asked[it.path] = true
+      paths[#paths + 1] = it.path
+    end
+  end
+  if #paths == 0 then
+    return out
+  end
+  local skip = textconv_paths(paths, root)
+
+  local specs, seen = {}, {}
+  for _, it in ipairs(items) do
+    if it.ref and not skip[it.path] then
+      local spec = M.spec(it.ref, it.path)
+      if not seen[spec] then
+        seen[spec] = true
+        specs[#specs + 1] = spec
+      end
+    end
+  end
+  if #specs == 0 then
+    return out
+  end
+
+  -- Deliberately not `text = true`. Every record declares its length in *bytes* and the
+  -- next record starts right after them, so the CRLF translation that flag performs would
+  -- shorten a body mid-stream and hand every following file the wrong content. The
+  -- translation is done below instead, on each body, where it cannot move a boundary.
+  local ok, res = pcall(function()
+    return vim
+      .system({ "git", "cat-file", "--batch" }, {
+        cwd = root,
+        stdin = table.concat(specs, "\n") .. "\n",
+      })
+      :wait(DIFF_TIMEOUT_MS)
+  end)
+  if not ok or res.code ~= 0 then
+    return out
+  end
+
+  -- `<sha> SP <type> SP <size> LF <contents> LF` per spec, in the order they were asked,
+  -- or `<spec> SP missing LF` for a path that does not exist at that ref.
+  local data = res.stdout or ""
+  local pos = 1
+  for _, spec in ipairs(specs) do
+    local eol = data:find("\n", pos, true)
+    if not eol then
+      break
+    end
+    local header = data:sub(pos, eol - 1)
+    local kind, size = header:match("^%x+ (%S+) (%d+)$")
+    if kind then
+      size = tonumber(size)
+      if kind == "blob" then
+        -- Parenthesised: gsub answers with a count as well, and a bare call would return it
+        -- as the table's second value.
+        out[spec] = (data:sub(eol + 1, eol + size):gsub("\r\n", "\n"))
+      end
+      pos = eol + 1 + size + 1
+    elseif header:find(" missing$") or header:find(" ambiguous$") then
+      out[spec] = false
+      pos = eol + 1
+    else
+      -- A header shape we cannot measure is a stream we can no longer walk, and guessing
+      -- its length would hand some later file another file's content -- highlighting on the
+      -- wrong code, which is worse than none. Everything from here is left absent, and the
+      -- caller fetches it one at a time.
+      break
+    end
+  end
+
+  return out
+end
+
+--- Blob hashes ------------------------------------------------------------------
 
 ---Content hash of one side of a file -- the invalidation key for reviewed marks and
 ---queued annotations. A file whose blob still matches is a file you really did review.
@@ -883,8 +1120,7 @@ function M.blob(path, ref, root)
   if ref == nil then
     return line({ "hash-object", "--", path }, root)
   end
-  local spec = ref == ":0" and (":0:" .. path) or (ref .. ":" .. path)
-  return line({ "rev-parse", "--quiet", "--verify", spec }, root)
+  return line({ "rev-parse", "--quiet", "--verify", M.spec(ref, path) }, root)
 end
 
 ---Hash many working-tree files in one process.
@@ -1006,7 +1242,7 @@ function M.collect(scope, root, opts)
     if ref == nil then
       worktree_paths[#worktree_paths + 1] = file.path
     else
-      ref_specs[#ref_specs + 1] = (ref == ":0" and ":0:" or (ref .. ":")) .. file.path
+      ref_specs[#ref_specs + 1] = M.spec(ref, file.path)
     end
   end
 
@@ -1018,7 +1254,7 @@ function M.collect(scope, root, opts)
     if ref == nil then
       file.blob = from_worktree[file.path]
     else
-      file.blob = from_refs[(ref == ":0" and ":0:" or (ref .. ":")) .. file.path]
+      file.blob = from_refs[M.spec(ref, file.path)]
     end
   end
 

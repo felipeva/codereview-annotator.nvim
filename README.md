@@ -895,8 +895,10 @@ chose. Both last for the session and no longer.
 
 ```sh
 make deps    # clone plenary into .tests/
-make test    # the suite: one Neovim per spec file, ~5s
+make all     # lint and the whole suite, ~5s. Run this before every commit
+make test    # the suite alone: one Neovim per spec file
 make lint    # stylua --check
+make perf    # the timing report. Never part of `make test`
 ```
 
 Tests are plenary/busted specs under `tests/codereview/`, and each one builds its own
@@ -906,6 +908,14 @@ Markdown and those parsers ship with Neovim.
 
 See [`tests/README.md`](tests/README.md) for the layout, what is deliberately not covered,
 and the traps worth knowing before you change a fixture.
+
+`make perf` is a report you read, not a gate: it opens a review on three generated
+repositories — 60 files, 300 files, and 300 files of two changed lines each — and prints what
+opening, scrolling, a keystroke and a repaint cost on each. Only the 60-file open is
+budgeted, because wall-clock numbers belong to the machine that produced them. The third tier
+is a different *shape* rather than a smaller size: it is the one where a file is twenty rows
+instead of three hundred, so a screenful holds a dozen files, which is the only place work
+done per file can be told apart from work done for every file in view at once.
 
 ## Contributing
 
