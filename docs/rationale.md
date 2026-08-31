@@ -167,6 +167,24 @@ apart on the first review whose line numbers grew a digit.
 terminal is wide enough for their code has no problem to solve, and upgrading the plugin
 should not re-draw their review.
 
+**`gw` overrides that for the session, and writes nothing.** The mechanism is `gA`'s: a value
+beside the configured one rather than over it, so a host's own `setup()` call goes on
+describing what the host asked for. Not persisted, and for a sharper reason than the layout's
+— wrap answers a question about how wide this terminal is right now. A **scope** is kept per
+**checkout** because it says what the review *is*; wrap says no such thing, and a choice made
+about one terminal size restored into a different one tomorrow is a worse answer than no
+memory at all.
+
+**In a split layout the key reports that it does nothing.** Silence reads as a broken key, and
+the reviewer's next move is to press it again. The message names the layout, so the key is
+real and the layout is why. It refuses before touching the switch, so returning to unified
+finds the setting you left.
+
+**A layout toggle re-decides rather than remembers.** Wrap is read on every paint, so `gl` to
+split unwraps because split does not fold, and `gl` back folds again because the override
+never moved. Nothing stores "wrap was on before the split", so there is no second copy of the
+answer for the two paths to disagree about.
+
 **A note is unaffected.** The renderer already breaks one to the pane's width before drawing
 it, because a **virtual line** clips at the window edge instead of folding. That is still
 true with wrap on, so the pre-breaking stays correct and stays necessary.

@@ -42,6 +42,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `codereview/trim_child.lua` | Spawned twice by `trim_spec` — once to trim two branches and exit, once to report what a later session's branch review holds — deliberately not a spec. |
 | `codereview/winbar_child.lua` | Spawned four times by `split_spec` to read one cell of a pane's winbar — three inside the path for the muting, one on the file's added count for the color — deliberately not a spec. |
+| `codereview/wrap_child.lua` | Spawned by `wrap_spec` to fold long lines, queue a note and exit, so the next session can be asked what it starts from — deliberately not a spec. |
 | `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
 
 | Spec | Covers |
@@ -491,6 +492,11 @@ so the out-of-core language path is still checked locally without ever failing C
   Two traps ride with these: a *screen* column is not a *window* column — the file tree is
   drawn to the left of the pane, so column 1 of the screen is in the tree — and a screen row
   is not a buffer row the moment anything folds, which is the whole point.
+- **luassert's `assert` returns three values, not one.** `local win = assert(V.panel_win)`
+  is fine, because a single-value context truncates. `vim.api.nvim_set_current_win(assert(V.panel_win))`
+  is not: the call position keeps all three, the API is handed three arguments, and it refuses
+  with `Expected 1 argument` — which reads exactly like the assertion failing on a nil. Wrap
+  the call in parentheses, or take the value into a local first.
 - **A lit row cannot be read on a changed line.** `line_hl_group` wins over `CursorLine` —
   measured, not assumed — so every added line, every deleted line and every header prints its
   own background whether or not the cursor is on that row. A painted cell taken there says

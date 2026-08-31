@@ -96,6 +96,7 @@ to close the review.
 | `gc` | List the commits on the branch, and check the ones to review |
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `gS` | Switch the review to another checkout of this repository |
+| `gw` | Fold long lines, or stop folding them, for the rest of the session |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool ([`open_diff`](#adapters) only) |
 | `Q` | Read the queue |
@@ -146,7 +147,7 @@ The composer opens in insert mode. `<C-s>` and `<C-t>` work in insert and normal
 | `<C-p>` | Jump to a file by name |
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree and land back in the diff |
-| `gl` `gb` `gc` `gA` `gS` | The same as in the diff |
+| `gl` `gb` `gc` `gA` `gS` `gw` | The same as in the diff |
 | `q` | Close |
 
 If you jump to a file that was collapsed because it is reviewed, the plugin expands it. You
@@ -618,6 +619,35 @@ captured: a deleted line on the left, and the post-image line on the right.
 **`gl` switches layouts** without losing your place, from either pane or from the file tree.
 You can therefore reach for side-by-side on the one reformatted file, without editing your
 configuration. The choice lasts the rest of the session, and it resets when Neovim exits.
+
+### Long lines
+
+A line wider than the pane runs off the right edge, and reading the end of it means scrolling
+sideways — which moves every row at once, so you lose the line you were reading to reach the
+end of it.
+
+**`gw` folds it instead**, onto as many further rows as it needs. It works from the diff and
+from the file tree, and pressing it again stops the folding.
+
+```
+▌ 42 │ +const url = buildEndpoint(config.host, config.port, "/api/v2/reviews", {
+↳         retries: 3, timeout: 30_000 })
+```
+
+A continuation row is indented to the column the code starts at, and carries `↳` where the
+change bar would be — neither the bar nor the line number repeats, because it is one line.
+Nothing is added to the buffer: annotations, reviewed marks, counts and every navigation key
+are exactly what they were.
+
+It is off until you ask for it, and `wrap = true` has it on from the first review. The choice
+`gw` makes lasts the rest of the session and is written nowhere — it says how wide *this*
+terminal is, which is not something to restore into a different one tomorrow.
+
+**A split layout never folds**, and `gw` says so rather than doing nothing: two panes that
+fold by different amounts stop being row-aligned, and row alignment is what split is for.
+`gl` back to unified folds again.
+
+[Why unified only, and where the indent comes from](docs/rationale.md#wrap)
 
 [What `gl` carries across, how the chrome splits, and the one behavior that differs](docs/rationale.md#the-split-layout)
 

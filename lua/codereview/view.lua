@@ -1907,6 +1907,40 @@ function M.toggle_archived()
   M.paint()
 end
 
+--- Wrap --------------------------------------------------------------------------
+
+-- The switch and the override in front of it are `config`'s, for the reason the archived
+-- flag's are: the choice outlives this view, so every review opened afterwards has to agree
+-- with it. What is left here is the name `keymaps.lua` binds to `gw` in the diff and in the
+-- tree, the repaint that makes the answer immediate, and the one sentence a layout that
+-- cannot honour the key owes the reviewer.
+
+---Fold long lines, or stop folding them, for the rest of the Neovim session.
+---
+---**Refused in the split layout, out loud.** Two **panes** that fold by different amounts
+---stop being row-aligned on screen, and row alignment is what split exists for -- so the key
+---is real and the layout is why, which is a sentence rather than a silence. A key that did
+---nothing quietly reads as a broken key, and the reviewer's next move is to press it again.
+---
+---Refused *before* the override is touched, so a reviewer who moves back to the unified
+---layout finds the setting they left rather than one a refused keystroke changed behind
+---their back.
+---
+---Nothing stores "wrap was on before the split": the switch is read on every paint, so `gl`
+---to split unwraps because split does not fold and `gl` back folds again because the
+---override never moved.
+function M.toggle_wrap()
+  if view_layout.has_before(V) then
+    info("Wrap is for the unified layout. `gl` returns to it")
+    return
+  end
+  config.toggle_wrap()
+  -- Repainted rather than left to the next reason to repaint, because a reviewer who
+  -- presses a key is asking about the diff in front of them. Nothing is re-rendered that a
+  -- resize does not re-render, and the window options this ends in are four writes.
+  M.paint()
+end
+
 --- Switching checkout -----------------------------------------------------------
 
 -- The switch is `checkout.lua`'s: the listing, the picker in front of it and the open it
