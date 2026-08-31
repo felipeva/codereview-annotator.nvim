@@ -12,14 +12,23 @@
 # change from, and `bounded_spec` asks for 6 -- the smallest that renders a diff taller
 # than a window and the margin around it, which is the only size at which a bounded paint
 # can be told from an unbounded one.
+#
+# The fourth argument rewrites only that many lines per file instead of half of it, which
+# is a different shape rather than a smaller one. Half-rewritten files are each about 300
+# rendered rows, so only ever one of them is near the window at a time -- and anything that
+# costs a review per *file* in view is then invisible, however large it is. Two changed
+# lines is twenty rows a file, which puts a screenful of files in view at once, and that is
+# the only shape in which per-file work can be told from work done for all of them together.
 set -e
 # Hermetic: no user or system git config. Without this the fixture inherits things that
 # change what it is (commit.gpgsign, diff.renames, core.autocrlf, hooks) -- gpg signing in
 # particular fails outright on a machine with no key, which is every CI runner.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
-R="${1:?usage: mkbig.sh <path> [files] [lines]}"
+R="${1:?usage: mkbig.sh <path> [files] [lines] [changed]}"
 FILES="${2:-60}"
 LINES="${3:-200}"
+# Empty means the default shape: every other line rewritten.
+CHANGED="${4:-}"
 rm -rf "$R"; mkdir -p "$R"; cd "$R"
 git init -q -b master
 git config user.email t@t.t; git config user.name T
@@ -35,10 +44,11 @@ git checkout -qb feature
 for f in $(seq 1 "$FILES"); do
   # Every other line changes, so the diff interleaves rather than collapsing into one
   # enormous hunk -- which is what the anchor map and the viewport-bounded syntax pass
-  # actually have to cope with.
-  awk -v n="$LINES" 'BEGIN {
+  # actually have to cope with. With a line budget it is the first few lines instead, so
+  # each file is one small hunk and the review is wide rather than tall.
+  awk -v n="$LINES" -v c="$CHANGED" 'BEGIN {
     for (i = 1; i <= n; i++) {
-      if (i % 2 == 0) printf "local value_%d = compute(%d, \"changed\")\n", i, i
+      if (c == "" ? i % 2 == 0 : i <= c + 0) printf "local value_%d = compute(%d, \"changed\")\n", i, i
       else printf "local value_%d = compute(%d, \"seed\")\n", i, i
     }
   }' > "src/mod_$f.lua"

@@ -48,8 +48,32 @@ end)
 require("codereview").setup({})
 local view = require("codereview.view")
 
+-- What the open below costs in git invocations, counted through the two functions that make
+-- them. Snapshotted the moment the review is open, because later cases in this file clear
+-- the memo and repaint, and the claim is about one pass.
+local git = require("codereview.git")
+local fetch = { batches = 0, sides = 0, single = 0 }
+do
+  local one, many = git.file_content, git.file_contents
+  git.file_contents = function(items, ...)
+    fetch.batches, fetch.sides = fetch.batches + 1, fetch.sides + #items
+    return many(items, ...)
+  end
+  git.file_content = function(path, ref, ...)
+    -- A nil ref is read off the disk and spawns nothing, so it is not what this counts.
+    if ref then
+      fetch.single = fetch.single + 1
+    end
+    return one(path, ref, ...)
+  end
+end
+
+---@type { batches: integer, sides: integer, single: integer }
+local opened
+
 describe("replaying captures onto the diff", function()
   view.open("branch")
+  opened = vim.deepcopy(fetch)
   local V = view.current()
   local marks = h.syntax_marks(V)
 
@@ -119,6 +143,16 @@ end)
 
 describe("caching and laziness", function()
   local V = view.current()
+
+  -- The reason `apply` decides what is due before it paints any of it. Fetched one file at
+  -- a time, a review costs a git process per file that comes near the window -- which on a
+  -- wide change is a process per file in it. The count is what says the work has not moved
+  -- back: it stays at one however many files the pass brings into view.
+  it("fetches every side one pass needs in a single git call", function()
+    assert.is_true(opened.sides > 1, "the open had nothing to batch, so this proves nothing")
+    assert.same(1, opened.batches)
+    assert.same(0, opened.single)
+  end)
 
   it("memoises captures per file and side", function()
     assert.is_true(vim.tbl_count(V.syntax_cache) > 0)

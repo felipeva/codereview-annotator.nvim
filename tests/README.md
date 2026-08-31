@@ -92,7 +92,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 
 ## Fixtures
 
-Five repositories, each rebuilt from scratch by its script. They are not
+Six repositories, each rebuilt from scratch by its script. They are not
 interchangeable, and the assertions know which one they are looking at.
 
 - **`mkfixture.sh`** — flat `src/`-only repo covering every file status at once:
@@ -162,13 +162,29 @@ interchangeable, and the assertions know which one they are looking at.
   for "a **switch** to somewhere with nothing to review", which `switch_spec` needs and
   which no other fixture offers.
 - **`mkbig.sh`** — files of a given size, half of every file rewritten. It takes counts as
-  well as a path (`mkbig.sh <path> <files> <lines>`, defaulting to 60 and 200), so a caller
-  asks for the height it needs rather than for a second script. `perf.lua` builds a 60-file,
-  12k-line repository and a 300-file, 60k-line one per run; `bounded_spec` and `faded_spec`
-  each build a 6-file one, about 1,800 rendered rows, which is the only fixture in the suite
-  taller than a window and the margin around it. Nothing built from it is committed. It costs about a
-  third of a second, which is why it is no longer kept out of `make test` — what is slow is
-  opening a review on it at the sizes the report uses, not building it.
+  well as a path (`mkbig.sh <path> <files> <lines> [changed]`, defaulting to 60 and 200), so
+  a caller asks for the height it needs rather than for a second script. `perf.lua` builds a
+  60-file, 12k-line repository and a 300-file, 60k-line one per run; `bounded_spec` and
+  `faded_spec` each build a 6-file one, about 1,800 rendered rows, which is the only fixture
+  in the suite taller than a window and the margin around it. Nothing built from it is
+  committed. It costs about a third of a second, which is why it is no longer kept out of
+  `make test` — what is slow is opening a review on it at the sizes the report uses, not
+  building it.
+
+  The fourth count is a *shape*, not a size: it rewrites that many lines per file instead of
+  half of each, so a file is twenty rendered rows rather than three hundred and a screenful
+  holds a dozen files instead of one. That is the only shape in which per-file work in the
+  render path can be told from work done for every file in view at once, which is why
+  `perf.lua`'s third tier asks for it and why its `file content` line means nothing on the
+  first two.
+- **`mktextconv.sh`** — two files and a `diff.cooked.textconv` filter attached to one of
+  them, used by `diff_spec` alone. `git cat-file` runs no textconv filter, so the batched
+  content fetch has to leave such a path out and let the single-file fetch answer it. This
+  cannot live in `mkfixture`: a textconv driver changes what `git diff` prints for every
+  path it touches, so attaching one there would stop that fixture's binary file reading as
+  binary, and the cases that prove binary handling would pass with binary handling deleted.
+  Both kinds of path are in this one repository, which is the only shape where "left out of
+  the batch" can be told from "batched nothing at all".
 
 The sources are Lua and Markdown rather than TypeScript because Neovim core ships both
 parsers **and** their `highlights` queries. `syntax_spec` therefore exercises the real

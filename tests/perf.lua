@@ -7,18 +7,29 @@
 --
 -- Run with:  make perf
 --
--- Two tiers, because every cost here is linear in the size of the review and the small one
--- hides them. 60 files is the size the budget has always watched and the only tier that can
+-- Two tiers of one shape and a third of another, because neither size nor shape alone shows
+-- everything. 60 files is the size the budget has always watched and the only tier that can
 -- fail this command; at 300 files the same operations are large enough to read a change
--- from. The larger tier reports and never asserts: a second budget would be a second number
+-- from. The larger tiers report and never assert: a second budget would be a second number
 -- to tune per machine, on a file that is read rather than gated.
+--
+-- The third tier is the same 300 files with two changed lines each instead of half a file
+-- each. That is not a smaller review, it is a *wide* one: a file is twenty rows rather than
+-- three hundred, so a screenful holds a dozen files instead of one, and everything that
+-- costs a review per file in view -- which is the whole of the `file content` line -- can
+-- only be read there. On the deep tiers one file is near the window at a time, so that line
+-- reads the same whether content is fetched per file or for all of them at once.
 --
 -- The line to read first is `cursor move`. It is the body of the autocommand that fires on
 -- every CursorMoved, which a reviewer pays per row while holding `j` -- unlike open, scroll
 -- and repaint, which are paid at moments a reviewer expects to wait.
 --
--- Two things keep opening a review fast: syntax harvesting bounded by the viewport, and
--- batched blob hashing. If open regresses, suspect one of those two. The third cost is the
+-- Three things keep opening a review fast: syntax harvesting bounded by the viewport,
+-- batched blob hashing, and whole-file content fetched for everything one pass brings into
+-- view together rather than one process per file. If open regresses, suspect one of those
+-- three, and read the `file content` line for the third: it reports git *calls* beside the
+-- milliseconds, so work moved back to a process per file shows up as a count that has
+-- multiplied rather than as a number that is merely large. The last cost is the
 -- character-level spans, reported at the foot of each tier because they are paid once per
 -- git read and must never appear in the repaint line.
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
@@ -44,10 +55,15 @@ local MKBIG = vim.fs.joinpath(root, "tests", "fixtures", "mkbig.sh")
 ---only ever be one of the two. It costs about half a second per tier.
 ---@param files integer
 ---@param lines integer
+---@param changed integer|nil Lines rewritten per file; nil rewrites half of each
 ---@return string path
-local function build(files, lines)
-  local path = ("%s-big-%dx%d"):format(vim.fn.tempname(), files, lines)
-  local res = vim.system({ "bash", MKBIG, path, tostring(files), tostring(lines) }, { text = true }):wait(120000)
+local function build(files, lines, changed)
+  local path = ("%s-big-%dx%dx%s"):format(vim.fn.tempname(), files, lines, changed or "half")
+  local argv = { "bash", MKBIG, path, tostring(files), tostring(lines) }
+  if changed then
+    argv[#argv + 1] = tostring(changed)
+  end
+  local res = vim.system(argv, { text = true }):wait(120000)
   assert(res.code == 0, res.stderr)
   -- Through `print`, which `nvim -l` sends to stderr, rather than writing the script's own
   -- stdout: the whole report then arrives on one stream and stays in order however it is
@@ -69,6 +85,39 @@ local git = require("codereview.git")
 local diff = require("codereview.diff")
 local NS = vim.api.nvim_create_namespace("codereview")
 local PRIORITY = require("codereview.render").PRIORITY.syntax
+
+---What this tier spent inside git fetching whole-file content for the syntax pass.
+---
+---Wrapped here rather than counted in `git.lua`, which has no business carrying a counter
+---only this file reads. `blobs` is how many sides were asked for and `calls` is how many
+---invocations answered them: the two are equal when every file is fetched on its own, and
+---the gap between them is the whole point of the batch.
+local fetch = { ms = 0, blobs = 0, calls = 0 }
+do
+  local one, many = git.file_content, git.file_contents
+  ---@param items { path: string, ref: string|nil }[]
+  git.file_contents = function(items, ...)
+    fetch.calls, fetch.blobs = fetch.calls + 1, fetch.blobs + #items
+    local t0 = vim.uv.hrtime()
+    local res = many(items, ...)
+    fetch.ms = fetch.ms + (vim.uv.hrtime() - t0) / 1e6
+    return res
+  end
+  ---A nil ref is a working-tree read: no process, and nothing a batch was ever going to
+  ---take, so it is left out of both counts rather than flattering them.
+  ---@param path string
+  ---@param ref string|nil
+  git.file_content = function(path, ref, ...)
+    if ref == nil then
+      return one(path, ref, ...)
+    end
+    fetch.calls, fetch.blobs = fetch.calls + 1, fetch.blobs + 1
+    local t0 = vim.uv.hrtime()
+    local res = one(path, ref, ...)
+    fetch.ms = fetch.ms + (vim.uv.hrtime() - t0) / 1e6
+    return res
+  end
+end
 
 local function syntax_marks(buf)
   return #vim.tbl_filter(function(m)
@@ -100,14 +149,22 @@ local function cursor_moves(V)
   end)
 end
 
----Report one tier, and answer with the figures the two tiers are compared on.
+---Report one tier, and answer with the figures the tiers are compared on.
 ---@param files integer
 ---@param lines integer
 ---@param budget_ms integer|nil the ceiling this tier is judged against; nil means it only reports
----@return { open: number, move: number, repaint: number }
-local function tier(files, lines, budget_ms)
-  print(("\n=== %d files x %d lines ==="):format(files, lines))
-  vim.cmd("cd " .. vim.fn.fnameescape(build(files, lines)))
+---@param changed integer|nil Lines rewritten per file; nil rewrites half of each
+---@return { open: number, move: number, repaint: number, fetch: number }
+local function tier(files, lines, budget_ms, changed)
+  print(
+    ("\n=== %d files x %d lines, %s ==="):format(
+      files,
+      lines,
+      changed and ("%d changed"):format(changed) or "half rewritten"
+    )
+  )
+  vim.cmd("cd " .. vim.fn.fnameescape(build(files, lines, changed)))
+  fetch.ms, fetch.blobs, fetch.calls = 0, 0, 0
 
   local open_ms = ms(function()
     view.open("branch")
@@ -169,6 +226,11 @@ local function tier(files, lines, budget_ms)
       end
     end
   end
+  -- At the foot of the tier because it is a total for everything above it, and because
+  -- only open and the two scrolls can add to it: a repaint drops what it painted but keeps
+  -- the captures, and a cursor move stays inside a file already parsed. Either of those
+  -- moving this line means content is being re-fetched for files nothing needs re-read.
+  print(("file content:    %6.0f ms   (%d blobs in %d git calls)"):format(fetch.ms, fetch.blobs, fetch.calls))
   print(("parse:           %6.0f ms   (once per git read, not per repaint)"):format(plain_ms))
   print(("  spans          %6.0f ms   (+%.0f ms)"):format(spans_ms, spans_ms - plain_ms))
   print(("  lines spanned  %6d"):format(spanned))
@@ -176,11 +238,14 @@ local function tier(files, lines, budget_ms)
   -- Each tier gets its own review, on its own repository: whatever the next one measures, it
   -- must not be measuring what this one left open.
   view.close()
-  return { open = open_ms, move = moves_ms / MOVES, repaint = repaint_ms }
+  return { open = open_ms, move = moves_ms / MOVES, repaint = repaint_ms, fetch = fetch.ms }
 end
 
 local small = tier(60, 200, BUDGET_MS)
 local large = tier(300, 200, nil)
+-- Not kept: the side-by-side below is a comparison of two sizes at one shape, and this tier
+-- is the other shape. What it is here to report it reports on its own `file content` line.
+tier(300, 200, nil, 2)
 
 -- Side by side, because the point of the larger tier is the ratio: every one of these costs
 -- is linear in the size of the review, so five times the files should be about five times
@@ -192,6 +257,11 @@ print(("\n%-16s %12s %12s"):format("side by side", "60 files", "300 files"))
 print(("%-16s %9.0f ms %9.0f ms"):format("  open", small.open, large.open))
 print(("%-16s %9.1f ms %9.1f ms"):format("  cursor move", small.move, large.move))
 print(("%-16s %9.0f ms %9.0f ms"):format("  repaint", small.repaint, large.repaint))
+-- The one row here that must *not* scale with the review, and the deep tiers are where that
+-- is worth watching: content is fetched only for the files a pass brings near the window, so
+-- five times the files is the same handful of blobs. A figure that starts tracking the file
+-- count is content being fetched for files nothing is about to draw.
+print(("%-16s %9.0f ms %9.0f ms"):format("  file content", small.fetch, large.fetch))
 
 if small.open > BUDGET_MS then
   print(("\nFAIL: open took %.0f ms, over the %d ms budget"):format(small.open, BUDGET_MS))

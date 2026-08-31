@@ -177,6 +177,60 @@ files and `git cat-file --batch-check` for everything behind a ref. One process 
 was, measurably, more expensive than all the treesitter work combined — on a 60-file diff
 it was over half the open time.
 
+**Whole-file content is fetched for everything one pass brings into view, in one
+`cat-file --batch`.** The syntax pass needs the file behind a diff, and it needs it only as
+that file comes near the window, so the fetch cannot be hoisted to open the way the blob
+hashing is. What it can be is *widened*: `apply` decides which files are due before it paints
+any of them, and the sides all of those need go out together. Measured on 300 files with two
+changed lines each — the shape of a wide change, and the one `mkbig` grew a fourth argument
+to build — opening the review fetched seventeen sides in one process instead of seventeen,
+and reading it through cost seventy-one processes instead of two hundred and eighty-three.
+Wall clock: open 316 ms → 198 ms, read-through 2.0 s → 0.9 s.
+
+**The same change does nothing on a review of tall diffs, and that is not a bug in it.** A
+file whose diff is three hundred rows is the only file near the window, so the batch holds
+one spec and buys one process’s worth of nothing — measured, and a batch of one is not
+slower than the `git show` it replaced. This is why `perf.lua` has a third tier: on the two
+deep tiers the `file content` line reads the same whether content is fetched per file or for
+all of them at once, so a regression that put the work back would be invisible there.
+
+**`cat-file` runs no textconv filter and has no option to**, so a path with one attached
+cannot be answered out of the batch — it would come back as exactly the bytes the filter
+exists to hide. Such paths are left out and fetched by `git show --textconv` as before. The
+rule is per path rather than per repository because one `*.png diff=exif` line in
+`.gitattributes` should not cost a repository the batch for its source files. Finding them
+starts from config, not from attributes: `textconv` is a config key (`diff.<driver>.textconv`)
+while the driver is attached by `.gitattributes`, so a repository configuring none can have
+no such path — which is nearly every repository, and it is what lets the common case skip
+`check-attr` entirely. Both answers are memoised per checkout, because this is the scroll
+path and a process per pass to learn "no filters here" costs more than the batch saves.
+
+**The batch is a pre-warm, not a substitution, and that is what bounds its failure mode.**
+Three kinds of side are simply absent from its answer — a working-tree side, a textconv
+path, and anything a batch that died never reached — and the caller fetches those one at a
+time exactly as it always did. So a batch that dies costs a pass its head start, not its
+content: with every batch stubbed to return nothing, a 300-file review renders a
+byte-identical set of syntax extmarks, from 300 single-file processes. That is what answers
+the objection the change was raised with, that one process failing would take every file’s
+content with it.
+
+**Absent and `false` are different answers and the caller must keep them apart.** `false` is
+git saying there is no blob on that side — an added or deleted file, or a rename read at its
+post-image name — which is a real answer the single-file fetch spells `nil`; asking again
+would buy the same nothing for a whole process. Absent is the batch not having covered the
+side at all. Collapsing the two costs a process per added file per review, which is most of
+what the batch was for on a change that adds a lot of files.
+
+**The batch reads bytes, never text.** `vim.system`’s `text = true` replaces CRLF with LF,
+and every `cat-file --batch` record declares its length in *bytes* with the next record
+starting right after them — so that flag shortens a body mid-stream and hands every
+following file the wrong content. Silently: the output still parses, and the highlighting is
+still well-formed, on the wrong code. The translation is done per body afterwards instead,
+where it cannot move a boundary, which is also what keeps the answer identical to the one
+`git show` gives through `run`. For the same reason a record header it cannot measure stops
+the walk rather than guessing a length — everything after it is left absent and fetched the
+old way.
+
 **Progress is written on mutation, not on paint.** `paint` also runs on window resize, and
 persisting there turns dragging a split into a stream of file writes.
 
@@ -705,7 +759,8 @@ checkout" for what a counter per checkout costs.
 temptation is a marker — a scope that says "the archive" and is special-cased downstream —
 and it fails in three places at once: the diff parser is handed `git diff <before>`, the
 blob hashing resolves `<before>:<path>` through `cat-file`, and the syntax highlighter
-fetches whole-file content with `git show <before>:<path>`. Every one of them needs
+fetches whole-file content for the same spec — through `cat-file` too, and through
+`git show <before>:<path>` for a path a batch cannot take. Every one of them needs
 `before` to be something git can resolve, which is why the archive stores a commit object
 rather than a set of blobs, and why resolution reads that sha and returns an ordinary
 scope. If a new scope ever appears to need a case in the render or the view, it is not
