@@ -125,10 +125,16 @@ function M.diff(buf, view)
     -- the configured switch for the session rather than editing it.
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
     -- `gS` for the **switch**, from the same `g` family, and it reads as the reserved word.
-    -- `gw` was rejected because it would teach "worktree", which the glossary avoids; `gC`
-    -- and `gB` because they are confusable with the commit list and the last batch. It is
-    -- free in a nomodifiable buffer for the reason `a` became the annotation prefix.
+    -- `gC` and `gB` were rejected because they are confusable with the commit list and the
+    -- last batch, and `gw` because it would teach "worktree", which the glossary avoids --
+    -- it now says **wrap** below, which the glossary does keep. It is free in a nomodifiable
+    -- buffer for the reason `a` became the annotation prefix.
     ["gS"] = { view.switch, "Switch the review to another checkout" },
+    -- `gw` for **wrap**, from the same `g` family. Lowercase, unlike `gA`, because nothing
+    -- shadows it: `gw` is the format operator, which is dead in a nomodifiable buffer for
+    -- the reason `a` became the annotation prefix. It overrides the configured switch for
+    -- the session rather than editing it.
+    ["gw"] = { view.toggle_wrap, "Fold long lines, or stop folding them" },
     ["<CR>"] = { view.open_file, "Open the real file here" },
     ["Q"] = { view.review_queue, "Review the queue" },
     -- `gy`, not `Y`: yank is not dead in this buffer the way append is, and pulling a code
@@ -221,6 +227,9 @@ function M.panel(buf, view)
     ["gc"] = { view.commit_list, "List the commits on the branch, and trim the review" },
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
     ["gS"] = { view.switch, "Switch the review to another checkout" },
+    -- Bound in the tree as well as in the diff, as every view-wide key is: a reviewer
+    -- standing here who wants the diff folded should not have to move first.
+    ["gw"] = { view.toggle_wrap, "Fold long lines, or stop folding them" },
     ["R"] = { view.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { view.close, "Close the review" },
   })

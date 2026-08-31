@@ -241,6 +241,12 @@ describe("with wrap on, in the unified layout", function()
     compose = function(_, on_accept, _)
       on_accept(nil, "note about a folded line")
     end,
+    -- Answering with the checkout the review is already in. What the key cases below ask of
+    -- a **switch** is whether arriving anywhere leaves the setting alone, and one checkout
+    -- is enough to arrive at.
+    pick_checkout = function(_, cb)
+      cb(fixture)
+    end,
   })
   view.paint()
 
@@ -393,5 +399,172 @@ describe("a diff whose line numbers need five digits", function()
     assert.is_table(continuation, "the wide line did not fold")
     assert.same(first.col, continuation.col)
     assert.same(V.render.gutter, continuation.col - left(row))
+  end)
+end)
+
+--- The key beside the switch ----------------------------------------------------
+
+-- `gw` overrides the configured switch for the rest of this Neovim, in both directions.
+--
+-- Last in this file, and deliberately. The override is module state rather than view state,
+-- so it outlives every review opened here and nothing above may inherit it -- and "unset
+-- means the configured value" is only observable while this process has not yet pressed the
+-- key.
+--
+-- The layout intersection is here rather than in `layout_spec`: it belongs to the surface
+-- that is new, and two files driving one toggle is how a suite starts failing for reasons
+-- neither file can see.
+
+---Normal-mode mappings bound to a buffer, as a set.
+---
+---Through `vim.keycode` on both sides: the API reports a key in its own notation rather than
+---the one it was bound with, so comparing the strings as written can silently never match.
+---@param buf integer
+---@return table<string, boolean>
+local function bound(buf)
+  local lhs = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+    lhs[vim.keycode(m.lhs)] = true
+  end
+  return lhs
+end
+
+---Feed a key with the cursor in a window, and answer with the pane afterwards.
+---@param win integer
+---@param keys string
+local function feed_in(win, keys)
+  vim.api.nvim_set_current_win(win)
+  h.feed(keys)
+  V = assert(view.current())
+end
+
+describe("a session that folded long lines and exited", function()
+  -- Shares this process's throwaway XDG_STATE_HOME and nothing else, and runs with `--clean`
+  -- so no user config and no minimal_init can hand it a different one.
+  local child = vim
+    .system({
+      vim.v.progpath,
+      "--clean",
+      "-l",
+      vim.fs.joinpath(h.root, "tests", "codereview", "wrap_child.lua"),
+    }, {
+      cwd = fixture,
+      text = true,
+      env = { XDG_STATE_HOME = vim.env.XDG_STATE_HOME, FIXTURE = fixture },
+    })
+    :wait(60000)
+
+  local root = assert(vim.uv.fs_realpath(fixture))
+  local function stored()
+    return table.concat(vim.fn.readfile(require("codereview.state").path(root)), "\n")
+  end
+
+  it("exits cleanly", function()
+    assert.same(0, child.code, (child.stderr or "") .. (child.stdout or ""))
+  end)
+
+  -- Without this the case below is vacuous: "the choice did not come back" would be
+  -- satisfied by there being no channel between the two sessions at all.
+  it("leaves what it queued in the store both sessions share", function()
+    assert.is_truthy(stored():find("queued by the session that folded", 1, true), stored())
+  end)
+
+  it("writes nothing about the switch into it", function()
+    assert.is_nil(stored():find("wrap", 1, true), stored())
+  end)
+
+  -- Configuration is what decides at the start of every session, so a choice about how wide
+  -- one terminal is cannot quietly become durable state restored into a different one.
+  it("starts this session from the configured value instead", function()
+    assert.same(config.get().wrap, config.wrap())
+  end)
+end)
+
+describe("the key beside the switch", function()
+  view.refresh()
+  V = assert(view.current())
+
+  it("is bound in the diff and in the tree", function()
+    assert.is_true(bound(V.buf)[vim.keycode("gw")] == true, "gw is not bound in the diff")
+    assert.is_true(bound(assert(V.panel_buf))[vim.keycode("gw")] == true, "gw is not bound in the tree")
+  end)
+
+  it("stops the folding when the lines were folding", function()
+    assert.is_true(vim.wo[V.win].wrap, "the review did not open folded")
+    feed_in(V.win, "gw")
+    assert.is_false(vim.wo[V.win].wrap)
+    local row, a = wide_row()
+    show(row)
+    assert.is_nil(select(2, code_columns(row, a.col)))
+  end)
+
+  it("leaves the configured value where the host set it", function()
+    assert.is_true(config.get().wrap)
+  end)
+
+  it("folds again from the file tree, without moving to the diff first", function()
+    feed_in(V.panel_win, "gw")
+    assert.is_true(vim.wo[V.win].wrap)
+    local row, a = wide_row()
+    show(row)
+    assert.is_table(select(2, code_columns(row, a.col)))
+  end)
+
+  it("keeps the choice across a repaint", function()
+    view.paint()
+    assert.is_true(vim.wo[V.win].wrap)
+  end)
+
+  -- Each of these repaints for its own reasons, and none of them is a statement about how
+  -- wide the terminal is.
+  it("is left alone by every other view-wide key", function()
+    local moves = {
+      { "reading the diff again", view.refresh },
+      {
+        "cycling scope",
+        function()
+          view.set_scope(nil)
+        end,
+      },
+      { "switching checkout", view.switch },
+      { "toggling archived entries", view.toggle_archived },
+      { "dismissing the tree", view.toggle_panel },
+      { "summoning it again", view.toggle_panel },
+    }
+    for _, move in ipairs(moves) do
+      move[2]()
+      V = assert(view.current())
+      assert.is_true(config.wrap(), "the switch moved on " .. move[1])
+      assert.is_true(vim.wo[V.win].wrap, "the pane stopped folding on " .. move[1])
+    end
+  end)
+end)
+
+describe("gw in a split layout", function()
+  view.toggle_layout()
+  V = assert(view.current())
+
+  it("says what it does rather than doing it quietly", function()
+    local messages, restore = h.capture_notify()
+    feed_in(V.win, "gw")
+    restore()
+    assert.is_true(h.notified(messages, "Wrap is for the unified layout"), vim.inspect(messages))
+  end)
+
+  it("leaves both panes unwrapped", function()
+    assert.is_false(vim.wo[V.win].wrap)
+    assert.is_false(vim.wo[V.before_win].wrap)
+  end)
+
+  -- A refusal and not a silent write: a reviewer who returns to the unified layout finds
+  -- the setting they left, not one a refused keystroke moved behind their back.
+  it("has not touched the switch", function()
+    assert.is_true(config.wrap())
+  end)
+
+  it("folds again on the way back to unified, with nothing having stored that", function()
+    view.toggle_layout()
+    V = assert(view.current())
+    assert.is_true(vim.wo[V.win].wrap)
   end)
 end)

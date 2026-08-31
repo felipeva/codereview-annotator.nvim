@@ -318,7 +318,7 @@ function M.apply_wrap(V, gutter)
   if not vim.api.nvim_win_is_valid(win) then
     return
   end
-  vim.wo[win].wrap = config.get().wrap and not M.has_before(V)
+  vim.wo[win].wrap = config.wrap() and not M.has_before(V)
   -- Inert while `wrap` is off, so they are written unconditionally rather than unwound: one
   -- code path, and no leftover for the next paint to disagree with.
   vim.wo[win].breakindent = true

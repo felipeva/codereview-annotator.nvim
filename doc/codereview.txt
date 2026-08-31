@@ -171,6 +171,8 @@ Buffer-local, inside the review view:
                      session -- see |codereview-archived|
     gS               Switch the review to another checkout of this
                      repository -- see |:CodeReviewSwitch|
+    gw               Fold a line too wide for the pane onto further rows,
+                     or stop folding -- see |codereview-wrap|
     <CR>             Open the real file here, in a new tab
     gd               Read this file in the host's own diff tool --
                      bound only with |codereview-opt-open_diff| wired
@@ -220,6 +222,8 @@ In the file tree:                                         *codereview-tree*
                      session -- see |codereview-archived|
     gS               Switch the review to another checkout of this
                      repository -- see |:CodeReviewSwitch|
+    gw               Fold a line too wide for the pane onto further rows,
+                     or stop folding -- see |codereview-wrap|
     q                Close the review
 
 The tree collapses single-child directory chains, so a monorepo shows
@@ -433,6 +437,45 @@ is what decides at the start of every session. It is deliberately not written
 to the state file -- that file is per repository and a layout preference is
 not, and a stored preference would silently override a `layout` you had since
 changed.
+
+Wrap                                                        *codereview-wrap*
+
+A line wider than the pane runs off the right edge, and reading the end of it
+means scrolling sideways -- which moves every row at once, so the line being
+read is lost to reach the end of it. Horizontal scrolling is not synchronized
+between two panes either, and never will be: that means |scrollopt|, a global
+option this plugin does not own.
+
+`gw` folds such a line onto as many further rows as it needs, from the diff
+and from the file tree alike. Pressing it again stops the folding. >
+    ▌ 42 │ +const url = buildEndpoint(config.host, config.port, "/api", {
+    ↳         retries: 3, timeout: 30_000 })
+<
+The rows are the window's and never the diff's. Nothing is added to the
+buffer, so every anchor, every row an annotation hangs on, every reviewed mark
+and every count stay what they were, and `]h`, `[h`, `]f`, `[f`, `]a` and `[a`
+move exactly as they did. A continuation row is indented to the column the
+code starts at and carries `icons.continuation` where the change bar would be:
+neither the bar nor the line number repeats, because it is one line.
+
+The mechanism is |'wrap'|, |'breakindent'|, |'breakindentopt'| and
+|'showbreak'|, all window-local, set on the after pane after a paint. The
+continuation indent is a `shift` rather than the line's own indent: a diff row
+begins with the change bar, which is not whitespace, so Neovim computes a
+natural indent of zero for every row. The shift supplies the whole gutter
+instead, which is what makes it the same for every row in the review.
+
+It is off until asked for; `wrap = true` has it on from the first review. What
+`gw` says lasts the rest of the session and is written nowhere -- it answers a
+question about how wide this terminal is right now, which is not something to
+restore into a different one tomorrow.
+
+The split layout never folds, and `gw` says so rather than doing nothing: two
+panes that fold by different amounts stop being row-aligned on screen, and row
+alignment is what the split layout is for. `gl` back to unified folds again --
+the switch is read on every paint, so nothing stores what it was before the
+split. The file tree never folds either; its rows are truncated to the panel
+width.
 
 The sticky header                                  *codereview-sticky-header*
 
@@ -1108,6 +1151,7 @@ Defaults: >
       max_syntax_bytes = 256 * 1024,
       layout = "unified",
       spans = true,
+      wrap = false,
       archived = true,
       muted = { enabled = true, strength = 0.5 },
       faded = { enabled = true, strength = 0.35 },
@@ -1116,7 +1160,7 @@ Defaults: >
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
         collapsed = "▸", expanded = "▾", change_bar = "▌",
-        untouched = "↺",
+        untouched = "↺", continuation = "↳",
       },
       types = nil,
       send = nil, pick_target = nil, pick_file = nil,
@@ -1131,6 +1175,12 @@ diff colors individually -- never the whole view.
 default. On a 12,000-line diff it lengthens opening a review by roughly a
 third and a repaint by nothing at all, because the work is done once per git
 read rather than every time the view is drawn.
+
+`wrap` folds a line too wide for its window onto further rows
+(|codereview-wrap|). It is off by default: a reviewer whose terminal is wide
+enough for their code has no problem to solve, and upgrading the plugin should
+not re-draw their review. `gw` overrides it for the rest of the session, in
+both directions, and writes nothing here. Said of the unified layout only.
 
 `archived` draws already-dispatched entries on the diff and tallies the
 untouched ones on the winbar (|codereview-archived|, |codereview-touched|).

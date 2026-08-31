@@ -369,4 +369,43 @@ function M.toggle_archived()
   return archived_override
 end
 
+--- The wrap switch at runtime --------------------------------------------------
+
+---What `gw` has said about **wrap**, for the rest of this editing session.
+---
+---The archived flag's arrangement above, copied rather than generalised: two module locals
+---and four short functions read as what they are, where one indirection over a table of
+---overrides would have to be understood before either switch could be.
+---
+---Deliberately not persisted, and for a sharper reason than the layout's. Wrap answers a
+---question about how wide *this terminal is right now*. A **scope** is kept per **checkout**
+---because it says what the review is; wrap says no such thing, and a choice made about one
+---terminal size restored into a different one tomorrow is a worse answer than no memory at
+---all.
+---@type boolean|nil nil until the key has been pressed, when configuration decides
+local wrap_override = nil
+
+---Whether a line too wide for its window is folded onto further rows.
+---
+---Read on every paint, which is what makes the switch re-decide rather than remember:
+---moving to the **split** layout unwraps because split does not fold, and moving back folds
+---again because nothing about the choice changed.
+---@return boolean
+function M.wrap()
+  if wrap_override == nil then
+    return M.get().wrap
+  end
+  return wrap_override
+end
+
+---Fold long lines, or stop folding them, for the rest of this editing session.
+---
+---Both directions from wherever the switch stands now, so a reviewer whose configuration
+---has wrap on can turn it off.
+---@return boolean on Whether lines are now folded
+function M.toggle_wrap()
+  wrap_override = not M.wrap()
+  return wrap_override
+end
+
 return M
