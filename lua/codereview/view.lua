@@ -1206,18 +1206,21 @@ function M.jump_unreviewed(forward)
   if not M.current() or not V.render then
     return
   end
-  local bound = motion_bound(forward)
-  if not bound then
-    return
-  end
   local unreviewed = {}
   for index, file in ipairs(V.files) do
     if not V.reviewed[file.path] then
       unreviewed[#unreviewed + 1] = index
     end
   end
+  -- Before the cursor is asked anything. Whether a file is left to go to is a fact about
+  -- the review, and a review with no files at all has no cursor in one -- so asking the
+  -- cursor first leaves an empty scope silent where it used to say this.
   if #unreviewed == 0 then
     info("Everything in this scope is reviewed")
+    return
+  end
+  local bound = motion_bound(forward)
+  if not bound then
     return
   end
 

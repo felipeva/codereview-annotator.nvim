@@ -602,3 +602,32 @@ describe("the option turned off in a live review", function()
     config.get().solo = true
   end)
 end)
+
+-- Two things the view decides for itself, rather than being told by a key.
+describe("the file the paint draws", function()
+  it("is the last one when the index has outrun the file list", function()
+    -- A **scope** change and a re-read both replace the file list under the soloed index,
+    -- so it can name a file that is no longer there. Drawing the last file is a review a
+    -- reviewer can read; drawing nothing is a blank window with no way out of it.
+    V.solo = #V.files + 40
+    view.paint()
+    assert.same({ #V.files }, files_drawn(V.render))
+  end)
+
+  -- The `]F` sentence is decided by the review's files and not by where the cursor is,
+  -- which is the order these two questions have to be asked in: a review with no files has
+  -- no cursor in one, so asking the cursor first leaves an empty scope silent.
+  it("is nothing at all in an empty review, which still says what ]F says", function()
+    local kept = V.files
+    V.files = {}
+    view.paint()
+    assert.same({}, V.render.lines)
+
+    local said = press(V.win, "]F")
+    assert.is_true(h.notified(said, "Everything in this scope is reviewed"), vim.inspect(said))
+
+    V.files = kept
+    V.solo = 1
+    view.paint(1)
+  end)
+end)
