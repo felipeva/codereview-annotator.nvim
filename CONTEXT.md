@@ -93,6 +93,45 @@ Not _muted_, which is a **pane** without focus, and not _dimmed_, which is an ar
 The blend is the muting's, at a strength of its own.
 _Avoid_: muted, dimmed, grayed, inactive, unfocused
 
+**Solo**:
+Said of a **review view** that draws one file — the file being read — and none of the others.
+A rendering choice and never a **scope**: the review goes on covering everything its scope
+covers, so the file tree, the reviewed marks, the **queue** and the **payload** are what they
+were, and which file was on screen never reaches the receiving agent (ADR-0002, ADR-0009).
+Makes the same statement **faded** makes — the file being read is the one that matters —
+through a different mechanism: faded pulls the other files' colors toward the background,
+solo does not emit their rows at all. Orthogonal to **layout**, because a **split** diff can
+be soloed and a third layout value could never say so. Moving between files repaints, so `R`
+marks the file reviewed and advances to the next unreviewed one rather than collapsing what
+it has just drawn — the one key whose meaning solo changes. Not _focus_, which is already
+which window the cursor is in, and which **muted** is written against.
+_Avoid_: focus, isolate, single-file mode, only, zen
+
+**Frame**:
+The rule above and below a file's body in the **review view**, so a file has a visible end and
+not only a visible beginning. Drawn as highlight groups on rows that are there anyway — an
+underline on the file's header row, an overline on the **pad** after its last hunk — and never
+as a row of its own: a row would need an **anchor**, and a reviewer could then put a cursor on
+a thing that is not part of the diff. A collapsed file gets the header's rule alone, because
+it has no body to bound and two rules with nothing between them read as a broken frame rather
+than a closed file. Fades with its file, the way that file's hunk headers do and its header
+row does not (see **Faded**). Not _separator_: a frame says where one file ends *and* where it
+began, which a thing between two files cannot.
+_Avoid_: border, box, card, rule, divider, separator
+
+**Wrap**:
+Said of a **review view** that folds a line too wide for its window onto further rows, rather
+than making the reviewer scroll sideways to read it. The rows are the window's and never the
+diff's: nothing is added to the buffer, so every **anchor**, every row an annotation hangs on
+and every count stay what they were. A continuation row carries a marker where the change bar
+would be, because neither the bar nor the line number repeats and their absence is worth
+explaining rather than merely noticing. Said of the **unified** layout only: a **split** layout
+stays unwrapped, because two **panes** that fold by different amounts stop being row-aligned,
+and row alignment is what split is for. Not the wrapping a **note** goes through, which the
+renderer does itself because a **virtual line** clips where a window would fold; and not the
+wrapping `]F` does, which is a navigation key returning to the first file.
+_Avoid_: soft wrap, fold, reflow, line break
+
 **Filler**:
 A blank row emitted in one pane where the other has no counterpart — a pure addition, a
 pure deletion, a file that exists on only one side — so the two stay row-aligned. Distinct
