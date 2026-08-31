@@ -146,7 +146,7 @@ The composer opens in insert mode. `<C-s>` and `<C-t>` work in insert and normal
 | `<C-p>` | Jump to a file by name |
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree and land back in the diff |
-| `gl` `gb` `gc` `gA` | The same as in the diff |
+| `gl` `gb` `gc` `gA` `gS` | The same as in the diff |
 | `q` | Close |
 
 If you jump to a file that was collapsed because it is reviewed, the plugin expands it. You
