@@ -153,7 +153,7 @@ function M.panel_select(V, view)
     keep_panel_cursor(V, row)
     return
   end
-  if not fi or not V.render.file_rows[fi] then
+  if not fi then
     return
   end
   -- Jumping to a reviewed file expands it: you asked to look at it.
@@ -162,7 +162,11 @@ function M.panel_select(V, view)
     view.paint()
   end
   vim.api.nvim_set_current_win(V.win)
-  view.goto_row(V.render.file_rows[fi], "zt")
+  -- The row this file is drawn on, or the drawing of it: the tree lists every file in the
+  -- review, and under **solo** the diff draws one of them, so a row picked here is often a
+  -- file the diff has no row for. That is not a failure -- it is the file to draw next, and
+  -- `goto_file` is the one place that says so.
+  view.goto_file(fi)
 end
 
 ---`gd` in the tree: read the file under the cursor in the host's diff tool.

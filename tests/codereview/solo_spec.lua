@@ -215,3 +215,390 @@ describe("an empty scope", function()
     assert.same({}, empty.anchors)
   end)
 end)
+
+--- In a real view --------------------------------------------------------------
+
+-- Solo on, from configuration. There is no key for it in this ticket -- that is a later one
+-- -- so this is how a reviewer gets it, and it is what the option is for.
+--
+-- `setup` again rather than a second spec file. The default above is read off
+-- `config.defaults`, which is the claim about a host that says nothing, so nothing done to
+-- the options here can reach it.
+require("codereview").setup({
+  solo = true,
+  syntax = false,
+  compose = function(_, on_accept)
+    on_accept(nil, "a note about a soloed file")
+  end,
+  send = function() end,
+})
+
+local annotate = require("codereview.annotate")
+local queue = require("codereview.queue")
+local state = require("codereview.state")
+local view = require("codereview.view")
+
+view.open("branch")
+local V = assert(view.current(), "no review view opened")
+queue.clear()
+
+---The file the diff cursor is in.
+---@return integer
+local function at()
+  return V.render.anchors[vim.api.nvim_win_get_cursor(V.win)[1]].file
+end
+
+---Put the view on a file without going through any of the keys under test.
+---
+---Reaching into the view the way `panel_spec` writes `V.reviewed` and `render_spec` writes
+---the archived flag. This is where a case *starts*; driving it with `]f` would make every
+---case below a test of `]f`.
+---@param index integer
+local function show(index)
+  V.solo = index
+  view.paint(index)
+end
+
+---Press keys in a window and collect what the plugin said while they ran.
+---@param win integer
+---@param keys string
+---@return string[] messages
+local function press(win, keys)
+  local messages, restore = h.capture_notify()
+  vim.api.nvim_set_current_win(win)
+  h.feed(keys)
+  restore()
+  return messages
+end
+
+---@return string[]
+local function panel_lines()
+  return vim.api.nvim_buf_get_lines(V.panel_buf, 0, -1, false)
+end
+
+---Mark every file unreviewed again, so a case starts where the one before it did.
+local function unreview()
+  for path in pairs(V.reviewed) do
+    V.reviewed[path] = nil
+  end
+  V.expanded = {}
+  view.paint()
+end
+
+describe("a review opened with solo on", function()
+  it("draws one file, and it is the first", function()
+    assert.is_true(#V.files > 1, "the fixture has one file, so drawing one proves nothing")
+    assert.same({ 1 }, files_drawn(V.render))
+  end)
+
+  it("still lists every file in the tree", function()
+    assert.same(#V.files, #V.panel_render.file_rows)
+  end)
+
+  -- Solo is a rendering choice and never a **scope**, so the map of the review is whole
+  -- while one square of it is read: the marks and the counts belong to the tree, and the
+  -- tree is built from the review's files rather than from what the diff drew.
+  it("keeps every file's reviewed mark and note count in the tree", function()
+    local marked = assert(h.file_index(V, "src/routes.lua"))
+    V.reviewed[V.files[marked].path] = V.files[marked].blob or ""
+    vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, V.files[1].path)), 0 })
+    annotate.annotate("bug")
+
+    local lines = panel_lines()
+    local icons = config.get().icons
+    assert.is_truthy(
+      lines[V.panel_render.file_row[marked]]:find(icons.reviewed, 1, true),
+      lines[V.panel_render.file_row[marked]]
+    )
+    assert.same("1", lines[V.panel_render.file_row[1]]:match("(%d)%s*$"))
+
+    queue.clear()
+    unreview()
+  end)
+
+  -- `✓2/7` must not become `✓0/1` because of how someone is reading.
+  it("counts every file in the scope in the review summary", function()
+    local marked = assert(h.file_index(V, "src/routes.lua"))
+    V.reviewed[V.files[marked].path] = V.files[marked].blob or ""
+    view.paint()
+    local icons = config.get().icons
+    assert.is_truthy(h.winbar(V.win):find(("%s1/%d"):format(icons.reviewed, #V.files), 1, true), h.winbar(V.win))
+    unreview()
+  end)
+end)
+
+describe("the file keys", function()
+  it("]f draws the next file", function()
+    show(3)
+    press(V.win, "]f")
+    assert.same({ 4 }, files_drawn(V.render))
+    assert.same(4, at())
+  end)
+
+  it("[f draws the previous file, from that file's header", function()
+    show(4)
+    press(V.win, "[f")
+    assert.same({ 3 }, files_drawn(V.render))
+    assert.same(3, at())
+  end)
+
+  -- The rule `]f` and `[f` have always followed is "the nearest file header row in that
+  -- direction", and from inside a file the nearest header above it is that file's own. Said
+  -- as an index now, because the file being looked for may have no row -- so this is the
+  -- half of the old rule that a rewrite in index space could silently drop.
+  it("[f from inside a file goes to the top of it rather than past it", function()
+    show(4)
+    vim.api.nvim_win_set_cursor(V.win, { #V.render.lines, 0 })
+    press(V.win, "[f")
+    assert.same({ 4 }, files_drawn(V.render))
+    assert.same(V.render.file_rows[4], vim.api.nvim_win_get_cursor(V.win)[1])
+  end)
+
+  it("says there is no next file on the last one", function()
+    show(#V.files)
+    local said = press(V.win, "]f")
+    assert.is_true(h.notified(said, "No next file here"), vim.inspect(said))
+    assert.same({ #V.files }, files_drawn(V.render))
+  end)
+end)
+
+-- The case this whole ticket exists to prevent. `file_rows` is sparse under solo -- one
+-- entry, and not at index 1 -- so a candidate list built by walking that map as an array
+-- comes back empty and `]F` reports the review finished with five files still unreviewed.
+describe("]F and [F over a sparse map", function()
+  it("draws the next unreviewed file, and does not claim the review is done", function()
+    for i = 1, 3 do
+      V.reviewed[V.files[i].path] = V.files[i].blob or ""
+    end
+    show(3)
+    -- The guard the case needs: more than one file left, or an empty answer and the right
+    -- answer are the same length.
+    local left = 0
+    for _, f in ipairs(V.files) do
+      if not V.reviewed[f.path] then
+        left = left + 1
+      end
+    end
+    assert.is_true(left > 1, ("only %d unreviewed files"):format(left))
+
+    local said = press(V.win, "]F")
+    assert.is_false(h.notified(said, "Everything in this scope is reviewed"), vim.inspect(said))
+    assert.same({ 4 }, files_drawn(V.render))
+    assert.same(4, at())
+  end)
+
+  it("[F draws the previous unreviewed file", function()
+    show(6)
+    press(V.win, "[F")
+    assert.same({ 5 }, files_drawn(V.render))
+    assert.same(5, at())
+  end)
+
+  it("says the review is done only when every file is reviewed", function()
+    for _, f in ipairs(V.files) do
+      V.reviewed[f.path] = f.blob or ""
+    end
+    show(3)
+    local said = press(V.win, "]F")
+    assert.is_true(h.notified(said, "Everything in this scope is reviewed"), vim.inspect(said))
+    unreview()
+  end)
+end)
+
+describe("the file picker", function()
+  it("<C-p> reaches a file that is not drawn", function()
+    show(1)
+    local wanted = assert(h.file_index(V, "src/routes.lua"))
+    vim.ui.select = function(items, _, cb)
+      for i, s in ipairs(items) do
+        if s:find("src/routes.lua", 1, true) then
+          return cb(s, i)
+        end
+      end
+    end
+    assert.is_nil(V.render.file_rows[wanted], "the file was already drawn, so the jump proves nothing")
+
+    press(V.win, "<C-p>")
+    assert.same({ wanted }, files_drawn(V.render))
+    assert.same(wanted, at())
+  end)
+end)
+
+describe("the tree's open action", function()
+  it("<CR> on a tree row draws the file on it", function()
+    show(1)
+    local wanted = assert(h.file_index(V, "src/nonl.md"))
+    assert.is_nil(V.render.file_rows[wanted], "the file was already drawn, so the jump proves nothing")
+
+    vim.api.nvim_win_set_cursor(V.panel_win, { assert(V.panel_render.file_row[wanted]), 0 })
+    press(V.panel_win, "<CR>")
+    assert.same({ wanted }, files_drawn(V.render))
+    assert.same(wanted, at())
+  end)
+end)
+
+describe("the queue float", function()
+  local first = 1
+  local second = assert(h.file_index(V, "src/routes.lua"))
+
+  -- One note in each of two files, which means drawing each of them to make it: solo is
+  -- not a filter on what a reviewer has written, and this is what gives that something to
+  -- be false about.
+  show(first)
+  vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, V.files[first].path)), 0 })
+  annotate.annotate("bug")
+  show(second)
+  local target_row = assert(h.line_row(V, V.files[second].path))
+  vim.api.nvim_win_set_cursor(V.win, { target_row, 0 })
+  annotate.annotate("bug")
+
+  it("lists every entry in the scope, not the drawn file's", function()
+    assert.same(2, #queue.all())
+    view.review_queue()
+    local float = vim.api.nvim_get_current_win()
+    local bar = vim.pesc(config.get().icons.change_bar)
+    local numbered = 0
+    for _, text in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)) do
+      if text:match("^%s*" .. bar .. "%s*%d+  ") then
+        numbered = numbered + 1
+      end
+    end
+    assert.same(2, numbered)
+    vim.api.nvim_win_close(float, true)
+  end)
+
+  it("jumps to an entry in another file by drawing that file", function()
+    show(second)
+    assert.same({ second }, files_drawn(V.render))
+    view.review_queue()
+    local float = vim.api.nvim_get_current_win()
+    local bar = vim.pesc(config.get().icons.change_bar)
+    for row, text in ipairs(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)) do
+      if text:match("^%s*" .. bar .. "%s*1  ") then
+        vim.api.nvim_win_set_cursor(float, { row, 0 })
+        break
+      end
+    end
+    press(float, "<CR>")
+
+    assert.same({ first }, files_drawn(V.render))
+    assert.same(first, at())
+  end)
+
+  queue.clear()
+  view.paint()
+end)
+
+describe("archived entries", function()
+  it("are drawn on the file being read", function()
+    local fi = assert(h.file_index(V, "src/routes.lua"))
+    state.archive_batch({
+      {
+        id = 1,
+        type = "bug",
+        kind = "file",
+        path = V.files[fi].path,
+        key = render.file_key(V.files[fi].path),
+        note = "already sent, about a soloed file",
+      },
+      -- `V.root` and not the path the fixture was built at: the archive is filed under the
+      -- **checkout**, and git resolves the symlink macOS's temporary directory is
+      -- (`/var/...` against `/private/var/...`). Filed under the other one it is an archive
+      -- about somewhere else, and the diff draws nothing with nothing wrong on screen.
+    }, "agent", V.root)
+    show(fi)
+
+    local found = false
+    for _, m in ipairs(h.virt_marks(V)) do
+      for _, line in ipairs(m[4].virt_lines) do
+        for _, chunk in ipairs(line) do
+          found = found or chunk[1]:find("already sent, about a soloed file", 1, true) ~= nil
+        end
+      end
+    end
+    assert.is_true(found, "the archived entry is not drawn on the file on screen")
+    assert.is_true(h.virt_groups(V).CodeReviewArchived or false)
+  end)
+end)
+
+describe("annotating a soloed file", function()
+  ---An entry without the two fields no two captures can share.
+  ---@param entry table
+  ---@return table
+  local function anonymous(entry)
+    local out = vim.deepcopy(entry)
+    out.id, out.at = nil, nil
+    return out
+  end
+
+  -- Nothing about how the reviewer was reading reaches the **target**: the entry a soloed
+  -- capture produces is the entry the same line produces with every file on screen.
+  -- ADR-0009, asserted as an equality rather than as an absence, because "no field says
+  -- solo" would pass with a field that said it under another name.
+  it("produces the entry it produces unsoloed", function()
+    queue.clear()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    show(fi)
+    local row = assert(h.line_row(V, V.files[fi].path))
+    vim.api.nvim_win_set_cursor(V.win, { row, 0 })
+    annotate.annotate("bug")
+    local soloed_entry = anonymous(queue.all()[1])
+
+    queue.clear()
+    config.get().solo = false
+    view.paint(fi)
+    local unsoloed_row = assert(h.row_of(V, V.files[fi].path, function(a)
+      return a.kind == "line"
+    end))
+    vim.api.nvim_win_set_cursor(V.win, { unsoloed_row, 0 })
+    annotate.annotate("bug")
+    local plain_entry = anonymous(queue.all()[1])
+
+    assert.same(plain_entry, soloed_entry)
+
+    queue.clear()
+    config.get().solo = true
+    view.paint()
+  end)
+end)
+
+-- `R`, `]h` and `[h` keep their present meaning in this ticket. `]h` reaching the end of
+-- what is drawn is newly *reachable* under solo, though -- unsoloed it would have walked
+-- into the next file -- so what it says there is pinned here rather than left for the next
+-- ticket to discover.
+describe("the keys this ticket does not change", function()
+  it("]h stops at the last hunk of the drawn file and says so", function()
+    show(assert(h.file_index(V, "src/main.lua")))
+    vim.api.nvim_win_set_cursor(V.win, { #V.render.lines, 0 })
+    local said = press(V.win, "]h")
+    assert.is_true(h.notified(said, "No next hunk here"), vim.inspect(said))
+  end)
+
+  it("R marks the drawn file reviewed and collapses it, leaving its header on screen", function()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    press(V.win, "R")
+    assert.is_truthy(V.reviewed[V.files[fi].path])
+    assert.same({ fi }, files_drawn(V.render))
+    assert.same(1, V.render.file_rows[fi])
+    unreview()
+  end)
+end)
+
+describe("the option turned off in a live review", function()
+  -- The other half of "off costs nothing": a view that stops soloing draws every file
+  -- again, with no second path to get back to.
+  it("draws every file again", function()
+    show(3)
+    assert.same({ 3 }, files_drawn(V.render))
+    config.get().solo = false
+    view.paint(3)
+    local every = {}
+    for i = 1, #V.files do
+      every[i] = i
+    end
+    assert.same(every, files_drawn(V.render))
+    config.get().solo = true
+  end)
+end)
