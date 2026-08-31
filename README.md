@@ -651,6 +651,36 @@ fold by different amounts stop being row-aligned, and row alignment is what spli
 
 [What `gl` carries across, how the chrome splits, and the one behavior that differs](docs/rationale.md#the-split-layout)
 
+### One file at a time
+
+A review of thirty changed files is one continuous expanse, and nothing in it says where a
+file ends. The tree, the sticky header and the fade each help; you can still lose track of
+which file you are in.
+
+**`solo = true` draws one file** — the file you are reading — and none of the others. You
+move through the review with the file keys you already have:
+
+| Key | Where it goes |
+| --- | --- |
+| `]f` `[f` | The next and previous file |
+| `]F` `[F` | The next and previous **unreviewed** file |
+| `<C-p>` | Any file, by name |
+| `<CR>` in the tree | The file on that row |
+
+Each of them draws the file it names. Nothing else changes. The **tree** goes on listing
+every file with its reviewed marks and note counts, so you keep the map of the review while
+reading one square of it, and the review summary counts the whole scope — `✓2/7` does not
+become `✓0/1` because of how you are reading.
+
+It works in both layouts: a soloed **split** draws the same one file in both panes, still
+row-aligned.
+
+Your **queue**, the **archive** and what reaches the agent are untouched. An annotation
+captured with one file on screen is byte-for-byte the annotation the same line produces with
+all of them on screen — nothing about how you were reading is recorded or sent.
+
+[Why one index space, and what moving between files costs](docs/rationale.md#solo)
+
 ### What changed inside a changed line
 
 Rename one identifier in an eighty-column line. A plain diff then shows you two
@@ -750,6 +780,8 @@ opts = {
   spans = true,                    -- emphasize what changed inside a changed line
   wrap = false,                    -- fold a line too wide for its window onto further rows.
                                    -- Unified only: a split layout stays row-aligned
+  solo = false,                    -- draw one file at a time -- the file being read -- and
+                                   -- move between files with `]f` `[f` `]F` `[F` `<C-p>`
   archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
                                    -- and tally the untouched ones on the winbar. `gA`
                                    -- overrides this for the rest of the session

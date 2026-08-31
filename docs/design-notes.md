@@ -158,6 +158,52 @@ Measured. **`virt_lines` still clip at the window edge under `wrap`**, also meas
 why the renderer goes on breaking a **note** to the pane's width itself: turning wrap on does
 not make that pre-breaking redundant.
 
+**`file_rows` is sparse under solo, and that is the design rather than a bug.** The render
+is *told which file to draw* -- an index in `render.build`'s options -- and walks the same
+file list it always walked, emitting rows for that one file. So the map holds one entry, at
+that file's own true index, and the file index in every anchor and in the header row it
+points at is still the true index into the review's file list. The obvious alternative is for
+the view to filter its file list to one entry and call the render as it always did; that
+collapses the index space, and every anchor then says file 1 while the file tree, the file
+picker and the reviewed marks go on speaking the real index. Nothing would notice, because
+the two surfaces never compare notes. One index space is the decision (ADR-0009).
+
+**So a file that is not in `file_rows` is not a failure -- it is the file to draw next.**
+Four surfaces go to a file *by index* and used to give up when the map had no row for it: the
+file jump, the unreviewed jump, the file picker's landing and the tree's open action. All
+four now say the same thing, `view.lua`'s `goto_file` -- set the soloed file, repaint through
+the paint that already parks the cursor on a file's header row, and land. The queue float's
+jump is the fifth site and the one exception: it takes the drawing without the landing,
+because it has an arrival of its own -- the annotated row, centered, in the pane the entry's
+key names -- and it has to draw *before* its anchor scan, since the rows that key is looked
+for on are the rows of the render it draws.
+
+**The sharpest failure that sparseness causes is a sentence, not a crash.** The unreviewed
+jump built its candidates by iterating `file_rows` **as an array**. Over a dense map that
+visits every index and is correct; over a map whose one entry is not at index 1, `ipairs`
+yields nothing, the candidate list is empty, and `]F` reports *"Everything in this scope is
+reviewed"* with five files still unreviewed. Nothing is drawn wrong and nothing raises. The
+candidates are the review's *files*, which are dense whatever the render does, and a file is
+reached by being drawn rather than by already having a row. `solo_spec` pins it with more
+than one file left unreviewed and the drawn file deliberately not at index 1 -- both are
+needed, or an empty answer and the right answer are the same length.
+
+**A file motion is an index, not a row, for the same reason.** `]f` and `[f` had always meant
+"the nearest file header row in that direction", which cannot answer when the file being
+looked for has no row. The rule restated: the file the cursor is in is the file whose header
+is nearest above it, so forward looks past that file and backward looks *at* it -- which is
+why `[f` from inside a file has always gone to the top of that file rather than past it --
+unless the cursor is already on that header, when backward looks before it. Equivalent to the
+row rule wherever the row rule can answer, checked over every row of a real render in both
+layouts and with files collapsed rather than argued. The half that is easy to drop in the
+rewrite is the `[f`-from-inside-a-file one: both rules agree from a header row, so a case that
+presses `[f` only from headers passes with it wrong.
+
+**Whether a file is left to go to is a question for the review; where a motion starts is a
+question for the cursor, and they must be asked in that order.** A review with no files has
+no cursor in one, so asking the cursor first leaves an empty scope silent where `]F` used to
+say the review was done. Cost one commit to put back.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
