@@ -41,6 +41,26 @@ M.defaults = {
   ---reviewer with a terminal wide enough for their code has no problem to solve, and
   ---upgrading the plugin should not re-draw their review.
   wrap = false, ---@type boolean
+  ---Draw one file -- the file being read -- and none of the others: **solo**. A reviewer
+  ---working through thirty changed files otherwise loses track of which one they are in,
+  ---because the diff is one continuous expanse and nothing in it says where a file ends.
+  ---They move through the review file by file, with the file keys they already have: `]f`
+  ---and `[f`, `]F` and `[F`, `<C-p>`, and the **file tree**'s own open action.
+  ---
+  ---A rendering choice and never a **scope**. The review goes on covering everything its
+  ---scope covers, so the file tree lists every file with its reviewed marks and its note
+  ---counts, the review summary counts every file in the scope rather than the one on
+  ---screen, and the **queue**, the **archive** and the **payload** are what they were. No
+  ---**entry** records that solo was on, so which file was being read never reaches the
+  ---receiving agent. This is ADR-0009.
+  ---
+  ---Orthogonal to `layout`, which is why it is not a third value of one: a **split** diff
+  ---can be soloed and is then the same one file in both **panes**, still row-aligned.
+  ---
+  ---Off by default, on wrap's precedent rather than the spans': a reviewer who does
+  ---nothing sees the review they already had, and upgrading the plugin does not re-draw
+  ---it.
+  solo = false, ---@type boolean
   ---Draw **archived** entries on the diff, dimmed, beneath the code they were about. A
   ---reviewer who keeps working while an agent does is otherwise looking at a review view
   ---with no memory of what it already sent, and reports the same finding twice. Every
@@ -307,6 +327,7 @@ function M.setup(opts)
   validate_layout(M.options.layout)
   validate_boolean("spans", M.options.spans)
   validate_boolean("wrap", M.options.wrap)
+  validate_boolean("solo", M.options.solo)
   validate_boolean("archived", M.options.archived)
   validate_blend("muted", M.options.muted)
   validate_boolean("muted.enabled", M.options.muted.enabled)

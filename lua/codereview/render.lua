@@ -35,7 +35,11 @@ local M = {}
 ---@field lines string[]
 ---@field anchors table<integer, CRAnchor>  Keyed by 1-indexed buffer row
 ---@field marks table[]                     { row, col, opts } for nvim_buf_set_extmark
----@field file_rows integer[]               1-indexed header row of each file
+---@field file_rows table<integer, integer> File index -> its 1-indexed header row. Sparse
+---                                         under **solo**: one entry, at the drawn file's
+---                                         own index. A file it says nothing about is a
+---                                         file this render did not draw, which is not a
+---                                         failure -- see `build`'s `solo` option.
 ---@field hunk_rows integer[]               1-indexed row of every visible hunk header
 ---@field gutter integer                    Display columns before the code on a diff row
 
@@ -450,12 +454,25 @@ end
 ---exactly what it was before an archive existed. `touched` is what the reconciliation made
 ---of those archived entries, keyed by entry id, and is optional for the same reason: an id
 ---it says nothing about is an entry nothing has judged.
+---
+---`solo` is the file to draw -- **the render is told which file to draw, and is never
+---handed a shorter list**. It is an index into `files`, or nil for all of them. The walk
+---below is the same walk over the same list; only which files emit rows changes, so the
+---file index in every **anchor**, in `file_rows` and in the header row it points at stays
+---the *true* index into the review's file list.
+---
+---The obvious alternative is for the caller to filter its own file list to one entry and
+---call this as it always did. That collapses the index space: every anchor would say file
+---1 while the **file tree**, the file picker and the reviewed marks still speak the real
+---index, and the two would silently disagree about which file is which. One index space is
+---the decision (ADR-0009), and this option is what buys it.
 ---@param files CRFile[]
----@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, types: CRType[] }
+---@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, solo: integer|nil, types: CRType[] }
 ---@return CRRender after, CRRender|nil before
 function M.build(files, opts)
   local icons = opts.icons
   local split = opts.layout == "split"
+  local solo = opts.solo
   local width = math.max(40, opts.width or 80)
   local before_width = math.max(40, opts.before_width or width)
   local digits = gutter_digits(files)
@@ -686,6 +703,15 @@ function M.build(files, opts)
   end
 
   for fi, file in ipairs(files) do
+    -- **Solo**: every file but the one being read emits nothing. A branch inside the walk
+    -- that is already here, so a review with solo off pays one comparison per file and
+    -- allocates nothing -- and the gutter above is still measured across every file, so a
+    -- soloed file is drawn exactly as it is drawn among the others rather than shifting
+    -- sideways when its neighbours stop being drawn.
+    if solo and fi ~= solo then
+      goto next_file
+    end
+
     --- File header -----------------------------------------------------------
     -- Asked rather than assembled here: the winbar's sticky header names the same file by
     -- the same rules, and this is the surface those rules are named after.
