@@ -718,6 +718,8 @@ opts = {
   max_syntax_bytes = 256 * 1024,   -- skip syntax above this size
   layout = "unified",              -- "unified" or "split". Validated at setup
   spans = true,                    -- emphasize what changed inside a changed line
+  wrap = false,                    -- fold a line too wide for its window onto further rows.
+                                   -- Unified only: a split layout stays row-aligned
   archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
                                    -- and tally the untouched ones on the winbar. `gA`
                                    -- overrides this for the rest of the session
@@ -730,7 +732,8 @@ opts = {
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌",
-            untouched = "↺" },     -- plain Unicode throughout: no Nerd Font anywhere
+            untouched = "↺", continuation = "↳" },
+                                   -- plain Unicode throughout: no Nerd Font anywhere
   types = nil,                     -- defaults to the five above. See Annotation types
 }
 ```

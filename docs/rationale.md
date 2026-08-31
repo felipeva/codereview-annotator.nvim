@@ -131,6 +131,48 @@ receiving agent ([ADR-0002](adr/0002-one-queue-one-entry-shape.md)).
 
 ---
 
+## Wrap
+
+**Unified only.** A line too wide for its window folds onto further rows rather than running
+off the right edge — in the unified layout, and never in a split one. Two **panes** hold
+different text, so they fold by different amounts, and a deletion would stop sitting on the
+row its replacement sits on. Row alignment is what the split layout exists for, so a split
+review keeps horizontal scrolling and the caveat above it.
+
+The **file tree** never folds either. Its rows are truncated to the panel width, and a folded
+path would put one file on two rows and stop the tree being a list.
+
+**It is window options and nothing else.** No row is added to the buffer, no **anchor** is
+created or moved, and no mark changes. Every count, every reviewed mark, every row an
+annotation hangs on and every navigation key are what they were, and which lines were folded
+never reaches the receiving agent
+([ADR-0002](adr/0002-one-queue-one-entry-shape.md)).
+
+**A continuation row carries a marker where the change bar would be.** Neither the bar nor
+the line number repeats there — one line has one number — and their absence is worth
+explaining rather than merely noticing. The marker rides at the start of the indent, so the
+code goes on starting in the column it starts in on an unfolded row.
+
+**The indent is a shift, and the render is what supplies it.** A diff row begins with the
+change bar, which is not whitespace, so Neovim computes a natural indent of zero for every
+row in the review. The shift supplies the whole gutter instead — the change bar, the line
+number padded to the diff's widest, the separator and the sign — which is also what makes it
+the same number for every row and therefore what makes a folded line line up under itself.
+That number is reported by `render.build` rather than worked out again by the view: the
+widest line number is computed once across every file, expanded or not, so the gutter does
+not resize when a file is expanded, and two answers about where the code starts would drift
+apart on the first review whose line numbers grew a digit.
+
+**Off by default.** The precedent is the layout's rather than the spans': a reviewer whose
+terminal is wide enough for their code has no problem to solve, and upgrading the plugin
+should not re-draw their review.
+
+**A note is unaffected.** The renderer already breaks one to the pane's width before drawing
+it, because a **virtual line** clips at the window edge instead of folding. That is still
+true with wrap on, so the pre-breaking stays correct and stays necessary.
+
+---
+
 ## Spans
 
 **Which lines pair.** The i-th deletion of a contiguous run pairs with the i-th addition of

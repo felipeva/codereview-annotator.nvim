@@ -295,3 +295,56 @@ describe("the split layout", function()
     assert.is_true(seen > 0, "the before pane drew nothing on screen, so it agrees vacuously")
   end)
 end)
+
+-- **Wrap** tightens this bound rather than loosening it. A folded line occupies more than
+-- one screen row, so a windowful of the same height holds fewer *buffer* rows, and a paint
+-- therefore emits over a shorter range than the same paint unwrapped. That is a saving and
+-- not a cost -- but the bound still has to hold at the new range, and a scroll still has to
+-- add what comes into view, which is the whole claim this file exists to make.
+describe("a wrapped window", function()
+  -- Back to one pane: wrap is said of the unified layout only.
+  view.toggle_layout()
+  -- Narrow enough that a rendered row is wider than the pane. `mkbig`'s rows are about
+  -- fifty columns with the gutter in front of them, and every case above wants a window
+  -- wide enough not to fold -- so the screen is narrowed here and nowhere before.
+  vim.o.columns = 70
+  view.paint()
+  scroll_to(1)
+  local _, unwrapped = syntax.viewport(V)
+
+  require("codereview").setup({
+    wrap = true,
+    compose = function(_, on_accept, _)
+      on_accept(nil, "note about this line")
+    end,
+  })
+  view.paint()
+  scroll_to(1)
+
+  it("folds the pane's long lines", function()
+    assert.is_true(vim.wo[V.win].wrap)
+  end)
+
+  it("reaches fewer buffer rows for the same window height", function()
+    local _, wrapped = syntax.viewport(V)
+    assert.is_true(
+      wrapped < unwrapped,
+      ("a wrapped paint reaches row %d and an unwrapped one row %d"):format(wrapped, unwrapped)
+    )
+  end)
+
+  it("writes the rows near the window and stops", function()
+    complete_through(V.buf, V.render, reach())
+  end)
+
+  it("adds what a scroll brings into view", function()
+    local before = #emitted(V.buf)
+    scroll_to(#V.render.lines)
+    assert.is_true(#emitted(V.buf) > before, "scrolling to the end of a wrapped review emitted nothing")
+    local first, last = on_screen()
+    local buf_rows, render_rows = in_buffer(V.buf), in_render(V.render)
+    for row = first, last do
+      assert.same(render_rows[row], buf_rows[row], ("row %d, on screen at the end"):format(row))
+    end
+  end)
+end)

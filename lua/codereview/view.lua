@@ -831,6 +831,12 @@ function M.paint(keep_file)
   if V.before_render then
     write_pane(V.before_buf, V.before_render)
   end
+  -- After the buffers hold their rows and before anything reads the viewport: **wrap**
+  -- decides how many buffer rows a windowful is, and the band emission below is bounded by
+  -- exactly that. Here rather than where the window was made, because the indent comes from
+  -- the render and the render is what this paint has just built -- which is also what
+  -- re-applies it after a resize, since a resize repaints.
+  view_layout.apply_wrap(V, V.render.gutter)
   -- The namespaces above were just cleared, so nothing this records still exists. Dropped
   -- here rather than in `paint_bands` for the reason `syntax_painted` is dropped by the
   -- paint: what a band means is decided by the render it was emitted from. The file those
