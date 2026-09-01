@@ -1201,10 +1201,18 @@ end
 ---remain. That is the one sentence a reviewer has to be able to trust. The files are dense
 ---whatever the render does, so they are what the candidates are, and a file is reached by
 ---being drawn rather than by already having a row.
+---
+---**Where the motion starts is an argument when the caller knows better than the cursor.**
+---`R` under **solo** marks a file and comes here to go on to the next unreviewed one, and
+---from the **file tree** the file it marked is a row the reviewer pointed at rather than the
+---file the diff cursor is in. The keys pass nothing and the cursor answers, as it always has.
 ---@param forward boolean
-function M.jump_unreviewed(forward)
+---@param from integer|nil Index into `V.files` the motion starts from; the cursor's file
+---       when nil
+---@return boolean moved Whether the view went to a file. What `R` paints on when it did not.
+function M.jump_unreviewed(forward, from)
   if not M.current() or not V.render then
-    return
+    return false
   end
   local unreviewed = {}
   for index, file in ipairs(V.files) do
@@ -1217,11 +1225,11 @@ function M.jump_unreviewed(forward)
   -- cursor first leaves an empty scope silent where it used to say this.
   if #unreviewed == 0 then
     info("Everything in this scope is reviewed")
-    return
+    return false
   end
-  local bound = motion_bound(forward)
+  local bound = from or motion_bound(forward)
   if not bound then
-    return
+    return false
   end
 
   local index = nearest(unreviewed, bound, forward)
@@ -1232,6 +1240,7 @@ function M.jump_unreviewed(forward)
     info(forward and "Wrapped to the first unreviewed file" or "Wrapped to the last unreviewed file")
   end
   goto_file(index)
+  return true
 end
 
 ---Jump to the next or previous annotated line.
@@ -1334,22 +1343,57 @@ function M.toggle_focus()
   view_panel.toggle_focus(V, M)
 end
 
+---Mark a file reviewed, or unmark one, and under **solo** go on to the next unreviewed file.
+---
+---**`R` is the one key whose meaning solo changes** rather than merely repainting for. Outside
+---solo it collapses the file it marks and the reviewer reads on down the diff; in solo there
+---is nothing else drawn to read on into, so the file gives way to the next unreviewed one and
+---marking and moving are one motion. That is the file-by-file loop the whole feature exists
+---for, and it is recorded in `CONTEXT.md` under **Solo** and in ADR-0009.
+---
+---**The collapse is kept either way.** Reviewed means collapsed is one rule, it is persisted,
+---and the choice to solo lasts a session rather than a review -- so a file marked while
+---soloing has to come back collapsed when the drawing stops, like every other reviewed file.
+---In solo it is what `]f` back onto that file finds rather than anything seen now.
+---
+---**Only marking goes on.** Unmarking is a reviewer correcting themselves, and being carried
+---off the file they have just reopened undoes the correction.
+---
+---**The motion starts from the file that was marked**, not from the diff cursor. In the diff
+---they are the same file. From the **file tree** they are not -- the row points at a file the
+---diff need not be drawing -- and the file the reviewer acted on is the one the motion
+---belongs to.
+---
+---The paint is the caller's, because there is one to make only when the view stayed where it
+---was: going on repaints through the motion, and painting here as well would draw the file
+---being left behind for nobody.
+---@param index integer Index into `V.files`
+---@return boolean advanced Whether the view went on to another file, and so has painted
+function M.mark_reviewed(index)
+  local file = V.files[index]
+  local marking = V.reviewed[file.path] == nil
+  if marking then
+    -- The blob is what makes the mark verifiable later: on reload, a file whose content
+    -- no longer hashes to this is a file you have not actually reviewed.
+    V.reviewed[file.path] = file.blob or ""
+    V.expanded[file.path] = false
+  else
+    V.reviewed[file.path] = nil
+    V.expanded[file.path] = true
+  end
+  local advanced = marking and soloed() ~= nil and M.jump_unreviewed(true, index)
+  M.persist()
+  return advanced
+end
+
 function M.toggle_reviewed()
   local file, index = file_at_cursor()
   if not file then
     return
   end
-  if V.reviewed[file.path] then
-    V.reviewed[file.path] = nil
-    V.expanded[file.path] = true
-  else
-    -- The blob is what makes the mark verifiable later: on reload, a file whose content
-    -- no longer hashes to this is a file you have not actually reviewed.
-    V.reviewed[file.path] = file.blob or ""
-    V.expanded[file.path] = false
+  if not M.mark_reviewed(index) then
+    M.paint(index)
   end
-  M.paint(index)
-  M.persist()
 end
 
 function M.toggle_expand()
