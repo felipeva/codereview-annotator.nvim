@@ -104,7 +104,7 @@ function M.resolve(view)
   end
 
   --- Whole file: the cursor is on a header, or the file has no annotatable body.
-  if base.kind == "file" or base.kind == "sep" or file.binary or #file.hunks == 0 then
+  if base.kind == "file" or file.binary or #file.hunks == 0 then
     return { file = file, file_index = base.file, kind = "file", lines = {}, clamped = clamped }
   end
 

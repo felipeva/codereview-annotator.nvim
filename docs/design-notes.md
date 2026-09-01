@@ -226,6 +226,63 @@ say the review was done. Cost one commit to put back.
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
 
+**A line-wide highlight is painted across the full window width past the end of the text,
+and it carries an underline out there with it.** On a **blank** row it is uniform from the
+first column to the last, which is what makes the **frame**'s bottom rule possible at all:
+the rule is a `line_hl_group` on the **pad** row, and no row is emitted for it. Measured on
+0.12, and `frame_child.lua` reads the pane's *last* column rather than its first, because a
+reading taken at the first column passes over a rule one cell wide. A row with no mark on it
+is visibly distinct from a marked blank row, so the pad row's rule is something a spec can
+read rather than something a reviewer has to be trusted about.
+
+**A `line_hl_group` replaces every attribute it sets on every inline highlight the row
+carries, and priority does not arbitrate between the two.** This is the rule the **frame**
+was built wrong against once, and the shape of it is not what either guess said. Measured on
+0.12, in a plain buffer with one column mark and one line mark and nothing else:
+
+- A line group setting `fg` takes the foreground of every `hl_group` range on the row. A line
+  group setting only `bg`, only `underline`, only `sp` or only `bold` leaves those ranges'
+  foregrounds alone and applies its own attribute over them. It is a per-attribute
+  replacement and not a wholesale one -- which is why the diff's `CodeReviewAdd` background
+  has always let the treesitter replay's foreground through.
+- **Priority does not enter into it.** The line group's foreground wins at priority 1 against
+  a column mark at 4096, and it still wins at priority 1000. Priority orders inline
+  highlights among themselves; it does not put one above a line group.
+- **Among line groups, though, priority does decide, and the winner is applied alone.** Two
+  `line_hl_group` marks on one row do not merge: the higher-priority one is used and the
+  other's attributes are gone entirely. So "emit the rule beside the header's own group"
+  looks like it works and silently costs that row its colour and its bold everywhere the
+  column marks do not reach.
+
+The consequence for this plugin was invisible and predates the frame: the file header row
+carried `CodeReviewFileHeader` as a `line_hl_group`, and `Title`'s foreground flattened every
+column mark on that row -- the `+N -M` stat and the note count were emitted, correct, and
+drawn in the header's colour. Nothing reported it, because every assertion about them was
+about which mark carried which group. So the frame's four groups carry **no foreground and no
+background**: an underline and `sp`, which is the underline's own colour. What the row is
+coloured in is a column mark of its own, below the band the stat and the path use, so the
+marks that own a run of the row win it by priority -- which is the thing priority does decide.
+
+`sp` has no `cterm` counterpart, because a terminal palette has no underline colour. On cterm
+the rule draws in whatever foreground the cell already had, which is that terminal's best
+rendering rather than a wrong one. `hl.lua` blends `sp` beside `fg` and `bg`, and a group
+whose only colour is `sp` gets a twin like any other -- without that, the rule a file is
+framed with is the one bright line in a pane that has lost focus.
+
+**`overline` is accepted by the highlight API and comes back in the `cterm` table**, so the
+temptation to draw the frame's bottom edge with one is real. It is the terminal and not
+Neovim that is the risk: many emulators ignore the sequence, so that edge would be invisible
+on some terminals with nothing reporting it. Both edges are underlines, and the pad row's
+draws at the bottom of a blank row, which is visually just above the next file's header.
+
+**A computed group has to write its `cterm` attributes by hand.** `nvim_set_hl` lets cterm
+follow the true-color attributes only when the `cterm` table is *absent*, and
+`nvim_get_hl` hands one over for any source group carrying a cterm attribute of its own --
+`Title` is bold in Neovim's own default theme, so it arrives as `cterm = { bold = true }`.
+Copy that table along with the colors and the frame is underlined on a true-color terminal
+and on no other: the exact failure the whole family of computed groups exists to avoid, and
+one no assertion over group names can see.
+
 **The intra-line span groups set a background and no foreground.** They sit at a priority
 band above the line's own diff color and below the treesitter replay, so a foreground there
 would lose to the replay wherever a parser had painted and win wherever one had not —
