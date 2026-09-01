@@ -429,4 +429,42 @@ function M.toggle_wrap()
   return wrap_override
 end
 
+--- The solo switch at runtime --------------------------------------------------
+
+---What `go` has said about **solo**, for the rest of this editing session.
+---
+---The third copy of the arrangement above, and copied again rather than generalised: three
+---module locals and six short functions each read as what they are, where one indirection
+---over a table of overrides would have to be understood before any of the three could be.
+---
+---Not persisted, for the reason the two above are not and one of its own. A **scope** is
+---kept per **checkout** because it says what the review *is*; solo says how one sitting is
+---being read, and an afternoon's way of reading restored into a different afternoon is a
+---worse answer than no memory at all (ADR-0009).
+---@type boolean|nil nil until the key has been pressed, when configuration decides
+local solo_override = nil
+
+---Whether the **review view** draws one file and none of the others.
+---
+---Read on every paint, which is what makes the switch re-decide rather than remember: a
+---**layout** toggle, a re-read from git and a **scope** change each ask again and each get
+---the answer the reviewer last gave.
+---@return boolean
+function M.solo()
+  if solo_override == nil then
+    return M.get().solo
+  end
+  return solo_override
+end
+
+---Draw one file, or every file, for the rest of this editing session.
+---
+---Both directions from wherever the switch stands now, so a reviewer whose configuration
+---has solo on can turn it off.
+---@return boolean on Whether one file is now drawn
+function M.toggle_solo()
+  solo_override = not M.solo()
+  return solo_override
+end
+
 return M
