@@ -408,6 +408,7 @@ local function current_label(layout)
   end
   return render.file_label(file, {
     icons = config.get().icons,
+    file_icon = config.get().file_icon,
     reviewed = V.reviewed,
     expanded = V.expanded,
     notes = V.notes,
@@ -417,18 +418,22 @@ end
 
 ---The file under the cursor, named as its own in-buffer header names it.
 ---
----Split into the part that may be cut and the parts that may not: the icon, the chevron and
----the stat are a handful of columns each and say what no number of columns of path can, so
----when a pane runs out of room the path is what gives them up.
+---Split into the part that may be cut and the parts that may not: the head and the stat are
+---a handful of columns each and say what no number of columns of path can, so when a pane
+---runs out of room the path is what gives them up.
 ---
----Literals, the icons included: a host chooses those, so they are not text the plugin wrote.
----The path arrives already in segments, from the one function that answers what a file is
----called -- so the bar and the in-buffer header row style it identically, and the cut a
----narrow pane makes goes through `render.keep_tail_segments` with the styling on it.
+---Literals, the glyphs included: a host chooses those, so they are not text the plugin
+---wrote. The head is the in-buffer header row's own prefix, taken off the label rather than
+---spelled a second time here -- the **state** mark, the chevron and whatever glyph the
+---`file_icon` adapter gave this file, in one string, which is what makes the two surfaces
+---carry one icon for one file. The path arrives already in segments, from the one function
+---that answers what a file is called -- so the bar and the in-buffer header row style it
+---identically, and the cut a narrow pane makes goes through `render.keep_tail_segments` with
+---the styling on it.
 ---
 ---Colored as the in-buffer file header colors the same facts, and for the same reason one
 ---function names the file for both: the counts apart, the note count in the group the notes
----themselves carry, the icon and the chevron quiet. The path's own two groups are that
+---themselves carry, the whole head quiet. The path's own two groups are that
 ---header row's, which is what makes the file's name the brightest thing on the left and the
 ---directories above it the quietest -- the part the reviewer scrolled here to keep, and the
 ---part every sibling file shares.
@@ -446,7 +451,7 @@ local function file_segment(label)
     tail[#tail + 1] = render.chrome(rest, "CodeReviewNoteCount")
   end
   return {
-    head = { render.literal(("%s %s "):format(label.icon, label.chevron), "CodeReviewBarIcon") },
+    head = { render.literal(label.prefix, "CodeReviewBarIcon") },
     path = label.name,
     tail = tail,
   }
@@ -850,6 +855,7 @@ function M.paint(keep_file)
     before_width = view_layout.has_before(V) and vim.api.nvim_win_get_width(V.before_win) or nil,
     layout = view_layout.has_before(V) and "split" or "unified",
     icons = cfg.icons,
+    file_icon = cfg.file_icon,
     expanded = V.expanded,
     reviewed = V.reviewed,
     notes = V.notes,

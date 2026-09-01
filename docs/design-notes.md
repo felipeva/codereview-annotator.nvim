@@ -36,7 +36,18 @@ assuming a fixed prefix width shifts every highlight on every changed line.
 colored there in two ranges — its directories quiet, its own name bright — and it starts after
 `"○ ▾ "`, which is **eight bytes and four display columns**. A mark placed at the display
 column lands four bytes early and colors the chevron instead of the first directory, on every
-header row in every review. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
+header row in every review.
+
+**That prefix is no longer a fixed string, and it is not the plugin's to predict.** A host
+that wires the `file_icon` adapter puts a glyph of its own between the chevron and the path,
+so the prefix is `"○ ▾  "` — however many bytes that host's glyph is. `file_label` therefore
+spells the prefix itself and hands it over as `prefix`, and the header row paints the path at
+`#label.prefix`: the string a row is built from and the offset a mark lands at are the same
+expression, so neither can be updated without the other. The **sticky header** puts that same
+string in one literal, which is what makes one file carry one icon on both surfaces and what
+escapes a glyph the plugin did not choose. The before pane's indent is measured off it with
+`strdisplaywidth` for the same reason — counted from the parts, a renamed file's two paths
+would sit apart by the width of the glyph. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
 `src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone
 proves the prefix and nothing about the path itself; `path_spec` builds a file list with an
 accented path by hand for the other half, which `render.build` allows because it is pure data.
@@ -349,6 +360,25 @@ hundred of them are **0.15 ms**. The whole walk went from 44.2 ms to 45.9 ms, so
 **1.1 ms** is the two extmarks a header row gained: 211,200 marks to 211,800, `+0.28%`. Twice
 a hundredth of the marks for four hundredths of the milliseconds, which is what an extmark
 costs relative to a table with three strings in it.
+
+**An injected file icon costs 0.3 µs a file, and with nothing wired it costs a nil test.**
+The `file_icon` adapter is asked **301 times on a three-hundred-file paint** — once per file
+the render draws, and once more for the **sticky header**'s own file, which is a second
+winbar's worth more in the split layout. Counted rather than argued, and with nothing wired
+the same count is **0**: there is no shipped glyph behind that adapter and therefore no
+default implementation of it to call, which is the whole of the guarantee. It is a rule a
+later edit cannot break by accident, where "we remembered not to call it" is one that can.
+
+**The paint cannot resolve those calls, and the label walk can.** Same method as everything
+else here — collect before every timing, alternate the arms, even rounds, medians. A paint at
+three hundred files × three hundred lines is 112 to 188 ms across one run, and its own null
+(two arms with nothing wired in either) read −0.1 ms once and −6.6 ms the next time, so
+anything under about 7 ms there is drift wearing a number's clothes. Walking the three hundred
+labels alone resolves it: **0.28 ms to 0.38 ms**, `+0.09` and `+0.10 ms` in two runs, against a
+null of ±0.04. An adapter that *raises* on every file is the one figure worth remembering —
+**+6.7 ms a paint**, twice, or about 22 µs a file for building an error object and unwinding a
+`pcall`. That is a broken host configuration, it is under six percent of a paint, and it is
+what buying "the review survives" costs.
 
 **Nothing downstream of that separates from the machine.** A repaint at three hundred files is
 about 81 ms and swings 73 to 128 between runs; `]f` is 12 ms a press warm and 21 ms cold, and
