@@ -441,6 +441,52 @@ describe("both panes of a split layout", function()
   end)
 end)
 
+--- One painted cell -------------------------------------------------------------
+
+-- Everything above is group names on marks, and a group name cannot say whether the rule was
+-- *painted*, nor in what colour. The claim the four groups were put where `hl.groups()` reads
+-- them for is that a frame row inside a **muted** pane comes out muted with it -- and a group
+-- named anywhere else comes out at full brightness with nothing to report it.
+--
+-- One child, one cell, because `nvim__inspect_cell` is honest only on the first call a process
+-- makes. The cell is the last column of the pane on the blank pad row that closes a file: a
+-- blank row carries the line-wide group and nothing else, and the last column is as far past
+-- the end of the text as a rule the full width of the pane has to reach.
+describe("the cell a reviewer's screen really holds", function()
+  ---@return string
+  local function child()
+    local run = vim
+      .system({
+        vim.v.progpath,
+        "--clean",
+        "-l",
+        vim.fs.joinpath(h.root, "tests", "codereview", "frame_child.lua"),
+      }, {
+        cwd = root,
+        text = true,
+        env = {
+          FIXTURE = root,
+          XDG_STATE_HOME = vim.fn.tempname() .. "-state",
+          GIT_CONFIG_GLOBAL = "/dev/null",
+          GIT_CONFIG_SYSTEM = "/dev/null",
+        },
+      })
+      :wait(60000)
+    -- `nvim -l` sends print to stderr, so read both streams rather than guessing.
+    local out = (run.stdout or "") .. (run.stderr or "")
+    assert(run.code == 0, out)
+    return vim.trim(out)
+  end
+
+  -- 0x00ee00 is what `Title` is set to in the child, and 0x007700 is that halfway to a black
+  -- `Normal` background -- the muting's own arithmetic and nothing else's. A frame group the
+  -- namespace did not name would read `fg=00ee00` here, on a screen that looks wrong to a
+  -- reviewer and right to every assertion made over names.
+  it("mutes the bottom rule with its pane, and keeps its underline out there", function()
+    assert.same('cell " " fg=007700 bg=000000 underline=true', (child():gsub(" at %d+,%d+$", "")))
+  end)
+end)
+
 --- What the frame costs ----------------------------------------------------------
 
 -- The whole of what a paint gains, stated as a number rather than reasoned about: the header

@@ -226,6 +226,29 @@ say the review was done. Cost one commit to put back.
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
 
+**A line-wide highlight is painted across the full window width past the end of the text,
+and it carries an underline out there with it.** On a **blank** row it is uniform from the
+first column to the last, which is what makes the **frame**'s bottom rule possible at all:
+the rule is a `line_hl_group` on the **pad** row, and no row is emitted for it. Measured on
+0.12, and `frame_child.lua` reads the pane's *last* column rather than its first, because a
+reading taken at the first column passes over a rule one cell wide. A row with no mark on it
+is visibly distinct from a marked blank row, so the pad row's rule is something a spec can
+read rather than something a reviewer has to be trusted about.
+
+**`overline` is accepted by the highlight API and comes back in the `cterm` table**, so the
+temptation to draw the frame's bottom edge with one is real. It is the terminal and not
+Neovim that is the risk: many emulators ignore the sequence, so that edge would be invisible
+on some terminals with nothing reporting it. Both edges are underlines, and the pad row's
+draws at the bottom of a blank row, which is visually just above the next file's header.
+
+**A computed group has to write its `cterm` attributes by hand.** `nvim_set_hl` lets cterm
+follow the true-color attributes only when the `cterm` table is *absent*, and
+`nvim_get_hl` hands one over for any source group carrying a cterm attribute of its own --
+`Title` is bold in Neovim's own default theme, so it arrives as `cterm = { bold = true }`.
+Copy that table along with the colors and the frame is underlined on a true-color terminal
+and on no other: the exact failure the whole family of computed groups exists to avoid, and
+one no assertion over group names can see.
+
 **The intra-line span groups set a background and no foreground.** They sit at a priority
 band above the line's own diff color and below the treesitter replay, so a foreground there
 would lose to the replay wherever a parser had painted and win wherever one had not —
