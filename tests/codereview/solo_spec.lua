@@ -562,15 +562,95 @@ describe("annotating a soloed file", function()
   end)
 end)
 
--- `]h` keeps the meaning it has, and reaching the end of what is drawn is newly *reachable*
--- under solo -- unsoloed it would have walked into the next file -- so what it says there is
--- pinned rather than left for a rewrite to lose.
-describe("the keys this ticket does not change", function()
+-- **`]h` and `[h` stop at the drawn file's last and first hunk and report it.** A hunk key
+-- that silently repainted the whole view would be a surprise, and `]F` is one keystroke away.
+--
+-- They do it by construction rather than through a branch of their own: `hunk_rows` is
+-- appended inside the render's file walk, and solo gates that walk one file up, so a soloed
+-- render can only ever hold the drawn file's hunks. Asserted here because a construction
+-- nothing pins is one the next rewrite can lose without reddening anything -- and because the
+-- fixture gives each file a single hunk, so a case reasoning from the count rather than
+-- pressing the key would be right for the wrong reason.
+describe("]h and [h", function()
   it("]h stops at the last hunk of the drawn file and says so", function()
     show(assert(h.file_index(V, "src/main.lua")))
     vim.api.nvim_win_set_cursor(V.win, { #V.render.lines, 0 })
     local said = press(V.win, "]h")
     assert.is_true(h.notified(said, "No next hunk here"), vim.inspect(said))
+  end)
+
+  it("[h stops at the first hunk of the drawn file and says so", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.hunk_rows[1], 0 })
+    local said = press(V.win, "[h")
+    assert.is_true(h.notified(said, "No previous hunk here"), vim.inspect(said))
+    assert.same({ fi }, files_drawn(V.render))
+  end)
+
+  -- The other half of what "stop" means: with solo off both keys walk out of the file they
+  -- are in, which is what they have always done and what this ticket must not have changed.
+  it("cross into the next and the previous file with solo off", function()
+    unreview()
+    config.get().solo = false
+    view.paint(1)
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    local rows = {}
+    for _, r in ipairs(V.render.hunk_rows) do
+      if V.render.anchors[r].file == fi then
+        rows[#rows + 1] = r
+      end
+    end
+    vim.api.nvim_win_set_cursor(V.win, { rows[#rows], 0 })
+    press(V.win, "]h")
+    local forward = at()
+    vim.api.nvim_win_set_cursor(V.win, { rows[1], 0 })
+    press(V.win, "[h")
+    local backward = at()
+    -- Read, put the option back, and only then assert, so a failure here does not leave solo
+    -- off under every case below this one.
+    config.get().solo = true
+    view.paint(1)
+
+    assert.same(fi + 1, forward)
+    assert.same(fi - 1, backward)
+  end)
+end)
+
+-- `]a` and `[a` are unchanged by this ticket, and they reach the drawn file's notes for the
+-- same reason the hunk keys stop: they collect their rows out of the render's anchors, which
+-- under solo name one file. The **queue** is not filtered -- the note in the file that is not
+-- drawn is still in it, and still submits -- so this is about where a key can go, not about
+-- what a reviewer has written.
+describe("]a and [a", function()
+  it("move between the drawn file's annotations and reach no other file's", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    local other = assert(h.file_index(V, "src/routes.lua"))
+    -- One note in each, which means drawing each of them to make it.
+    show(other)
+    vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, V.files[other].path)), 0 })
+    annotate.annotate("bug")
+    show(fi)
+    local annotated = assert(h.line_row(V, V.files[fi].path))
+    vim.api.nvim_win_set_cursor(V.win, { annotated, 0 })
+    annotate.annotate("bug")
+    assert.same(2, #queue.all())
+
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    press(V.win, "]a")
+    assert.same(annotated, vim.api.nvim_win_get_cursor(V.win)[1])
+    -- The drawn file holds one note, so both keys come back to it rather than reaching the
+    -- one in the file that is not drawn, and neither of them draws another file.
+    press(V.win, "]a")
+    assert.same(annotated, vim.api.nvim_win_get_cursor(V.win)[1])
+    press(V.win, "[a")
+    assert.same(annotated, vim.api.nvim_win_get_cursor(V.win)[1])
+    assert.same({ fi }, files_drawn(V.render))
+
+    queue.clear()
+    view.paint(fi)
   end)
 end)
 
