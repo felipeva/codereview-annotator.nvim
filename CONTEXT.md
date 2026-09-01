@@ -110,13 +110,17 @@ _Avoid_: focus, isolate, single-file mode, only, zen
 **Frame**:
 The rule above and below a file's body in the **review view**, so a file has a visible end and
 not only a visible beginning. Drawn as highlight groups on rows that are there anyway — an
-underline on the file's header row, an overline on the **pad** after its last hunk — and never
-as a row of its own: a row would need an **anchor**, and a reviewer could then put a cursor on
-a thing that is not part of the diff. A collapsed file gets the header's rule alone, because
-it has no body to bound and two rules with nothing between them read as a broken frame rather
-than a closed file. Fades with its file, the way that file's hunk headers do and its header
-row does not (see **Faded**). Not _separator_: a frame says where one file ends *and* where it
-began, which a thing between two files cannot.
+underline on the file's header row, and a second underline on the **pad** after its last hunk,
+which draws at the bottom of that blank row and is therefore visually just above the next
+file's header — and never as a row of its own: a row would need an **anchor**, and a reviewer
+could then put a cursor on a thing that is not part of the diff. Both edges are underlines and
+never an overline: an overline is accepted by Neovim and maps to a terminal sequence many
+emulators ignore, so a bottom edge drawn with it is invisible on some terminals and nothing
+reports it. A collapsed file gets the header's rule alone, because it has no body to bound and
+two rules with nothing between them read as a broken frame rather than a closed file. Fades
+with its file, the way that file's hunk headers do and its header row does not (see **Faded**).
+Not _separator_: a frame says where one file ends *and* where it began, which a thing between
+two files cannot.
 _Avoid_: border, box, card, rule, divider, separator
 
 **Wrap**:

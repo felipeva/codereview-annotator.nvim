@@ -588,6 +588,38 @@ revision says less than none of a path the other pane is naming anyway. A
 review with no files at all shows the summary alone, with no empty file
 segment.
 
+Where a file ends                                          *codereview-frame*
+
+A file's body is *framed*: a rule runs the full width of the pane under the
+file's header row, and a second one under the blank row that closes the body.
+So a file has a visible end and not only a visible beginning, and scrolling out
+of one is something you see rather than something you work out: >
+    ▸ src/main.lua                                              +12 -3
+    ────────────────────────────────────────────────────────────────────
+      @@ -1,7 +1,9 @@ local M = {}
+    ▌20 │ +local cfg = loadConfig()
+
+    ────────────────────────────────────────────────────────────────────
+    ▸ src/init.lua                                               +2 -0
+<
+Nothing is added to the diff. Both rules are highlight groups on rows that are
+there anyway, painted across the full window width past the end of the text, so
+your line counts, your scrolling and the rows every annotation hangs on are
+exactly what they were. A row of the plugin's own would be a row you could put
+a cursor on that is not part of the diff.
+
+A collapsed file carries the header's rule alone. It has no body to bound, and
+two rules with nothing between them read as a broken frame rather than as a
+closed file. A file you have marked reviewed collapses, so it reads the same
+way.
+
+The frame fades with its file (|codereview-faded|) and mutes with its pane
+(|codereview-muted|). A faded file keeps its header row bright, as it does
+anyway, so what fades is the bottom rule.
+
+See |codereview-highlights| for the four groups it draws with, and for why they
+are not links.
+
 What changed inside a line                                 *codereview-spans*
 
 Where a deletion and an addition are two versions of the same line, the spans
@@ -1300,7 +1332,6 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewFileHeader   -> Title
     CodeReviewFileReviewed -> Comment
     CodeReviewHunkHeader   -> Special
-    CodeReviewSep          -> WinSeparator
     CodeReviewTitle        -> Title
     CodeReviewNote         -> Comment
     CodeReviewNoteCount    -> Comment
@@ -1323,7 +1354,7 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewNitpick      -> DiagnosticHint
     CodeReviewIssue        -> DiagnosticOk
 <
-Two are not links. The intra-line spans (|codereview-spans|) take `DiffText`'s
+Six are not links. The intra-line spans (|codereview-spans|) take `DiffText`'s
 *background and nothing else*: >
     CodeReviewAddSpan      -> DiffText's background
     CodeReviewDelSpan      -> DiffText's background
@@ -1334,6 +1365,28 @@ wherever one had not, which is emphasis that changes color depending on which
 languages you have installed. A background alone composes with the replay, and
 that is what keeps code readable inside an emphasized span. Both are still
 `default = true`, so overriding either works the same way as the rest.
+
+The **frame** (|codereview-frame|) takes a file header's colors and adds an
+underline to them, which is the one thing a link cannot do. Two pairs, because
+a file's header row draws in one group when it is reviewed and another when it
+is not, and both edges of one frame come from that same group: >
+    from CodeReviewFileHeader    CodeReviewFrameHeader
+                                 CodeReviewFramePad
+    from CodeReviewFileReviewed  CodeReviewFrameReviewed
+                                 CodeReviewFramePadReviewed
+<
+The first of each pair goes on the file's header row and carries the whole of
+the group it comes from. The second goes on the blank row that closes the body
+and carries that group's foreground alone, because a background there would
+make the row a band rather than a rule.
+
+Both edges are underlines. `overline` maps to a terminal sequence many
+emulators ignore, so a bottom edge drawn with it would be invisible on some
+terminals with nothing to tell you.
+
+Override the two file header groups above and the frame follows them, which is
+the way to recolor it. Override these four directly and it does not. All four
+are `default = true` as well.
 
 Three more families are computed, and none is yours to set. A **muted**
 pane (|codereview-muted|) draws every group through a twin named

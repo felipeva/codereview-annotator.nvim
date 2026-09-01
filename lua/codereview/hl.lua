@@ -39,7 +39,6 @@ local LINKS = {
   CodeReviewFileHeader = "Title",
   CodeReviewFileReviewed = "Comment",
   CodeReviewHunkHeader = "Special",
-  CodeReviewSep = "WinSeparator",
   CodeReviewNoteCount = "Comment",
   CodeReviewNote = "Comment",
   CodeReviewStale = "DiagnosticWarn",
@@ -125,14 +124,15 @@ local SPAN_SOURCE = "DiffText"
 local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 
 -- The **frame**: the rule above and below a file's body, so a file has a visible end and
--- not only a visible beginning. Each group here takes the colors of the group it is keyed
--- to and adds an underline.
+-- not only a visible beginning. One entry per group a file's header row can carry, holding
+-- that file's two edges: `framed` goes on the header row in place of the source group, and
+-- `pad` goes on the blank **pad** row that closes the body.
 --
 -- **Computed rather than linked, and that is forced rather than preferred.** A
 -- `default = true` link copies its target's attributes wholesale, so a group linked to
 -- `Title` cannot be `Title` *and* an underline. The header row already carries a line-wide
--- group; what the frame changes is which one. The **pad** row carried none, and its group
--- is new.
+-- group; what the frame changes is which one. The pad row carried none, and its group is
+-- new.
 --
 -- **Both edges are `underline`.** `overline` is accepted by this API and comes back in the
 -- `cterm` table, so the temptation is real -- but it maps to a terminal sequence many
@@ -140,19 +140,17 @@ local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 -- The pad row's underline sits at the bottom of a blank row, which is visually just above
 -- the next file's header, so one attribute draws both edges.
 --
--- **The pad row's rule takes the header's foreground and nothing else.** The two edges of
--- one frame are one color -- a second source would let a colorscheme make the top and the
--- bottom of one frame two different things -- and a background would make the pad row a
--- band rather than a rule. A file that is reviewed *and* expanded is the one case where the
--- top edge is the reviewed group and the bottom edge is not; it draws a bottom edge one
--- shade brighter than its top, which is the price of one pad group rather than two.
----@type table<string, string>
+-- **Keyed by the header's group, so one file's two edges come from one source.** A frame
+-- whose edges disagree about the file's state reads as a rendering fault rather than as a
+-- shade, and the disagreement is reachable: `za` expands a file without unmarking it, so a
+-- reviewed file with a body is what that key is for. Keying the table this way is what
+-- makes the two edges agree by construction instead of by a rule to remember, and the
+-- fourth group is the whole cost of it.
+---@type table<string, { framed: string, pad: string }>
 local FRAME_SOURCES = {
-  CodeReviewFrameHeader = "CodeReviewFileHeader",
-  CodeReviewFrameReviewed = "CodeReviewFileReviewed",
+  CodeReviewFileHeader = { framed = "CodeReviewFrameHeader", pad = "CodeReviewFramePad" },
+  CodeReviewFileReviewed = { framed = "CodeReviewFrameReviewed", pad = "CodeReviewFramePadReviewed" },
 }
-local FRAME_PAD = "CodeReviewFramePad"
-local FRAME_PAD_SOURCE = "CodeReviewFileHeader"
 
 -- What a review window draws in that is not this plugin's to define: the text with no
 -- capture over it, the row under the cursor, the gutter and the winbar. Named here rather
@@ -176,22 +174,28 @@ end
 ---frame would then be underlined on a true-color terminal and not on any other, which is the
 ---one failure this whole family of groups exists to avoid.
 local function apply_frame()
-  for group, source in pairs(FRAME_SOURCES) do
+  for source, pair in pairs(FRAME_SOURCES) do
     local def = vim.api.nvim_get_hl(0, { name = source, link = false })
+
+    -- The header row's own group, with the attribute added and everything else the header
+    -- already drew in left alone -- a bold `Title` stays bold.
     local framed = vim.tbl_extend("force", {}, def)
     framed.cterm = vim.tbl_extend("force", {}, def.cterm or {})
     framed.underline, framed.cterm.underline = true, true
     framed.default = true
-    vim.api.nvim_set_hl(0, group, framed)
+    vim.api.nvim_set_hl(0, pair.framed, framed)
+
+    -- The pad row's rule: that same foreground and nothing else. A background would make
+    -- the pad row a band rather than a rule, and the row is blank, so there is no text for
+    -- a bold or an italic to fall on.
+    vim.api.nvim_set_hl(0, pair.pad, {
+      fg = def.fg,
+      ctermfg = def.ctermfg,
+      underline = true,
+      cterm = { underline = true },
+      default = true,
+    })
   end
-  local head = vim.api.nvim_get_hl(0, { name = FRAME_PAD_SOURCE, link = false })
-  vim.api.nvim_set_hl(0, FRAME_PAD, {
-    fg = head.fg,
-    ctermfg = head.ctermfg,
-    underline = true,
-    cterm = { underline = true },
-    default = true,
-  })
 end
 
 ---Every highlight group a review window is known to draw in.
@@ -210,10 +214,10 @@ function M.groups()
     out[#out + 1] = group
   end
   vim.list_extend(out, SPAN_GROUPS)
-  for group in pairs(FRAME_SOURCES) do
-    out[#out + 1] = group
+  for _, pair in pairs(FRAME_SOURCES) do
+    out[#out + 1] = pair.framed
+    out[#out + 1] = pair.pad
   end
-  out[#out + 1] = FRAME_PAD
   vim.list_extend(out, EDITOR_GROUPS)
   for _, t in ipairs(require("codereview.config").get().types) do
     out[#out + 1] = t.hl
