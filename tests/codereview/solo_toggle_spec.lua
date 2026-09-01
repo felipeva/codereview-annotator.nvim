@@ -319,9 +319,9 @@ describe("every other view-wide key", function()
 
   it("gs leaves it on, all the way round the cycle", function()
     -- Round the whole cycle rather than one step: a **scope** change replaces the file list
-    -- under the soloed index, and the scopes this fixture reaches on the way hold one file
-    -- each -- where "one file drawn" is true whether or not the switch survived. Coming back
-    -- to a scope of eight is what makes the last assertion mean something.
+    -- under the soloed index, and two of the scopes on the way hold one file -- where "one
+    -- file drawn" is true whether or not the switch survived. Coming back to a scope of
+    -- eight is what makes the last assertion mean something.
     local scopes = {}
     repeat
       feed_in(V.win, "gs")
@@ -332,5 +332,67 @@ describe("every other view-wide key", function()
     assert.same("branch", V.scope.name, "the cycle never came back: " .. vim.inspect(scopes))
     assert.is_true(#V.files > 1, "the scope it came back to has one file, which proves nothing")
     assert.same(1, #files_drawn(V.render))
+  end)
+end)
+
+--- The place kept when the index has outrun the file list -----------------------
+
+-- One state tells the soloed index and the file the cursor is in apart. Everywhere else
+-- they are the same file: under solo only the drawn file has rows, so the cursor can be in
+-- no other one. A **scope** change replaces the file list and leaves `V.solo` where the file
+-- navigation put it. The paint clamps that index to the last file; the index itself stays
+-- too large. `go` off keeps the reviewer's place, and the place is the file on screen.
+--
+-- Reached with keys only -- `]f` to the last file of a scope of eight, then `gs` to a scope
+-- of three. Writing `V.solo` from here would prove the clamp, which `solo_spec` proves
+-- already, and would pin an internal instead of a behaviour.
+--
+-- Last in the file, because it ends in a different scope from the one it started in.
+
+describe("go with the soloed index outrun by the file list", function()
+  local outrun
+
+  it("is a state the keys reach", function()
+    assert.is_true(config.solo(), "the switch is off, so the walk below draws every file")
+
+    -- `]f` under solo draws the file it moves to, and drawing a file is what moves the
+    -- index. Walk to the last file, so that every smaller scope outruns it.
+    while at() < #V.files do
+      feed_in(V.win, "]f")
+    end
+    outrun = assert(V.solo, "the walk set no soloed index")
+    assert.same(#V.files, outrun)
+
+    -- A scope with fewer files than the index, and with more than one file. One file is not
+    -- enough: the paint would clamp to the first file, which is also the row a scope change
+    -- parks the cursor on, and an arrival there proves nothing.
+    local visited = {}
+    repeat
+      feed_in(V.win, "gs")
+      visited[#visited + 1] = ("%s(%d)"):format(V.scope.name, #V.files)
+    until (#V.files > 1 and #V.files < outrun) or #visited > 8
+
+    assert.is_true(
+      #V.files > 1 and #V.files < outrun,
+      ("no scope holds between 2 and %d files: %s"):format(outrun - 1, vim.inspect(visited))
+    )
+    -- The state itself: the index names a file the review no longer has, the paint draws
+    -- the last file the review does have, and the cursor is in that one.
+    assert.same(outrun, V.solo)
+    assert.same({ #V.files }, files_drawn(V.render))
+    assert.same(#V.files, at())
+  end)
+
+  it("draws every file again and puts the cursor on the file the paint drew", function()
+    local clamped = #V.files
+    assert.is_true(clamped < outrun, "the index no longer outruns the file list")
+
+    feed_in(V.win, "go")
+
+    assert.same(every_file(), files_drawn(V.render))
+    -- The discriminating half: the index has no row in a list this short, so a paint that
+    -- kept the index instead of the file would leave the cursor at the top of the review.
+    assert.same(clamped, at())
+    assert.same(V.render.file_rows[clamped], vim.api.nvim_win_get_cursor(V.win)[1])
   end)
 end)
