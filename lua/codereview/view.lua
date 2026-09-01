@@ -797,7 +797,7 @@ end
 ---drawn empty rather than the render being handed an index into nothing.
 ---@return integer|nil
 local function soloed()
-  if not config.get().solo or #V.files == 0 then
+  if not config.solo() or #V.files == 0 then
     return nil
   end
   return math.min(V.solo or 1, #V.files)
@@ -2103,6 +2103,50 @@ function M.toggle_wrap()
   -- presses a key is asking about the diff in front of them. Nothing is re-rendered that a
   -- resize does not re-render, and the window options this ends in are four writes.
   M.paint()
+end
+
+--- Solo ---------------------------------------------------------------------------
+
+-- The switch and the override in front of it are `config`'s, for the reason the archived
+-- flag's and **wrap**'s are: the choice outlives this view, so every review opened
+-- afterwards has to agree with it. What is left here is the name `keymaps.lua` binds to
+-- `go` in the diff and in the tree, and the file the reviewer keeps across the change.
+
+---Draw one file, or every file, for the rest of the Neovim session.
+---
+---**The file under the cursor is the file that stays**, in both directions. Narrowing is a
+---request to read *this* file more closely, so turning solo on must not move the reviewer
+---off it -- and turning solo off brings the other files back around the one being read
+---rather than returning to the top of the review. Both are the same sentence, which is why
+---one paint answers for both, parking the cursor on that file's header row through the
+---arrival every file jump already uses.
+---
+---**The cursor is asked which file it is in before the paint**, and the order is load-bearing
+---rather than a matter of taste. `current_file()` reads the anchor under the cursor in
+---`V.render`, and the paint replaces `V.render` -- so the same question asked afterwards is
+---answered by the rendering this key has just produced, which makes the place the reviewer
+---is kept in a fact about the paint instead of about where they were. The switch sitting
+---between the two reads is not what carries this: the toggle writes a module local in
+---`config` and touches no anchor, so moving it either side of the read changes nothing.
+---
+---**The soloed index is set only on the way on.** Off, it is not read at all -- `soloed()`
+---answers nil -- and writing it anyway would say that a key which draws every file had an
+---opinion about which one. That is also what leaves the index where the file navigation last
+---put it, for whenever the key is pressed again.
+---
+---Nothing here is stored: the switch is read on every paint, so a repaint, a re-read, a
+---**scope** change and a **layout** toggle each ask again and each get the answer the
+---reviewer last gave.
+---
+---Both calls do nothing with no review open, which is a state this key cannot be pressed in
+---but the exported action can be called in: the override is still taken, and the next review
+---opened agrees with it.
+function M.toggle_solo()
+  local here = M.current() and current_file() or nil
+  if config.toggle_solo() and here then
+    V.solo = here
+  end
+  M.paint(here)
 end
 
 --- Switching checkout -----------------------------------------------------------

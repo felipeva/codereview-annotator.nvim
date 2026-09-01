@@ -97,6 +97,7 @@ to close the review.
 | `gA` | Show or hide archived entries, for the rest of the session |
 | `gS` | Switch the review to another checkout of this repository |
 | `gw` | Fold long lines, or stop folding them, for the rest of the session |
+| `go` | Draw one file at a time, or every file, for the rest of the session |
 | `<CR>` | Open the real file here, in a new tab |
 | `gd` | Read this file in your own diff tool ([`open_diff`](#adapters) only) |
 | `Q` | Read the queue |
@@ -147,7 +148,7 @@ The composer opens in insert mode. `<C-s>` and `<C-t>` work in insert and normal
 | `<C-p>` | Jump to a file by name |
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree and land back in the diff |
-| `gl` `gb` `gc` `gA` `gS` `gw` | The same as in the diff |
+| `gl` `gb` `gc` `gA` `gS` `gw` `go` | The same as in the diff |
 | `q` | Close |
 
 If you jump to a file that was collapsed because it is reviewed, the plugin expands it. You
@@ -657,8 +658,12 @@ A review of thirty changed files is one continuous expanse, and nothing in it sa
 file ends. The tree, the sticky header and the fade each help; you can still lose track of
 which file you are in.
 
-**`solo = true` draws one file** — the file you are reading — and none of the others. You
-move through the review with the file keys you already have:
+**`go` draws one file** — the file you are reading — and none of the others. Press it again
+and every file comes back. It works from the diff and from the tree, and it keeps the file
+you are in either way, so narrowing and widening both leave you where you were rather than at
+the top of the review.
+
+You move through the review with the file keys you already have:
 
 | Key | Where it goes |
 | --- | --- |
@@ -681,7 +686,14 @@ the map of the review while reading one square of it, and the review summary cou
 scope — `✓2/7` does not become `✓0/1` because of how you are reading.
 
 It works in both layouts: a soloed **split** draws the same one file in both panes, still
-row-aligned.
+row-aligned. Every other view-wide key leaves it alone — `gl`, `gr`, `gs`, `gS`, `gp` and
+`gA` each do their own job with one file still on screen, and `za` still collapses the file
+you are reading down to its header.
+
+It is off until you ask for it, and `solo = true` has it on from the first review. What `go`
+says lasts the rest of the session and is written nowhere: a **scope** is kept per checkout
+because it says what the review *is*, and how you read one afternoon is not something to
+restore into a different one.
 
 Your **queue**, the **archive** and what reaches the agent are untouched. An annotation
 captured with one file on screen is byte-for-byte the annotation the same line produces with
@@ -789,7 +801,8 @@ opts = {
   wrap = false,                    -- fold a line too wide for its window onto further rows.
                                    -- Unified only: a split layout stays row-aligned
   solo = false,                    -- draw one file at a time -- the file being read -- and
-                                   -- move between files with `]f` `[f` `]F` `[F` `<C-p>`
+                                   -- move between files with `]f` `[f` `]F` `[F` `<C-p>`.
+                                   -- `go` overrides this for the rest of the session
   archived = true,                 -- draw already-dispatched entries on the diff, dimmed,
                                    -- and tally the untouched ones on the winbar. `gA`
                                    -- overrides this for the rest of the session

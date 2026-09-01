@@ -135,6 +135,13 @@ function M.diff(buf, view)
     -- the reason `a` became the annotation prefix. It overrides the configured switch for
     -- the session rather than editing it.
     ["gw"] = { view.toggle_wrap, "Fold long lines, or stop folding them" },
+    -- `go` for **solo**, from the same `g` family. Not `gs` or `gS`, which are the scope
+    -- and the switch, so solo's own initial is taken twice over -- `go` is the letter of
+    -- *one file*. It shadows the byte-offset motion, which in a rendered diff counts the
+    -- bytes of the rendering rather than of any file and so names no position a reviewer
+    -- could ask for. It overrides the configured switch for the session rather than
+    -- editing it.
+    ["go"] = { view.toggle_solo, "Draw one file at a time, or every file" },
     ["<CR>"] = { view.open_file, "Open the real file here" },
     ["Q"] = { view.review_queue, "Review the queue" },
     -- `gy`, not `Y`: yank is not dead in this buffer the way append is, and pulling a code
@@ -230,6 +237,10 @@ function M.panel(buf, view)
     -- Bound in the tree as well as in the diff, as every view-wide key is: a reviewer
     -- standing here who wants the diff folded should not have to move first.
     ["gw"] = { view.toggle_wrap, "Fold long lines, or stop folding them" },
+    -- And the same for solo, which narrows the diff around the file being read there. The
+    -- tree goes on listing every file either way, so the key changes nothing under the
+    -- cursor it is pressed with.
+    ["go"] = { view.toggle_solo, "Draw one file at a time, or every file" },
     ["R"] = { view.panel_toggle_reviewed, "Toggle reviewed (whole subtree on a directory)" },
     ["q"] = { view.close, "Close the review" },
   })
