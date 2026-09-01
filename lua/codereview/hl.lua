@@ -1,18 +1,19 @@
 ---Highlight groups.
 ---
----Everything is a `default = true` link to a group colorschemes already define, so the
----view inherits the active theme instead of hardcoding a palette, and any of these can be
----overridden in a user's config without the plugin fighting back.
+---Every group resolves to one a colorscheme already defines -- as a `default = true` link,
+---or, where an attribute has to be added to it, as a group computed from that one's colors.
+---So the view inherits the active theme instead of hardcoding a palette, and any of these
+---can be overridden in a user's config without the plugin fighting back.
 ---
 ---**A group a review window draws in has to be named in one of the tables below.** They are
 ---not just where the links live: `M.groups()` derives the set the **muted** window is built
 ---from by reading them, so a group that exists anywhere else is one a muted window leaves at
 ---full brightness. Adding a group means adding it here -- to `LINKS` if it links to
----something a colorscheme defines, to `SPAN_GROUPS` if it is computed, to `EDITOR_GROUPS` if
----it is the editor's own and this plugin merely draws through it -- and then it is muted
----without a second list learning about it. There is deliberately no register to remember to
----update, because the one thing that would go wrong is invisible until someone looks at an
----unfocused pane.
+---something a colorscheme defines, to `SPAN_GROUPS` or `FRAME_SOURCES` if it is computed, to
+---`EDITOR_GROUPS` if it is the editor's own and this plugin merely draws through it -- and
+---then it is muted without a second list learning about it. There is deliberately no register
+---to remember to update, because the one thing that would go wrong is invisible until someone
+---looks at an unfocused pane.
 ---
 ---**The blended colors are groups of this module, not colors in a window.** A group that
 ---a **muted** window draws, that a **faded** file's row carries, or that a muted pane lights
@@ -53,7 +54,6 @@ local LINKS = {
   CodeReviewFileDir = "Comment",
   CodeReviewFileName = "Title",
   CodeReviewHunkHeader = "Special",
-  CodeReviewSep = "WinSeparator",
   CodeReviewNoteCount = "Comment",
   CodeReviewNote = "Comment",
   CodeReviewStale = "DiagnosticWarn",
@@ -141,6 +141,43 @@ local TYPE_FALLBACK = "DiagnosticInfo"
 local SPAN_SOURCE = "DiffText"
 local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 
+-- The **frame**: the rule above and below a file's body, so a file has a visible end and
+-- not only a visible beginning. One entry per group a file's header row can carry, holding
+-- that file's two edges: `framed` goes on the header row in place of the source group, and
+-- `pad` goes on the blank **pad** row that closes the body.
+--
+-- **Computed rather than linked, and that is forced rather than preferred.** A
+-- `default = true` link copies its target's attributes wholesale, so a group linked to
+-- `Title` cannot be `Title` *and* an underline. The header row already carries a line-wide
+-- group; what the frame changes is which one. The pad row carried none, and its group is
+-- new.
+--
+-- **Both edges are `underline`.** `overline` is accepted by this API and comes back in the
+-- `cterm` table, so the temptation is real -- but it maps to a terminal sequence many
+-- emulators ignore, and a bottom edge some terminals do not draw is one nothing reports.
+-- The pad row's underline sits at the bottom of a blank row, which is visually just above
+-- the next file's header, so one attribute draws both edges.
+--
+-- **A rule is an underline and the colour of that underline, and never a foreground.** All
+-- four groups are emitted as `line_hl_group`, and a line-wide group replaces every attribute
+-- it sets on every inline highlight the row carries -- at any priority, in either direction.
+-- So a frame group carrying an `fg` would flatten the whole header row to one colour: the
+-- path's own styling, the `+N -M` stat and the note count alike. The colour goes in `sp`,
+-- which is the underline's own, and the row's foreground is left to the marks that own it.
+-- See `docs/design-notes.md`, which has the measurement.
+--
+-- **Keyed by the header's group, so one file's two edges come from one source.** A frame
+-- whose edges disagree about the file's state reads as a rendering fault rather than as a
+-- shade, and the disagreement is reachable: `za` expands a file without unmarking it, so a
+-- reviewed file with a body is what that key is for. Keying the table this way is what
+-- makes the two edges agree by construction instead of by a rule to remember, and the
+-- fourth group is the whole cost of it.
+---@type table<string, { framed: string, pad: string }>
+local FRAME_SOURCES = {
+  CodeReviewFileHeader = { framed = "CodeReviewFrameHeader", pad = "CodeReviewFramePad" },
+  CodeReviewFileReviewed = { framed = "CodeReviewFrameReviewed", pad = "CodeReviewFramePadReviewed" },
+}
+
 -- What a review window draws in that is not this plugin's to define: the text with no
 -- capture over it, the row under the cursor, the gutter and the winbar. Named here rather
 -- than where they are muted, so that every group this plugin has an opinion about is in one
@@ -152,6 +189,32 @@ local function apply_spans()
   local source = vim.api.nvim_get_hl(0, { name = SPAN_SOURCE, link = false })
   for _, group in ipairs(SPAN_GROUPS) do
     vim.api.nvim_set_hl(0, group, { bg = source.bg, ctermbg = source.ctermbg, default = true })
+  end
+end
+
+---Write the **frame**'s groups against the colors the links above now resolve to.
+---
+---`cterm` is set by hand rather than left to follow the true-color attributes. It follows
+---them only when it is *absent*, and a source group that carries any cterm attribute of its
+---own -- `Title` is bold in Neovim's own default theme -- hands one over in the copy. The
+---frame would then be underlined on a true-color terminal and not on any other, which is the
+---one failure this whole family of groups exists to avoid.
+local function apply_frame()
+  for source, pair in pairs(FRAME_SOURCES) do
+    local def = vim.api.nvim_get_hl(0, { name = source, link = false })
+    -- One shape for both edges: the attribute, and the colour of the attribute. Nothing
+    -- else, so nothing the row carries is replaced by a group that is only there to draw a
+    -- line. `sp` has no `cterm` counterpart -- a terminal palette has no underline colour --
+    -- so on cterm the rule draws in whatever foreground the cell already had, which is the
+    -- rendering that terminal can give rather than a wrong one.
+    local rule = {
+      sp = def.fg,
+      underline = true,
+      cterm = { underline = true },
+      default = true,
+    }
+    vim.api.nvim_set_hl(0, pair.framed, rule)
+    vim.api.nvim_set_hl(0, pair.pad, rule)
   end
 end
 
@@ -171,6 +234,10 @@ function M.groups()
     out[#out + 1] = group
   end
   vim.list_extend(out, SPAN_GROUPS)
+  for _, pair in pairs(FRAME_SOURCES) do
+    out[#out + 1] = pair.framed
+    out[#out + 1] = pair.pad
+  end
   vim.list_extend(out, EDITOR_GROUPS)
   for _, t in ipairs(require("codereview.config").get().types) do
     out[#out + 1] = t.hl
@@ -254,18 +321,24 @@ end
 ---
 ---Only the true-color attributes are blended. `ctermfg` and `ctermbg` are indices into a
 ---palette with no channels to pull, so they are copied without a change.
+---
+---`sp` is blended beside `fg` and `bg`, and a group whose *only* colour is `sp` has a twin
+---like any other. That is what the **frame** is: an underline and the colour of the
+---underline, with no foreground at all. Left out, the rule a file is framed with would be
+---the one bright line in a pane that has lost focus.
 ---@param family CRBlendFamily
 ---@param group string
 ---@return boolean written True if the twin now holds a blend of `group`.
 local function write_twin(family, group)
   local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
-  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil) then
+  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil and def.sp == nil) then
     return false
   end
   local strength = require("codereview.config").get()[FAMILIES[family].option].strength
   local twin = vim.tbl_extend("force", {}, def)
   twin.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
   twin.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
+  twin.sp = def.sp and blend(def.sp, backdrop(), strength) or nil
   return (pcall(vim.api.nvim_set_hl, 0, FAMILIES[family].prefix .. group, twin))
 end
 
@@ -326,6 +399,7 @@ function M.apply()
     vim.api.nvim_set_hl(0, group, { link = target, default = true })
   end
   apply_spans()
+  apply_frame()
 
   -- A configured type names a group this module cannot know about, so without this a
   -- custom type renders with no color at all. After LINKS and with `default = true`, so

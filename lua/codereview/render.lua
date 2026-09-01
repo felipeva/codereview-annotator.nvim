@@ -25,7 +25,7 @@
 local M = {}
 
 ---@class CRAnchor
----@field kind "file"|"sep"|"hunk"|"line"|"pad"|"note"|"fill"
+---@field kind "file"|"hunk"|"line"|"pad"|"note"|"fill"
 ---@field file integer        Index into the file list
 ---@field hunk integer|nil    Index into that file's hunks
 ---@field line integer|nil    Index into that hunk's lines
@@ -56,6 +56,21 @@ M.LAYOUTS = { "unified", "split" }
 ---`span` sits above the line's own background, so the emphasis is visible at all, and
 ---below the syntax replay, so code coloring survives inside an emphasized span.
 M.PRIORITY = { diff = 100, gutter = 110, span = 120, syntax = 150 }
+
+---The **frame**'s two edges, keyed by whether the file is reviewed.
+---
+---`top` goes on the file's header row in place of the group it would carry anyway, and
+---`bottom` on the blank **pad** row that closes its body. `hl.lua` computes all four from the
+---two file header groups; this table is the only place that decides which pair a file takes,
+---which is what stops one file's two edges disagreeing about its state.
+---
+---A **collapsed** file takes `top` and never `bottom`. It has no body to bound, and two
+---rules with nothing between them read as a broken frame rather than as a closed file.
+---@type table<boolean, { top: string, bottom: string }>
+local FRAME = {
+  [false] = { top = "CodeReviewFrameHeader", bottom = "CodeReviewFramePad" },
+  [true] = { top = "CodeReviewFrameReviewed", bottom = "CodeReviewFramePadReviewed" },
+}
 
 ---Stable identity for an annotatable line, independent of buffer position.
 ---
@@ -799,6 +814,24 @@ function M.build(files, opts)
     mark(after, row, 0, { virt_lines = aside })
   end
 
+  ---The **frame**'s bottom edge, on the blank **pad** row that closes a file's body.
+  ---
+  ---Both panes, and the same row in each, so the two images stay comparable row for row.
+  ---
+  ---Nothing is emitted for it. A line-wide group is painted across the full window width
+  ---past the end of the text and carries its underline out there with it -- measured on 0.12
+  ---rather than assumed -- so on a blank row it is a rule from the first column to the last.
+  ---That is what makes the frame highlight groups instead of a row of its own, which would
+  ---need an **anchor** and would put a cursor position on a thing that is not the diff.
+  ---@param row integer
+  ---@param group string
+  local function close_frame(row, group)
+    mark(after, row, 0, { line_hl_group = group })
+    if before then
+      mark(before, row, 0, { line_hl_group = group })
+    end
+  end
+
   ---The rendered text of one diff line in one pane, and where its code starts.
   ---@param ln CRLine
   ---@param number integer
@@ -887,10 +920,28 @@ function M.build(files, opts)
     if before then
       before.file_rows[fi] = row
     end
-    local header_hl = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader"
-    mark(after, row, 0, { line_hl_group = header_hl })
+    -- The **frame**'s top edge, and the header row's own colour beside it.
+    --
+    -- **The colour is a column mark and not the line-wide group it used to be.** A line-wide
+    -- group replaces every attribute it sets on every inline highlight the row carries, at
+    -- any priority and in either direction, so a line group with a foreground flattens the
+    -- whole row to one colour -- which is what the header row's `CodeReviewFileHeader` had
+    -- always done to the `+N -M` stat and the note count emitted below. The frame carries no
+    -- foreground at all (its rule's colour is `sp`), and what the row is coloured in now
+    -- composes with the marks under it by priority, which is what priority does arbitrate.
+    -- `docs/design-notes.md` has the measurement; the two shapes are not interchangeable.
+    --
+    -- Below the band the marks under it use, so a surface that colours a run of this row --
+    -- the stat here, a **path**'s own styling -- wins on the columns it owns.
+    local frame = FRAME[reviewed]
+    local base = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader"
+    mark(after, row, 0, { line_hl_group = frame.top })
+    mark(after, row, 0, { end_col = #header, hl_group = base, priority = M.PRIORITY.diff })
     if before then
-      mark(before, row, 0, { line_hl_group = header_hl })
+      mark(before, row, 0, { line_hl_group = frame.top })
+      if bheader and #bheader > 0 then
+        mark(before, row, 0, { end_col = #bheader, hl_group = base, priority = M.PRIORITY.diff })
+      end
     end
     -- Color only the +N/-M inside the stat, not the note count that may follow it.
     local stat_col = #header - #right
@@ -916,6 +967,8 @@ function M.build(files, opts)
     -- the after pane.
     attach_notes(row, nil, M.file_key(file.path))
 
+    -- A collapsed file's pad row is emitted here and not by the hunk walk below, and it
+    -- gets no bottom edge: the file has no body to bound.
     if not expanded then
       row2("", { kind = "pad", file = fi }, "", { kind = "pad", file = fi })
       goto next_file
@@ -926,7 +979,8 @@ function M.build(files, opts)
       -- change. Drawn on the after pane, so the before pane holds its place with filler.
       local r = row2("   " .. file.note, { kind = "pad", file = fi })
       mark(after, r, 0, { line_hl_group = "CodeReviewNote" })
-      row2("", { kind = "pad", file = fi }, "", { kind = "pad", file = fi })
+      -- That note *is* the body, so the pad row after it closes one.
+      close_frame(row2("", { kind = "pad", file = fi }, "", { kind = "pad", file = fi }), frame.bottom)
       goto next_file
     end
 
@@ -1025,7 +1079,12 @@ function M.build(files, opts)
         flush()
       end
 
-      row2("", { kind = "pad", file = fi, hunk = hi }, "", { kind = "pad", file = fi, hunk = hi })
+      local prow = row2("", { kind = "pad", file = fi, hunk = hi }, "", { kind = "pad", file = fi, hunk = hi })
+      -- Only the last hunk's pad row closes the file. The pad rows between hunks are inside
+      -- the frame, and a rule on each of them would read as a file boundary per hunk.
+      if hi == #file.hunks then
+        close_frame(prow, frame.bottom)
+      end
     end
 
     ::next_file::

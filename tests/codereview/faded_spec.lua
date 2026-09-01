@@ -160,7 +160,9 @@ describe("a review opened with the cursor in its first file", function()
       local row = V.render.file_rows[fi]
       local faded, bright = own(drawn(V.buf, row, row))
       assert.same({}, faded, ("file %d, %s"):format(fi, V.files[fi].path))
-      assert.is_true(vim.tbl_contains(bright, "CodeReviewFileHeader"), table.concat(bright, ", "))
+      -- The **frame**'s top edge, which is the group a header row carries: the frame replaced
+      -- the group the row had rather than adding a mark to it.
+      assert.is_true(vim.tbl_contains(bright, "CodeReviewFrameHeader"), table.concat(bright, ", "))
     end
     -- The stat and the note count ride on the after pane's header rows, and this fixture has
     -- both. Read across the file headers rather than one, since not every file carries them.
