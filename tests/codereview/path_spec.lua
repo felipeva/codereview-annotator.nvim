@@ -346,13 +346,21 @@ describe("the byte offsets a path is colored at", function()
   -- The right-hand side of the header row is nobody's to move. Asserted beside the path
   -- because the path is what changed the way that row is built, and `stat_col` is computed
   -- from `#header - #right`.
+  --
+  -- What is taken out is the path's own two groups and **the row's own colour**, which is a
+  -- range mark rather than a line-wide one: a `line_hl_group` carrying a foreground replaces
+  -- the foreground of every range on its row, whatever the priorities are, so the colour a
+  -- header row is drawn in cannot be a line group while anything on that row is coloured
+  -- apart. That is why the stat and the note count below are worth asserting at all, and it
+  -- is the reason this list is a filter and not a count.
   it("leaves the stat and the note count where they were, in the groups they had", function()
     local after = build({ one() }, { notes = { ["src/main.lua:n:1"] = { {} } } })
     local row = assert(after.file_rows[1])
     local line = after.lines[row]
+    local own = { [DIR] = true, [NAME] = true, CodeReviewFileHeader = true, CodeReviewFileReviewed = true }
     local right = {}
     for _, m in ipairs(ranges(after, row)) do
-      if m[3] ~= DIR and m[3] ~= NAME then
+      if not own[m[3]] then
         right[#right + 1] = { line:sub(m[1] + 1, m[2]), m[3] }
       end
     end
