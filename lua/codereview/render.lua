@@ -365,11 +365,36 @@ local function path_segments(path, out)
   out[#out + 1] = M.literal(path:sub(cut and cut + 1 or 1), NAME)
 end
 
+---A host's own glyph for a file, or nil when it has none to give.
+---
+---**The guard is at the call site and it is the performance rule made structural.** There is
+---no glyph shipped behind this adapter and therefore no default implementation of it to
+---call: with nothing wired the answer is an absence, reached by a nil test rather than by a
+---function, three hundred times on a large review.
+---
+---`pcall` because a paint is the wrong place to raise from: a host's icon plugin is called
+---once per file per paint, and an adapter that throws would take down every review rather
+---than the one file it could not name. What comes back is checked as well as caught -- a
+---number or a table would reach the header row as `123` or as `table: 0x...` and move every
+---byte offset on the row behind it. Both failures answer the same way, which is the way no
+---adapter answers: no glyph, and a header row that reads exactly as it reads without one.
+---@param adapter fun(path: string): string|nil
+---@param path string
+---@return string|nil
+local function injected_icon(adapter, path)
+  local ok, glyph = pcall(adapter, path)
+  if not ok or type(glyph) ~= "string" or glyph == "" then
+    return nil
+  end
+  return glyph
+end
+
 ---@class CRFileLabel
 ---@field reviewed boolean       Whether the file is marked reviewed
 ---@field expanded boolean       Whether its body is drawn, with the default already applied
 ---@field notes integer          Queued annotations anywhere in it
----@field icon string
+---@field icon string            The **state** mark: reviewed, annotated or unreviewed
+---@field file_icon string|nil   A host's own glyph for the file, beside that mark; nil for none
 ---@field chevron string
 ---@field name CRBarSegment[]    Its path as this layout spells it: `old → new` when unified
 ---@field before CRBarSegment[]|nil  The pre-image path; nil for a file with no pre-image
@@ -390,7 +415,7 @@ end
 ---segments at byte offsets and the winbar turns the same ones into markup. A string would
 ---have left each surface to split it again, which is two rules the moment either moved.
 ---@param file CRFile
----@param opts { icons: table, reviewed: table<string, string>|nil, expanded: table<string, boolean>, notes: table<string, table[]>|nil, layout: string|nil }
+---@param opts { icons: table, file_icon: (fun(path: string): string|nil)|nil, reviewed: table<string, string>|nil, expanded: table<string, boolean>, notes: table<string, table[]>|nil, layout: string|nil }
 ---@return CRFileLabel
 function M.file_label(file, opts)
   local icons = opts.icons
@@ -436,6 +461,12 @@ function M.file_label(file, opts)
     expanded = expanded,
     notes = notes,
     icon = reviewed and icons.reviewed or (notes > 0 and icons.annotated or icons.unreviewed),
+    -- The **state** mark above keeps its column and its meaning; this is a second thing
+    -- about the file rather than a replacement for it, so that a reviewer never loses *this
+    -- file is reviewed* in exchange for *this file is TypeScript*. Nothing is wired is the
+    -- common case and costs the comparison in front of the `and`: the adapter is the only
+    -- implementation there is, so with none of it there is nothing to call.
+    file_icon = opts.file_icon and injected_icon(opts.file_icon, file.path) or nil,
     chevron = expanded and icons.expanded or icons.collapsed,
     -- A rename reads as a rename when each pane draws its own path; only the unified
     -- layout, which has one header to say it in, spells the arrow out. Both of its paths
@@ -594,7 +625,7 @@ end
 ---index, and the two would silently disagree about which file is which. One index space is
 ---the decision (ADR-0009), and this option is what buys it.
 ---@param files CRFile[]
----@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, solo: integer|nil, types: CRType[] }
+---@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, file_icon: (fun(path: string): string|nil)|nil, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, solo: integer|nil, types: CRType[] }
 ---@return CRRender after, CRRender|nil before
 function M.build(files, opts)
   local icons = opts.icons

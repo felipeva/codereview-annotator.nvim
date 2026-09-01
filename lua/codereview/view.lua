@@ -408,6 +408,7 @@ local function current_label(layout)
   end
   return render.file_label(file, {
     icons = config.get().icons,
+    file_icon = config.get().file_icon,
     reviewed = V.reviewed,
     expanded = V.expanded,
     notes = V.notes,
@@ -850,6 +851,7 @@ function M.paint(keep_file)
     before_width = view_layout.has_before(V) and vim.api.nvim_win_get_width(V.before_win) or nil,
     layout = view_layout.has_before(V) and "split" or "unified",
     icons = cfg.icons,
+    file_icon = cfg.file_icon,
     expanded = V.expanded,
     reviewed = V.reviewed,
     notes = V.notes,
