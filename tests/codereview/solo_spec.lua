@@ -869,3 +869,66 @@ describe("the file the paint draws", function()
     view.paint(1)
   end)
 end)
+
+-- **The intersection neither ticket owned.** `R` advancing is #196's and `go` is #195's, and
+-- these two facts are true of the pair and of neither half alone: what turning solo off
+-- restores is the file `R` *moved to*, and not the file `R` marked, and not the top of the
+-- review.
+--
+-- Last in the file deliberately. `go` writes a module-local override in `config` that has no
+-- reset, and once it is written `config.get().solo` no longer decides -- so every case that
+-- reaches solo through the configuration option has to run before this key is first pressed.
+describe("R and then go", function()
+  it("draws every file with the cursor on the file R advanced to", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    local next_up = assert(h.file_index(V, "src/newname.lua"))
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    press(V.win, "R")
+    local advanced_to = files_drawn(V.render)
+
+    press(V.win, "go")
+    local drawn, landed = files_drawn(V.render), at()
+    -- Read, then put the switch back, and only then assert: the override outlives the case.
+    press(V.win, "go")
+
+    assert.same({ next_up }, advanced_to)
+    local every = {}
+    for i = 1, #V.files do
+      every[i] = i
+    end
+    assert.same(every, drawn)
+    -- The file it went on to. Not the file it marked -- which is drawn again now, collapsed,
+    -- a few rows above -- and not row 1, which is where a paint that kept no file would land.
+    assert.same(next_up, landed)
+  end)
+
+  it("stays on the last unreviewed file when the review is done and solo goes off", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    for i, file in ipairs(V.files) do
+      if i ~= fi then
+        V.reviewed[file.path] = file.blob or ""
+      end
+    end
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    local said = press(V.win, "R")
+
+    press(V.win, "go")
+    local drawn, landed = files_drawn(V.render), at()
+    press(V.win, "go")
+    unreview()
+
+    assert.is_true(h.notified(said, "Everything in this scope is reviewed"), vim.inspect(said))
+    local every = {}
+    for i = 1, #V.files do
+      every[i] = i
+    end
+    assert.same(every, drawn)
+    -- `R` stayed put and said so, so this is the file it marked, which is also the file it
+    -- was on. Every other file is reviewed and collapsed around it.
+    assert.same(fi, landed)
+  end)
+end)
