@@ -444,7 +444,7 @@ local function file_segment(label)
   end
   return {
     head = { render.literal(("%s %s "):format(label.icon, label.chevron), "CodeReviewBarIcon") },
-    path = label.name,
+    path = render.segment_text(label.name),
     tail = tail,
   }
 end
@@ -562,7 +562,7 @@ local function update_before_winbar()
   -- header row on this pane has none: the revision keeps the bar to itself and says so by
   -- naming nothing beside it.
   local label = current_label("split")
-  local path = label and label.before or ""
+  local path = label and label.before and render.segment_text(label.before) or ""
   -- The revision is what this pane exists to name and is never cut for the path's sake: on
   -- a pane too narrow to hold both, a base revision half spelled out is worse than none of
   -- the path, which the after pane is naming anyway.

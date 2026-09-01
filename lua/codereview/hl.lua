@@ -37,6 +37,21 @@ local LINKS = {
 
   CodeReviewFileHeader = "Title",
   CodeReviewFileReviewed = "Comment",
+
+  -- The two halves of a file's path, wherever one is drawn: the header row and the **sticky
+  -- header** alike, because one function answers what a file is called and one pair of
+  -- groups therefore says it. The directories are what every sibling file shares, so they
+  -- take the group a comment takes and stop competing for the eye; the file's own name is
+  -- what says which file this is, so it takes the header's own group and is what a reviewer
+  -- sees first. The arrow between a rename's two paths is punctuation and takes the quiet
+  -- one.
+  --
+  -- Not the file tree's `CodeReviewPanelDir`. That surface compacts a path into directory
+  -- *rows* and draws only the basename on a file row, so its group colors a whole row rather
+  -- than a prefix inside a path -- the same problem solved by a different mechanism, and a
+  -- shared group would tie two rules that have no reason to move together.
+  CodeReviewFileDir = "Comment",
+  CodeReviewFileName = "Title",
   CodeReviewHunkHeader = "Special",
   CodeReviewSep = "WinSeparator",
   CodeReviewNoteCount = "Comment",
