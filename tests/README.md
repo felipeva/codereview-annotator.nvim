@@ -44,7 +44,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/winbar_child.lua` | Spawned four times by `split_spec` to read one cell of a pane's winbar — three inside the path for the muting, one on the file's added count for the color — deliberately not a spec. |
 | `codereview/wrap_child.lua` | Spawned by `wrap_spec` to fold long lines, queue a note and exit, so the next session can be asked what it starts from — deliberately not a spec. |
 | `codereview/solo_toggle_child.lua` | Spawned twice by `solo_toggle_spec`, from opposite configured values, to press `go`, queue a note and exit, so the next session can be asked what it starts from in both directions — deliberately not a spec. |
-| `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. Not part of `make test`. |
+| `perf.lua` | Timing report at two sizes, 60 files and 300: what opening, scrolling, one `CursorMoved` and a repaint cost, plus the parse-time cost of intra-line spans reported on its own so a change moving that work into the render is visible. The 300-file tier ends with a **solo** block: a soloed paint and a soloed `]f` against the unsoloed arm of each, medians with the heap collected before every timing, at the foot of the tier because a soloed file move fetches content the `file content` line above it is not a total for. Not part of `make test`. |
 
 | Spec | Covers |
 | --- | --- |

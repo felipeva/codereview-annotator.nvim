@@ -32,6 +32,17 @@
 -- multiplied rather than as a number that is merely large. The last cost is the
 -- character-level spans, reported at the foot of each tier because they are paid once per
 -- git read and must never appear in the repaint line.
+--
+-- The 300-file tier ends with a block on **solo**, which draws one file and none of the
+-- others. Solo moves the two halves of a paint in opposite directions and neither is visible
+-- anywhere else: it emits one file's rows instead of three hundred files', and it turns every
+-- file move into a paint on a key that used to be a cursor motion inside one buffer. Both
+-- arms are timed here, next to each other, so the trade is read rather than reasoned about.
+--
+-- That block is at the *foot* of the tier because the `file content` line above it is a total
+-- for open and the two scrolls, and a soloed file move fetches content for every file it
+-- draws. Run higher up it would move that line and take the invariant with it, so it runs
+-- after the line is printed and reports its own git cost on a line of its own.
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 vim.opt.runtimepath:prepend(root)
 
@@ -45,6 +56,25 @@ local BUDGET_MS = tonumber(vim.env.CODEREVIEW_PERF_BUDGET_MS) or 2000
 -- Held down rather than tapped: one move is too short to time against a millisecond clock,
 -- and fifty rows is roughly what leaning on `j` through a hunk costs a reviewer.
 local MOVES = 50
+
+-- Rounds of the solo block's two duels. Each round times both arms, so these are samples
+-- per arm rather than timings in total, and every figure the block prints is a median of
+-- them.
+--
+-- **Even, and that is not a detail.** A round reverses the order the two arms run in, so an
+-- odd count leaves one arm leading one round more often than the other. With solo switched
+-- off in the view -- two arms doing exactly the same work, which is the null this block was
+-- checked against -- five rounds read 97.9 ms against 128.5 ms, and six rounds read 98.0
+-- against 96.2. Whatever going second costs, both arms must pay it the same number of times.
+local SOLO_ROUNDS = 6
+local SOLO_MOVE_ROUNDS = 4
+-- Presses per round, and the stride from one arm-round's range of files to the next. The
+-- ranges must not overlap: a file drawn once replays from a cache that survives a repaint,
+-- so a second walk of it flatters whichever arm makes that walk. They start past everything
+-- open and the two scrolls have touched.
+local SOLO_MOVES = 10
+local SOLO_MOVE_STRIDE = 20
+local SOLO_MOVE_FROM = 100
 
 local MKBIG = vim.fs.joinpath(root, "tests", "fixtures", "mkbig.sh")
 
@@ -78,8 +108,39 @@ local function ms(fn)
   return (vim.uv.hrtime() - t0) / 1e6
 end
 
+---The middle sample of a set, which is what every figure in the solo block is.
+---
+---A median and not a mean: one timing that landed on a collection is an outlier rather than
+---a contribution, and what the block reports is what a paint or a press usually costs.
+---@param xs number[]
+---@return number
+local function median(xs)
+  table.sort(xs)
+  local n = #xs
+  if n % 2 == 1 then
+    return xs[(n + 1) / 2]
+  end
+  return (xs[n / 2] + xs[n / 2 + 1]) / 2
+end
+
+---Time one call from a collected heap.
+---
+---**This is what makes two arms comparable, and it is not optional here.** Timed A then B in
+---a fixed order with nothing collected between them, a soloed render walk measured 33 percent
+---faster than an unsoloed one. It was the allocator: collect before every timing and alternate
+---the two, and the same measurement read 53.3 ms against 54.6 ms, which is the same number
+---twice. A branch inside a walk cannot make the walk faster, so a figure that flatters solo is
+---the first one to distrust.
+---@param fn fun()
+---@return number ms
+local function timed(fn)
+  collectgarbage("collect")
+  return ms(fn)
+end
+
 require("codereview").setup({})
 local view = require("codereview.view")
+local config = require("codereview.config")
 local syntax = require("codereview.syntax")
 local git = require("codereview.git")
 local diff = require("codereview.diff")
@@ -149,13 +210,133 @@ local function cursor_moves(V)
   end)
 end
 
+---One arm of the paint duel: a repaint of one rendering over itself.
+---
+---Settled first and untimed, because a paint that replaces ninety thousand rows with three
+---hundred is the transition between the two arms and not what either of them costs. A
+---reviewer repaints a soloed review over a soloed one -- a resize, an expansion, a reviewed
+---toggle -- so that is what is timed. The cursor goes to the top for the same reason: the
+---emission is bounded by the viewport, so two arms looking at different rows would be
+---emitting different amounts of the review.
+---@param V CRView
+---@param on boolean Whether this arm draws one file
+---@return number ms
+local function solo_paint(V, on)
+  config.get().solo = on
+  view.paint()
+  vim.api.nvim_win_set_cursor(V.win, { 1, 0 })
+  return timed(function()
+    view.paint()
+  end)
+end
+
+---One arm of the file-move duel, over files nothing has drawn yet.
+---
+---**Each arm walks a range of its own.** The parsed captures are cached on the view and
+---survive a repaint, so an arm sent through files the other arm has already drawn replays
+---them from memory while its rival paid to parse and to fetch them -- which flatters
+---whichever arm goes second by the whole cost of a parse and a git read. The ranges here
+---never overlap.
+---
+---The landing is outside the timing: the first press has to cost what the presses after it
+---cost, and the file a press arrives *from* is not what it is timing.
+---@param V CRView
+---@param on boolean Whether this arm draws one file
+---@param from integer File the arm starts on
+---@param count integer Presses to time
+---@return number[] samples
+local function solo_moves(V, on, from, count)
+  config.get().solo = on
+  view.paint()
+  view.goto_file(from)
+  vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+  local out = {}
+  for _ = 1, count do
+    out[#out + 1] = timed(function()
+      -- `]f`, exactly as `keymaps.lua` binds it, and then the event a real keystroke raises:
+      -- a script that moves the cursor raises none under `nvim -l`. In solo the file arrived
+      -- at is parsed inside the paint and unsoloed it is parsed inside this event, so both
+      -- arms pay that parse and what is left between them is the paint.
+      view.jump("file", true)
+      vim.api.nvim_exec_autocmds("CursorMoved", { buffer = V.buf })
+    end)
+  end
+  return out
+end
+
+---What **solo** saves and what it costs, at this tier and on this tier's own review.
+---
+---Two duels, each alternating its arms and each reporting medians. The arms are reversed on
+---alternate rounds so that neither is always the one that follows the other: with the heap
+---collected before every timing that should not matter, and "should not matter" is what the
+---first measurement of solo also said before the allocator answered it.
+---
+---Reports and asserts nothing, like every line at this tier. No budget is added: the report's
+---rule is that only the sixty-file open is judged, because a second ceiling is a second figure
+---to tune per machine rather than a second thing known.
+---@param V CRView
+local function solo_block(V)
+  local base = { ms = fetch.ms, blobs = fetch.blobs, calls = fetch.calls }
+  local paints = { [true] = {}, [false] = {} }
+  local size = { [true] = {}, [false] = {} }
+  for round = 1, SOLO_ROUNDS do
+    for _, on in ipairs(round % 2 == 1 and { true, false } or { false, true }) do
+      paints[on][#paints[on] + 1] = solo_paint(V, on)
+      -- The render this arm just built. Counted rather than argued: the claim solo is made
+      -- on is that it stops the render building marks for files nobody is reading, and a
+      -- count says whether it does where a millisecond only says how long something took.
+      size[on] = { rows = #V.render.lines, marks = #V.render.marks }
+    end
+  end
+
+  local moves = { [true] = {}, [false] = {} }
+  for round = 1, SOLO_MOVE_ROUNDS do
+    for _, on in ipairs(round % 2 == 1 and { true, false } or { false, true }) do
+      -- Keyed on the arm and the round rather than on the order they ran in, so reversing
+      -- the arms above leaves every range exactly where it was.
+      local from = SOLO_MOVE_FROM + ((round - 1) * 2 + (on and 0 or 1)) * SOLO_MOVE_STRIDE + 1
+      for _, sample in ipairs(solo_moves(V, on, from, SOLO_MOVES)) do
+        moves[on][#moves[on] + 1] = sample
+      end
+    end
+  end
+  -- As it was found. The tiers after this one are not soloed reviews.
+  config.get().solo = false
+
+  local one, all = size[true], size[false]
+  print(
+    ("\nsolo:                          (%d paints and %d presses per arm, alternated; medians)"):format(
+      SOLO_ROUNDS,
+      SOLO_MOVES * SOLO_MOVE_ROUNDS
+    )
+  )
+  print(("  paint          %6.1f ms   (%d rows, %d marks built)"):format(median(paints[true]), one.rows, one.marks))
+  print(("  paint unsoloed %6.1f ms   (%d rows, %d marks built)"):format(median(paints[false]), all.rows, all.marks))
+  print(
+    ("  ]f             %6.1f ms   (per press: a paint; the file it lands on is parsed inside it)"):format(
+      median(moves[true])
+    )
+  )
+  print(
+    ("  ]f unsoloed    %6.1f ms   (per press: a cursor move and the CursorMoved after it)"):format(median(moves[false]))
+  )
+  -- This block's own, and not part of the `file content` line above: that line is a total for
+  -- open and the two scrolls, and every file drawn here is content fetched for a file the
+  -- reviewer moved to.
+  local blobs, calls = fetch.blobs - base.blobs, fetch.calls - base.calls
+  print(("  file content   %6.0f ms   (%d blobs in %d git calls)"):format(fetch.ms - base.ms, blobs, calls))
+end
+
 ---Report one tier, and answer with the figures the tiers are compared on.
 ---@param files integer
 ---@param lines integer
 ---@param budget_ms integer|nil the ceiling this tier is judged against; nil means it only reports
 ---@param changed integer|nil Lines rewritten per file; nil rewrites half of each
+---@param solo boolean|nil Whether this tier ends with the solo block. The deep 300-file tier
+---                        only: it is the one big enough to read the ratio from, and running
+---                        it twice would double a report that is read rather than gated.
 ---@return { open: number, move: number, repaint: number, fetch: number }
-local function tier(files, lines, budget_ms, changed)
+local function tier(files, lines, budget_ms, changed, solo)
   print(
     ("\n=== %d files x %d lines, %s ==="):format(
       files,
@@ -230,19 +411,29 @@ local function tier(files, lines, budget_ms, changed)
   -- only open and the two scrolls can add to it: a repaint drops what it painted but keeps
   -- the captures, and a cursor move stays inside a file already parsed. Either of those
   -- moving this line means content is being re-fetched for files nothing needs re-read.
-  print(("file content:    %6.0f ms   (%d blobs in %d git calls)"):format(fetch.ms, fetch.blobs, fetch.calls))
+  -- Taken here rather than read again at the end, because the solo block below fetches
+  -- content for every file it draws: the figure the side-by-side table compares tiers on has
+  -- to be the figure this line printed, or the table reports one tier's reading habits.
+  local content_ms = fetch.ms
+  print(("file content:    %6.0f ms   (%d blobs in %d git calls)"):format(content_ms, fetch.blobs, fetch.calls))
   print(("parse:           %6.0f ms   (once per git read, not per repaint)"):format(plain_ms))
   print(("  spans          %6.0f ms   (+%.0f ms)"):format(spans_ms, spans_ms - plain_ms))
   print(("  lines spanned  %6d"):format(spanned))
 
+  -- Last, and after the `file content` line above it: this draws files of its own and fetches
+  -- their content, which that line is not a total for.
+  if solo then
+    solo_block(V)
+  end
+
   -- Each tier gets its own review, on its own repository: whatever the next one measures, it
   -- must not be measuring what this one left open.
   view.close()
-  return { open = open_ms, move = moves_ms / MOVES, repaint = repaint_ms, fetch = fetch.ms }
+  return { open = open_ms, move = moves_ms / MOVES, repaint = repaint_ms, fetch = content_ms }
 end
 
 local small = tier(60, 200, BUDGET_MS)
-local large = tier(300, 200, nil)
+local large = tier(300, 200, nil, nil, true)
 -- Not kept: the side-by-side below is a comparison of two sizes at one shape, and this tier
 -- is the other shape. What it is here to report it reports on its own `file content` line.
 tier(300, 200, nil, 2)
