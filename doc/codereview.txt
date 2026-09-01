@@ -173,6 +173,8 @@ Buffer-local, inside the review view:
                      repository -- see |:CodeReviewSwitch|
     gw               Fold a line too wide for the pane onto further rows,
                      or stop folding -- see |codereview-wrap|
+    go               Draw one file at a time, or every file, for the rest
+                     of the session -- see |codereview-solo|
     <CR>             Open the real file here, in a new tab
     gd               Read this file in the host's own diff tool --
                      bound only with |codereview-opt-open_diff| wired
@@ -224,6 +226,8 @@ In the file tree:                                         *codereview-tree*
                      repository -- see |:CodeReviewSwitch|
     gw               Fold a line too wide for the pane onto further rows,
                      or stop folding -- see |codereview-wrap|
+    go               Draw one file at a time, or every file, for the rest
+                     of the session -- see |codereview-solo|
     q                Close the review
 
 The tree collapses single-child directory chains, so a monorepo shows
@@ -484,7 +488,13 @@ says where a file ends. The file tree, the sticky header and the faded files
 each help, and a reviewer who has all three can still lose track of which file
 they are in.
 
-`solo = true` draws one file -- the file being read -- and none of the others.
+`go` draws one file -- the file being read -- and none of the others, and
+draws every file again when it is pressed a second time. It works from the
+diff and from the file tree alike. The file under the cursor is the file that
+stays, in both directions: narrowing is a request to read that file more
+closely, and widening brings the other files back around it rather than
+returning to the top of the review.
+
 The file keys already in the diff are what move between them, and each of them
 draws the file it names:
 >
@@ -509,7 +519,17 @@ header row, so the view is never blank with a file selected, and a scope with
 nothing in it draws an empty review as it always did.
 
 Moving between files repaints, because the file being drawn is decided on
-every paint. That is the one thing solo changes about how the view behaves.
+every paint. That is the one thing solo changes about how the view behaves,
+and it is also what makes every other view-wide key leave solo alone: `gl`,
+`gr`, `gs`, `gS`, `gp` and `gA` each ask the switch again and get the answer
+the reviewer last gave, and `za` still collapses the file being read down to
+its header row.
+
+It is off until asked for; `solo = true` has it on from the first review. What
+`go` says lasts the rest of the session and is written nowhere. A scope is
+kept per checkout because it says what the review is; solo says how one
+sitting is being read, and an afternoon's way of reading restored into a
+different afternoon is a worse answer than no memory at all.
 
 The reasoning, including the two designs that were rejected -- a single-file
 scope, and a third `layout` value -- is in
@@ -1223,9 +1243,11 @@ both directions, and writes nothing here. Said of the unified layout only.
 
 `solo` draws one file at a time -- the file being read -- and none of the
 others (|codereview-solo|). It is off by default, for the reason `wrap` is: a
-reviewer who does nothing should see the review they already had. It is a
-rendering choice and never a scope, so the file tree, the reviewed marks, the
-review summary, the queue and what reaches the agent are unchanged by it.
+reviewer who does nothing should see the review they already had. `go`
+overrides it for the rest of the session, in both directions, and writes
+nothing here. It is a rendering choice and never a scope, so the file tree,
+the reviewed marks, the review summary, the queue and what reaches the agent
+are unchanged by it.
 
 `archived` draws already-dispatched entries on the diff and tallies the
 untouched ones on the winbar (|codereview-archived|, |codereview-touched|).
