@@ -223,12 +223,20 @@ is drawn had to stop treating a hole as a failure. A file the map says nothing a
 an error — it is the file to draw next. `]f`, `[f`, `]F`, `[F`, `<C-p>` and the tree's `<CR>`
 all end in the same move: set the file being drawn, repaint, land on its header row.
 
-**Moving between files repaints. That is the one thing solo changes about how the view
-behaves.** Every other key is what it was, because the file being drawn is read on every
-paint rather than remembered anywhere — which is also why solo composes with everything: `gl`
-switches layout with solo still on, and a soloed **split** draws the same one file in both
-**panes**, still row-aligned, because the two-pane row emitter never learned about any of
-this.
+**Moving between files repaints, so `R` advances.** Collapsing the file it marks is what `R`
+does when there are twenty-nine others to read on into; in solo there is nothing else drawn,
+so marking and moving become one motion and the file gives way to the next unreviewed one. On
+the last of them it says the review is done and stays put, reusing the sentence `]F` already
+has rather than inventing a second one — two sentences meaning the same thing in slightly
+different words is how a plugin's voice comes apart. `]h` and `[h` are the other side of the
+same rule: they stop at that file's last and first hunk and report it, because a hunk key that
+silently repainted the whole view would be a surprise and `]F` is one keystroke away.
+
+**That is the whole of what solo changes about how the view behaves.** Every other key is what
+it was, because the file being drawn is read on every paint rather than remembered anywhere —
+which is also why solo composes with everything: `gl` switches layout with solo still on, and
+a soloed **split** draws the same one file in both **panes**, still row-aligned, because the
+two-pane row emitter never learned about any of this.
 
 **A soloed file that is collapsed keeps its header row**, so the view is never blank with a
 file selected, and a scope with nothing in it draws an empty review exactly as it did before.

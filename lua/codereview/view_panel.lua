@@ -286,16 +286,13 @@ function M.panel_toggle_reviewed(V, view)
   if not fi then
     return
   end
-  local file = V.files[fi]
-  if V.reviewed[file.path] then
-    V.reviewed[file.path] = nil
-    V.expanded[file.path] = true
-  else
-    V.reviewed[file.path] = file.blob or ""
-    V.expanded[file.path] = false
+  -- The diff's own `R` and this one are one rule rather than two copies of one, which is what
+  -- keeps the tree from needing a second opinion about what **solo** does to this key: mark
+  -- the file, and under solo go on to the next unreviewed one. The paint is here only when
+  -- the view stayed where it was, because going on repaints through the motion.
+  if not view.mark_reviewed(fi) then
+    view.paint()
   end
-  view.paint()
-  view.persist()
   keep_panel_cursor(V, row)
 end
 

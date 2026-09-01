@@ -157,7 +157,8 @@ Buffer-local, inside the review view:
     ab af as an ai   Annotate as bug / fix / suggestion / nitpick / issue
     aa               Annotate, picking the type from a menu
     x                Drop the annotation under the cursor
-    R                Toggle reviewed on this file (collapses it)
+    R                Toggle reviewed on this file (collapses it); under
+                     |codereview-solo|, go on to the next unreviewed file
     za               Toggle expansion without marking reviewed
     gs               Cycle scope, re-rendering in place -- `since-batch`
                      joins once a batch has been dispatched
@@ -212,7 +213,10 @@ In the file tree:                                         *codereview-tree*
     za               Toggle the directory
     zM zR            Collapse / expand every directory
     ]f [f            Next / previous file, skipping directory rows
-    R                Toggle reviewed; on a directory, the whole subtree
+    R                Toggle reviewed; on a directory, the whole subtree.
+                     Under |codereview-solo| a file row goes on to the
+                     next unreviewed file, as in the diff; a directory
+                     row does not
     <C-p>            Jump to a file by name
     <Tab>            Back to the diff
     gp               Dismiss the tree, landing back in the diff
@@ -519,11 +523,19 @@ header row, so the view is never blank with a file selected, and a scope with
 nothing in it draws an empty review as it always did.
 
 Moving between files repaints, because the file being drawn is decided on
-every paint. That is the one thing solo changes about how the view behaves,
-and it is also what makes every other view-wide key leave solo alone: `gl`,
-`gr`, `gs`, `gS`, `gp` and `gA` each ask the switch again and get the answer
-the reviewer last gave, and `za` still collapses the file being read down to
-its header row.
+every paint. That is why `R` marks the file reviewed and goes on to the next
+unreviewed one instead of collapsing the only file on screen; on the last
+unreviewed file it says the review is done and stays there. It is the one key
+whose meaning solo changes.
+
+`]h` and `[h` stop at the drawn file's last and first hunk and say so, rather
+than repainting the whole view to reach a hunk in another file. `]a` and `[a`
+move between that file's annotations. The queue is not filtered by any of it:
+notes on files you are not looking at are still in it and still submit.
+
+Every other view-wide key leaves solo alone: `gl`, `gr`, `gs`, `gS`, `gp` and
+`gA` each ask the switch again and get the answer the reviewer last gave, and
+`za` still collapses the file being read down to its header row.
 
 It is off until asked for; `solo = true` has it on from the first review. What
 `go` says lasts the rest of the session and is written nowhere. A scope is
