@@ -86,7 +86,7 @@ to close the review.
 | `ab` `af` `as` `an` `ai` | Annotate as bug / fix / suggestion / nitpick / issue |
 | `aa` | Annotate. Pick the type from a menu, or decline one |
 | `x` | Drop the annotation under the cursor |
-| `R` | Toggle reviewed on this file, which collapses it |
+| `R` | Toggle reviewed on this file, which collapses it — under **solo**, goes on to the next unreviewed file |
 | `za` | Toggle expansion without marking the file reviewed |
 | `gs` | Cycle scope and draw again in place |
 | `gr` | Read the diff again from git |
@@ -143,7 +143,7 @@ The composer opens in insert mode. `<C-s>` and `<C-t>` work in insert and normal
 | `za` | Toggle the directory |
 | `zM` / `zR` | Collapse / expand every directory |
 | `]f` `[f` | Next / previous file. Skip directory rows |
-| `R` | Toggle reviewed. On a directory, toggle the whole subtree |
+| `R` | Toggle reviewed. On a directory, toggle the whole subtree — under **solo**, a file row goes on to the next unreviewed file |
 | `<C-p>` | Jump to a file by name |
 | `<Tab>` | Back to the diff |
 | `gp` | Dismiss the tree and land back in the diff |
@@ -667,10 +667,18 @@ move through the review with the file keys you already have:
 | `<C-p>` | Any file, by name |
 | `<CR>` in the tree | The file on that row |
 
-Each of them draws the file it names. Nothing else changes. The **tree** goes on listing
-every file with its reviewed marks and note counts, so you keep the map of the review while
-reading one square of it, and the review summary counts the whole scope — `✓2/7` does not
-become `✓0/1` because of how you are reading.
+Each of them draws the file it names.
+
+**`R` marks the file reviewed and takes you to the next unreviewed one**, because collapsing
+the only file on screen would leave you a header row with nothing under it. On the last
+unreviewed file it says the review is done and stays there. It is the one key whose meaning
+solo changes. `]h` and `[h` stop at the drawn file's last and first hunk and say so rather
+than repainting the whole view to reach another file's hunk, and `]a` and `[a` move between
+that file's annotations.
+
+The **tree** goes on listing every file with its reviewed marks and note counts, so you keep
+the map of the review while reading one square of it, and the review summary counts the whole
+scope — `✓2/7` does not become `✓0/1` because of how you are reading.
 
 It works in both layouts: a soloed **split** draws the same one file in both panes, still
 row-aligned.

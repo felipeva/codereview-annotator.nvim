@@ -199,6 +199,24 @@ layouts and with files collapsed rather than argued. The half that is easy to dr
 rewrite is the `[f`-from-inside-a-file one: both rules agree from a header row, so a case that
 presses `[f` only from headers passes with it wrong.
 
+**The hunk keys and the annotation keys stop at the drawn file for free, so there is no
+`if solo` to find.** `hunk_rows` and the anchor map are both built inside the render's file
+walk, which solo gates one file up, so a soloed render can only describe the file it drew:
+`]h` at that file's last hunk finds no next row and reports it, and `]a` reaches that file's
+notes and no other's. A reader looking for the branch that makes this happen will not find
+one, and adding one would be a second mechanism saying what the first already says. The
+**queue** is untouched by it — notes on files that are not drawn are still in it and still
+submit, so what these keys reach is a question about rows rather than about what a reviewer
+has written.
+
+**`R` still collapses the file it marks under solo; the advance was added beside the collapse
+rather than in place of it.** Reviewed means collapsed is one rule, it is persisted, and solo
+lasts a session rather than a review — so a file marked while soloing has to come back
+collapsed when the drawing stops, like every other reviewed file. Under solo nobody sees the
+collapse at the time, because the file gives way immediately: it is what `]f` back onto that
+file finds. The unreviewed jump it advances through is told where to start from rather than
+asking the cursor, because the tree's `R` marks a row the diff need not be drawing.
+
 **Whether a file is left to go to is a question for the review; where a motion starts is a
 question for the cursor, and they must be asked in that order.** A review with no files has
 no cursor in one, so asking the cursor first leaves an empty scope silent where `]F` used to

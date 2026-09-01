@@ -771,6 +771,15 @@ describe("R with solo on", function()
   -- A directory row marks a whole subtree and reports that in a sentence of its own. It is a
   -- different motion from the file-by-file loop, so it does not carry the reviewer anywhere,
   -- and the drawn file inside it is left collapsed on its header rather than blank.
+  --
+  -- **What this case proves, and what it does not.** The fixture is flat: `src` is its only
+  -- directory, so marking that row marks every file and there is nothing left to go on to.
+  -- Advancing and staying put therefore draw the same thing, and the claim cannot be read off
+  -- which file is drawn. It is read off what was *said* instead -- a motion that ran would
+  -- have added a sentence of its own -- which catches the change anyone would make by
+  -- accident, but not one that advances and suppresses the motion's sentence together. A
+  -- nested tree is what would defend that half, by leaving unreviewed files outside the
+  -- subtree; no spec here has one, and the decision is argued in the commit message.
   it("on a directory row marks the subtree and draws no other file", function()
     unreview()
     local fi = assert(h.file_index(V, "src/main.lua"))
