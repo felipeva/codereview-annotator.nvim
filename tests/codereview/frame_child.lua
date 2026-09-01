@@ -13,13 +13,11 @@
 -- The rule's colour is therefore in `sp`, and the row's foreground is left to the marks that
 -- own it. `docs/design-notes.md` has the measurement.
 --
--- **The stand-in mark is this file's own, and it is meant to be replaced.** The surface this
--- protects is the styled path #199 draws on this row, in `CodeReviewFileDir`. That group and
--- those marks do not exist on this branch, so `covered` reads a mark this child emits itself,
--- in a group of its own, at the band the render's own column marks use -- the shape
--- `muted_child.lua` already uses for `MutedChildStranger`. When the styled path lands, drop
--- the emission below and point `PATH_HL` at `CodeReviewFileDir`: the cells, the assertions and
--- this file all stay as they are.
+-- **The mark under `covered` is the review's own.** The surface this protects is the styled
+-- path #199 draws on this row, and #199 has landed: `covered` reads a real
+-- `CodeReviewFileDir` mark, emitted by the render, in the quiet half of a path. Until then it
+-- read a stand-in this file emitted itself, at the same band, because the group did not exist
+-- on that branch. Nothing else moved when the stand-in went, which is what it was shaped for.
 --
 -- Deliberately one cell per process. `nvim__inspect_cell` reports a cell's real attributes
 -- only on the **first** call a process makes; every call after it returns attributes belonging
@@ -46,9 +44,11 @@ vim.cmd("cd " .. vim.fn.fnameescape(fixture))
 vim.api.nvim_set_hl(0, "Normal", { fg = 0xffffff, bg = 0x000000 })
 vim.api.nvim_set_hl(0, "Title", { fg = 0x00ee00 })
 
----The group the stand-in path mark is drawn in. Set directly rather than through a link, so a
----reading names the group it came from rather than only how bright it was.
-local PATH_HL = "FrameChildPath"
+---The group the quiet half of a **path** is drawn in. Set here, directly, rather than left to
+---the link `hl.lua` gives it: a reading then names the group it came from rather than only how
+---bright it was, and `Comment`'s own colour in whatever theme a runner has is not a number any
+---assertion could hold. `hl.apply` links it with `default = true`, so this definition stands.
+local PATH_HL = "CodeReviewFileDir"
 vim.api.nvim_set_hl(0, PATH_HL, { fg = 0x2266aa })
 
 require("codereview").setup({
@@ -59,7 +59,6 @@ require("codereview").setup({
   faded = { enabled = false },
 })
 
-local render = require("codereview.render")
 local view = require("codereview.view")
 view.open("branch")
 local V = assert(view.current(), "no review view opened")
@@ -104,19 +103,16 @@ else
   local at = assert(text:find(path, 1, true), "the path is not on its own header row: " .. text)
   local slash = assert(path:find("/[^/]*$"), "the path has no directory half")
 
-  -- The stand-in, over the directory half alone, in a namespace of this file's own so the
-  -- review's next repaint would not clear it. At the band the render's own column marks use,
-  -- which is what the styled path will arrive at.
-  vim.api.nvim_buf_set_extmark(V.buf, vim.api.nvim_create_namespace("frame_child"), row - 1, at - 1, {
-    end_col = at - 1 + slash,
-    hl_group = PATH_HL,
-    priority = render.PRIORITY.gutter,
-  })
-
   if cell_kind == "covered" then
-    col = at + 1 -- inside the directory half, under the stand-in
+    col = at + 1 -- inside the directory half, which the render draws in PATH_HL
   elseif cell_kind == "bare" then
-    col = at + slash -- the first byte of the file's own name, which nothing covers
+    -- The first byte of the file's own name. Not *bare* of marks since #199 landed -- it
+    -- carries `CodeReviewFileName` -- but bare of anything with a colour of its own: that
+    -- group links to `Title`, which is where the header row's colour and the frame's rule
+    -- both come from, so this cell reads the row's own colour whichever of them drew it. That
+    -- is what makes it the control for `covered` and what stops it standing in for a second
+    -- reading of the path.
+    col = at + slash
   else
     error("CELL must be pad, covered or bare")
   end

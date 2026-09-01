@@ -38,6 +38,21 @@ local LINKS = {
 
   CodeReviewFileHeader = "Title",
   CodeReviewFileReviewed = "Comment",
+
+  -- The two halves of a file's path, wherever one is drawn: the header row and the **sticky
+  -- header** alike, because one function answers what a file is called and one pair of
+  -- groups therefore says it. The directories are what every sibling file shares, so they
+  -- take the group a comment takes and stop competing for the eye; the file's own name is
+  -- what says which file this is, so it takes the header's own group and is what a reviewer
+  -- sees first. The arrow between a rename's two paths is punctuation and takes the quiet
+  -- one.
+  --
+  -- Not the file tree's `CodeReviewPanelDir`. That surface compacts a path into directory
+  -- *rows* and draws only the basename on a file row, so its group colors a whole row rather
+  -- than a prefix inside a path -- the same problem solved by a different mechanism, and a
+  -- shared group would tie two rules that have no reason to move together.
+  CodeReviewFileDir = "Comment",
+  CodeReviewFileName = "Title",
   CodeReviewHunkHeader = "Special",
   CodeReviewNoteCount = "Comment",
   CodeReviewNote = "Comment",
@@ -70,10 +85,13 @@ local LINKS = {
   -- the untouched tally in `CodeReviewUntouched` -- because one color has to mean one
   -- thing wherever a reviewer meets it.
   --
-  -- The path is deliberately not here. It draws in the bar's own group, which is the
-  -- brightest thing a winbar has, and the two groups below are what leave it that: the
-  -- separators are quieter than the facts between them, and the icon and the chevron are
-  -- chrome in front of the one fact the reviewer scrolled there to keep.
+  -- The path is not here either, and for a reason of its own: it draws in
+  -- `CodeReviewFileDir` and `CodeReviewFileName` above, which is the in-buffer file header
+  -- row's pair. One function answers what a file is called and one pair of groups therefore
+  -- says it, so the two surfaces cannot say different things about one file. The two groups
+  -- below are what leave that path the loudest thing on the left: the separators are quieter
+  -- than the facts between them, and the icon and the chevron are chrome in front of the one
+  -- fact the reviewer scrolled there to keep.
   CodeReviewBarIcon = "Comment",
   CodeReviewBarSep = "NonText",
   CodeReviewBarTarget = "Special",

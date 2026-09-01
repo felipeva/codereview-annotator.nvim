@@ -1290,12 +1290,14 @@ describe("the sticky header in the split layout", function()
 
   -- The before pane's bar gets the same treatment as the after pane's, and this is the only
   -- place either can be said of *it*: the revision it exists to name is accented, the
-  -- separator in front of that is as quiet as the summary's, and the pre-image path is left
-  -- in the bar's own group -- the brightest thing on this bar, exactly as on the other one.
+  -- separator in front of that is as quiet as the summary's, and the pre-image path is styled
+  -- by the rule that styles the after pane's path -- each pane names its own side of a
+  -- rename, so each side is a path and each path is a quiet half and a bright one.
   it("colors the before pane's bar as it colors the after pane's", function()
     assert.same("CodeReviewBarRev", h.winbar_group(V.before_win, V.scope.before))
     assert.same("CodeReviewBarSep", h.winbar_group(V.before_win, "·"))
-    assert.is_nil(h.winbar_group(V.before_win, "src/oldname.lua"))
+    assert.same("CodeReviewFileDir", h.winbar_group(V.before_win, "src/"))
+    assert.same("CodeReviewFileName", h.winbar_group(V.before_win, "oldname.lua"))
   end)
 
   -- The note count carries the color notes carry everywhere else, which is the one thing on
@@ -1306,10 +1308,14 @@ describe("the sticky header in the split layout", function()
 
   -- A file added on the branch exists on one side only, and the before pane's header row for
   -- it is filler. Its winbar says the same thing by naming nothing.
+  -- Read through `h.winbar` and never off the option: a path carries a highlight marker
+  -- between its two halves now, so `src/fresh.lua` is not a substring of what the option
+  -- holds at all, and an assertion made against that string would report the file missing
+  -- from a bar that names it.
   it("names no pre-image for a file that has none", function()
     read_into("src/fresh.lua")
-    assert.is_truthy(vim.wo[V.win].winbar:find("src/fresh.lua", 1, true), vim.wo[V.win].winbar)
-    assert.is_nil(vim.wo[V.before_win].winbar:find("fresh", 1, true), vim.wo[V.before_win].winbar)
+    assert.is_truthy(h.winbar(V.win):find("src/fresh.lua", 1, true), h.winbar(V.win))
+    assert.is_nil(h.winbar(V.before_win):find("fresh", 1, true), h.winbar(V.before_win))
   end)
 
   it("still names the revision on a pane naming no file", function()
@@ -1320,10 +1326,16 @@ end)
 -- The sticky header and **muting**, together. Neither slice could see this: the winbar was
 -- written against a base with no muting in it, and muting against one whose winbar named no
 -- file. What their combination implies is that the file segment is chrome of a review window
--- and has to recede with it -- and the bar carries no highlight group of the plugin's own,
--- so it draws in `WinBar` and `WinBarNC` and mutes only because the muted set covers those
--- two. Nothing about that is visible in the bar's *text*, which is identical bright or
--- muted, so this is asserted at the cell and can be asserted nowhere else.
+-- and has to recede with it. Nothing about that is visible in the bar's *text*, which is
+-- identical bright or muted, so this is asserted at the cell and can be asserted nowhere
+-- else.
+--
+-- **One cell, two groups, because a `%#Group#` names only a foreground.** The first character
+-- of the path carries `CodeReviewFileDir` over the bar's own background, so the foreground of
+-- this cell is the muted set reaching a group of the plugin's own and the background is it
+-- reaching `WinBar` and `WinBarNC`. Both halves have been mutation-checked: taking `WinBarNC`
+-- out of `EDITOR_GROUPS` reds the background, and taking `CodeReviewFileDir` out of `LINKS`
+-- reds the foreground. Neither half can be dropped without the other going on passing.
 --
 -- One child process per reading, as `muted_spec` does and for the reason measured there:
 -- `nvim__inspect_cell` is honest only on the first call a process makes.
@@ -1371,23 +1383,26 @@ describe("the sticky header on a muted pane", function()
     end
   end)
 
+  -- `CodeReviewFileDir`'s foreground over `WinBar`'s background: the group of the plugin's own
+  -- that the quiet half of a path carries, on the bar of the pane that has focus.
   it("draws the file segment at full brightness on the pane with focus", function()
-    assert.same("cell s fg=eeee00 bg=006600", bright)
+    assert.same("cell s fg=8844cc bg=006600", bright)
   end)
 
-  -- `WinBar`'s colors blended halfway to `Normal`'s background -- the muted namespace's
-  -- variant, not the group itself.
+  -- Both colors blended halfway to `Normal`'s background -- the muted namespace's variants,
+  -- not the groups themselves. The foreground is `CodeReviewFileDir` muted and the background
+  -- is `WinBarNC` muted, so this one reading covers the two mechanisms the bar mutes on.
   it("mutes the file segment with the pane it names the file for", function()
-    assert.same("cell s fg=770000 bg=002200", muted)
+    assert.same("cell s fg=442266 bg=002200", muted)
   end)
 
   -- The reading that gives the one above its teeth. A non-current window draws its winbar in
   -- `WinBarNC` whether or not anything is muted, so "the muted pane's bar is not `WinBar`"
   -- would hold with the namespace never reaching the winbar at all. With muting off the same
-  -- cell comes back at `WinBarNC`'s own brightness, which is what the muted reading is
-  -- darker *than*.
+  -- cell comes back at both groups' own brightness, which is what the muted reading is darker
+  -- *than* -- on the background, which is the half `WinBarNC` owns.
   it("comes back at that group's own brightness with muting off", function()
-    assert.same("cell s fg=ee0000 bg=004400", unmuted_nc)
+    assert.same("cell s fg=8844cc bg=004400", unmuted_nc)
   end)
 
   -- The claim no reading of the path can make, and no comparison of two strings can make

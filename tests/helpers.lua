@@ -164,12 +164,11 @@ end
 
 ---The group of the plugin's own that the first byte of `needle` is drawn in, or nil.
 ---
----**nil means the bar's own group**, which is the brightest thing a winbar has -- and it is
----reported as an absence rather than by name because that name is `WinBar` in the pane with
----focus and `WinBarNC` in the other one. A case naming it answers differently depending on
----where the cursor was, which is a case that reds for a reason that has nothing to do with
----color. What is read is the group stacked *on top of* the bar's own, which is exactly the
----question every caller is asking.
+---**nil means the bar's own group**, and it is reported as an absence rather than by name
+---because that name is `WinBar` in the pane with focus and `WinBarNC` in the other one. A
+---case naming it answers differently depending on where the cursor was, which is a case that
+---reds for a reason that has nothing to do with color. What is read is the group stacked *on
+---top of* the bar's own, which is exactly the question every caller is asking.
 ---
 ---Read through the same parser `M.winbar` uses, so a marker that landed one segment out is
 ---visible here. What this cannot say is that the cell on the screen took that group's
