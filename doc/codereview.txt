@@ -477,6 +477,44 @@ the switch is read on every paint, so nothing stores what it was before the
 split. The file tree never folds either; its rows are truncated to the panel
 width.
 
+Solo                                                        *codereview-solo*
+
+A review of thirty changed files is one continuous expanse, and nothing in it
+says where a file ends. The file tree, the sticky header and the faded files
+each help, and a reviewer who has all three can still lose track of which file
+they are in.
+
+`solo = true` draws one file -- the file being read -- and none of the others.
+The file keys already in the diff are what move between them, and each of them
+draws the file it names:
+>
+    ]f  [f            the next and previous file
+    ]F  [F            the next and previous unreviewed file
+    <C-p>             any file, by name
+    <CR> in the tree  the file on that row
+<
+It is a rendering choice and never a scope (|codereview-scopes|), and that is
+the whole of what it does not touch. The review goes on covering everything
+its scope covers, so the file tree lists every file with its reviewed marks
+and its note counts, the review summary counts every file in the scope --
+`✓2/7` does not become `✓0/1` because of how someone is reading -- and the
+queue, the archive and the payload are what they were. No entry records that
+solo was on: an annotation captured with one file on screen is identical to
+the one the same line produces with all of them on screen.
+
+It is orthogonal to `layout` rather than a third value of one, because a split
+diff can be soloed and should be. A soloed split draws the same one file in
+both panes, still row-aligned. A soloed file that is collapsed keeps its
+header row, so the view is never blank with a file selected, and a scope with
+nothing in it draws an empty review as it always did.
+
+Moving between files repaints, because the file being drawn is decided on
+every paint. That is the one thing solo changes about how the view behaves.
+
+The reasoning, including the two designs that were rejected -- a single-file
+scope, and a third `layout` value -- is in
+`docs/adr/0009-solo-is-a-rendering-choice-not-a-scope.md`.
+
 The sticky header                                  *codereview-sticky-header*
 
 Each pane's winbar names the file the cursor is in, so reading past that
@@ -1152,6 +1190,7 @@ Defaults: >
       layout = "unified",
       spans = true,
       wrap = false,
+      solo = false,
       archived = true,
       muted = { enabled = true, strength = 0.5 },
       faded = { enabled = true, strength = 0.35 },
@@ -1181,6 +1220,12 @@ read rather than every time the view is drawn.
 enough for their code has no problem to solve, and upgrading the plugin should
 not re-draw their review. `gw` overrides it for the rest of the session, in
 both directions, and writes nothing here. Said of the unified layout only.
+
+`solo` draws one file at a time -- the file being read -- and none of the
+others (|codereview-solo|). It is off by default, for the reason `wrap` is: a
+reviewer who does nothing should see the review they already had. It is a
+rendering choice and never a scope, so the file tree, the reviewed marks, the
+review summary, the queue and what reaches the agent are unchanged by it.
 
 `archived` draws already-dispatched entries on the diff and tallies the
 untouched ones on the winbar (|codereview-archived|, |codereview-touched|).

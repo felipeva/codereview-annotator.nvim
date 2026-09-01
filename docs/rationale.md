@@ -191,6 +191,53 @@ true with wrap on, so the pre-breaking stays correct and stays necessary.
 
 ---
 
+## Solo
+
+**One file at a time, because thirty files is one continuous expanse.** The **file tree**,
+the **sticky header** and the **faded** files each help a reviewer keep their place, and a
+reviewer who has all three still loses it — nothing in the diff says where a file *ends*.
+Solo draws the file being read and none of the others, which is the answer every hosted
+review tool gives.
+
+**It is a rendering choice and never a scope**, which is the whole of what it does not touch.
+A scope is a git question that decides what the review *is*: the tree, the reviewed marks,
+the `✓2/7` and the meaning of "done" all read off it, and it reaches the receiving agent as
+part of what a **batch** is about. "Show me one file" is none of those — it is a statement
+about a reader's eyes, made after the review already exists, and undone by moving the cursor.
+So the review goes on covering everything its scope covers, the summary counts every file in
+it, and no **entry** records that solo was on. Argued in full, with the single-file scope and
+the third `layout` value that were both rejected, in
+[ADR-0009](adr/0009-solo-is-a-rendering-choice-not-a-scope.md).
+
+**The render is told which file to draw; it is never handed a shorter list.** This is the
+decision the implementation turns on, and the alternative is the obvious one: the view could
+filter its own file list to a single entry and call the render exactly as it always did. That
+collapses the index space. Every **anchor** would say file 1 while the tree, the file picker
+and the reviewed marks went on speaking the real index into the review's file list, and the
+two would disagree with nothing in a position to notice. Instead the render walks the same
+list and emits rows only for the index it was given, so every anchor, the file-row map and
+the header row it points at all still carry the true index. One index space.
+
+**What that costs is a map with holes in it**, and the four surfaces that ask it where a file
+is drawn had to stop treating a hole as a failure. A file the map says nothing about is not
+an error — it is the file to draw next. `]f`, `[f`, `]F`, `[F`, `<C-p>` and the tree's `<CR>`
+all end in the same move: set the file being drawn, repaint, land on its header row.
+
+**Moving between files repaints. That is the one thing solo changes about how the view
+behaves.** Every other key is what it was, because the file being drawn is read on every
+paint rather than remembered anywhere — which is also why solo composes with everything: `gl`
+switches layout with solo still on, and a soloed **split** draws the same one file in both
+**panes**, still row-aligned, because the two-pane row emitter never learned about any of
+this.
+
+**A soloed file that is collapsed keeps its header row**, so the view is never blank with a
+file selected, and a scope with nothing in it draws an empty review exactly as it did before.
+
+**Off by default**, on wrap's precedent: a reviewer who does nothing sees the review they
+already had, and upgrading the plugin should not re-draw it.
+
+---
+
 ## Spans
 
 **Which lines pair.** The i-th deletion of a contiguous run pairs with the i-th addition of

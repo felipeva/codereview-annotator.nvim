@@ -60,6 +60,9 @@ local NS = vim.api.nvim_create_namespace("codereview")
 ---@field render CRRender|nil             The after pane's render
 ---@field before_render CRRender|nil      nil in the unified layout
 ---@field current_file integer|nil        File index the diff cursor is in; the crossing latch
+---@field solo integer|nil                File index **solo** draws; the file navigation last
+---                                       moved to. Read only while solo is on, and nil until
+---                                       navigation has moved, when the first file is drawn.
 ---@field panel_render CRPanelRender|nil
 ---@field painted_bands table<integer, boolean>|nil  Row bands whose marks have been emitted
 ---@field painted_file integer|nil        File index those bands were emitted bright; the fade's latch
@@ -781,6 +784,25 @@ local function dimensions()
   return table.concat(out, " ")
 end
 
+---Which file this paint draws, or nil for every one of them.
+---
+---Read on every paint, the way **wrap** and the archived flag are, so the switch decides
+---again rather than remembers -- and so a review opened with solo on is soloed from its
+---first paint, with no arrival to wire.
+---
+---The index is the view's own: the file navigation last moved to, and the first file until
+---it has moved. Clamped, because a **scope** change and a re-read both replace the file
+---list under it and the seventh file of a list of three is not a file. An empty scope has
+---no file to draw, which is the same answer as being told nothing -- so an empty review is
+---drawn empty rather than the render being handed an index into nothing.
+---@return integer|nil
+local function soloed()
+  if not config.get().solo or #V.files == 0 then
+    return nil
+  end
+  return math.min(V.solo or 1, #V.files)
+end
+
 ---Redraw from the files already in memory. Cheap; no git.
 ---@param keep_file integer|nil File index to park the cursor on afterwards
 function M.paint(keep_file)
@@ -824,6 +846,7 @@ function M.paint(keep_file)
     notes = V.notes,
     archived = V.archived,
     touched = V.touched,
+    solo = soloed(),
     types = cfg.types,
   })
 
@@ -1075,19 +1098,93 @@ end
 
 M.goto_row = goto_row
 
+---Draw a file this render did not draw.
+---
+---**The one move `file_rows` being sparse costs.** Under **solo** that map holds one entry,
+---at the file being read, and four surfaces look a file up in it -- the file jump, the
+---unreviewed jump, the file picker's landing and the tree's open action -- and used to give
+---up when it was missing. A file the map says nothing about is not a failure: it is the
+---file to draw next. So they all say the same thing here instead, which is *set the soloed
+---file and repaint* -- through the paint that already re-renders and parks the cursor on a
+---file's header row, so there is no second entry point and nothing new to keep in step.
+---
+---Never reached with solo off, where the map holds every file.
+---@param index integer Index into `V.files`
+local function draw_file(index)
+  V.solo = index
+  M.paint(index)
+end
+
+---Put the cursor on a file's header row, drawing that file first if this render did not.
+---
+---What every surface that goes to a file *by index* arrives through. With solo off it is
+---exactly the lookup and the jump those surfaces already made.
+---@param index integer Index into `V.files`
+local function goto_file(index)
+  if not V.render.file_rows[index] then
+    draw_file(index)
+  end
+  local row = V.render.file_rows[index]
+  if row then
+    goto_row(row, "zt")
+  end
+end
+
+---Exported for the **file tree**, whose `<CR>` opens the file on the row it is on. The tree
+---is one of the four surfaces above, and it reaches a file the same way the diff's own keys
+---do rather than through a rule of its own.
+M.goto_file = goto_file
+
+---Where a file motion starts from, as an index into `V.files`.
+---
+---A file motion has always been "the nearest file *header row* in that direction". The file
+---the cursor is in is the file whose header is the nearest one above it, so forward looks
+---after that file, and backward looks at it -- which is why `[f` from inside a file has
+---always gone to the top of that file rather than past it -- unless the cursor is already
+---on that header, when backward looks before it.
+---
+---Said as an index rather than as a row because under **solo** the file being looked for
+---may have no row at all. Equivalent to the row rule wherever the row rule can answer:
+---checked against it over every row of a real render, in both **layouts** and with files
+---collapsed.
+---@param forward boolean
+---@return integer|nil bound A candidate is strictly after it, or strictly before it
+local function motion_bound(forward)
+  local here = current_file()
+  if not here then
+    return nil
+  end
+  if forward then
+    return here
+  end
+  return cursor_row() == V.render.file_rows[here] and here or here + 1
+end
+
 ---@param what "file"|"hunk"
 ---@param forward boolean
 function M.jump(what, forward)
   if not M.current() or not V.render then
     return
   end
-  local rows = what == "file" and V.render.file_rows or V.render.hunk_rows
-  local row = nearest(rows, cursor_row(), forward)
-  if not row then
-    info(("No %s %s here"):format(forward and "next" or "previous", what))
+  -- A hunk is a row and stays one: `]h` and `[h` move inside what is drawn, which is what
+  -- they have always done.
+  if what == "hunk" then
+    local row = nearest(V.render.hunk_rows, cursor_row(), forward)
+    if not row then
+      info(("No %s hunk here"):format(forward and "next" or "previous"))
+      return
+    end
+    goto_row(row)
     return
   end
-  goto_row(row, what == "file" and "zt" or nil)
+
+  local bound = motion_bound(forward)
+  local index = bound and (forward and bound + 1 or bound - 1)
+  if not index or index < 1 or index > #V.files then
+    info(("No %s file here"):format(forward and "next" or "previous"))
+    return
+  end
+  goto_file(index)
 end
 
 ---Jump to the next or previous file that is still unreviewed.
@@ -1095,30 +1192,46 @@ end
 ---The point of marking files reviewed is to stop looking at them, so the common motion is
 ---"take me to the next thing I have not done" -- not "the next file", which walks back
 ---through everything already finished.
+---
+---**The candidates are the review's files, not the rows `file_rows` holds.** The two read
+---the same while the render draws every file, which is what made iterating that map as an
+---array correct by accident. A render that draws fewer files than the review holds makes it
+---sparse -- one entry, at the file being read -- and then every candidate but one has no row
+---to be collected by, so this reports that everything is reviewed while unreviewed files
+---remain. That is the one sentence a reviewer has to be able to trust. The files are dense
+---whatever the render does, so they are what the candidates are, and a file is reached by
+---being drawn rather than by already having a row.
 ---@param forward boolean
 function M.jump_unreviewed(forward)
   if not M.current() or not V.render then
     return
   end
-  local rows = {}
-  for index, row in ipairs(V.render.file_rows) do
-    if not V.reviewed[V.files[index].path] then
-      rows[#rows + 1] = row
+  local unreviewed = {}
+  for index, file in ipairs(V.files) do
+    if not V.reviewed[file.path] then
+      unreviewed[#unreviewed + 1] = index
     end
   end
-  if #rows == 0 then
+  -- Before the cursor is asked anything. Whether a file is left to go to is a fact about
+  -- the review, and a review with no files at all has no cursor in one -- so asking the
+  -- cursor first leaves an empty scope silent where it used to say this.
+  if #unreviewed == 0 then
     info("Everything in this scope is reviewed")
     return
   end
+  local bound = motion_bound(forward)
+  if not bound then
+    return
+  end
 
-  local row = nearest(rows, cursor_row(), forward)
-  if not row then
+  local index = nearest(unreviewed, bound, forward)
+  if not index then
     -- Wrap: with the reviewed files skipped there are few targets left, and stopping dead
     -- at the last one means scrolling back by hand.
-    row = forward and rows[1] or rows[#rows]
+    index = forward and unreviewed[1] or unreviewed[#unreviewed]
     info(forward and "Wrapped to the first unreviewed file" or "Wrapped to the last unreviewed file")
   end
-  goto_row(row, "zt")
+  goto_file(index)
 end
 
 ---Jump to the next or previous annotated line.
@@ -1207,9 +1320,7 @@ function M.pick_file()
       V.expanded[V.files[index].path] = true
       M.paint()
     end
-    if V.render.file_rows[index] then
-      goto_row(V.render.file_rows[index], "zt")
-    end
+    goto_file(index)
   end)
 end
 
@@ -1708,6 +1819,15 @@ function M.jump_to_entry(entry)
   if not expanded then
     V.expanded[entry.path] = true
     M.paint()
+  end
+
+  -- The entry may be about a file this render did not draw, because `file_rows` is sparse
+  -- under **solo**. The same move the file keys make, and it has to be made *before* the
+  -- anchor scan below: the rows the entry's key is looked for on are the rows of the render
+  -- this draws. The arrival is this function's own -- the annotated row, centered, in the
+  -- pane the key names -- so what is taken from there is the drawing and not the landing.
+  if not V.render.file_rows[index] then
+    draw_file(index)
   end
 
   -- The entry's key is already sided, so it also says which pane the annotation belongs to,
