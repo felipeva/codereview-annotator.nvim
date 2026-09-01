@@ -85,10 +85,13 @@ local LINKS = {
   -- the untouched tally in `CodeReviewUntouched` -- because one color has to mean one
   -- thing wherever a reviewer meets it.
   --
-  -- The path is deliberately not here. It draws in the bar's own group, which is the
-  -- brightest thing a winbar has, and the two groups below are what leave it that: the
-  -- separators are quieter than the facts between them, and the icon and the chevron are
-  -- chrome in front of the one fact the reviewer scrolled there to keep.
+  -- The path is not here either, and for a reason of its own: it draws in
+  -- `CodeReviewFileDir` and `CodeReviewFileName` above, which is the in-buffer file header
+  -- row's pair. One function answers what a file is called and one pair of groups therefore
+  -- says it, so the two surfaces cannot say different things about one file. The two groups
+  -- below are what leave that path the loudest thing on the left: the separators are quieter
+  -- than the facts between them, and the icon and the chevron are chrome in front of the one
+  -- fact the reviewer scrolled there to keep.
   CodeReviewBarIcon = "Comment",
   CodeReviewBarSep = "NonText",
   CodeReviewBarTarget = "Special",

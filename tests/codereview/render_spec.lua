@@ -621,8 +621,14 @@ describe("the sticky header with room for the whole summary", function()
     assert.is_nil(bar():find("reviewed", 1, true), bar())
   end)
 
-  it("draws the path in the bar's own group, the brightest thing on it", function()
-    assert.is_nil(group_of("src/nonl.md"))
+  -- The path is styled, and it is styled here in the two groups the in-buffer file header
+  -- row uses -- one function answers what a file is called, so one pair of groups says it and
+  -- the two surfaces cannot say different things about one file. The directories are what
+  -- every sibling file shares and are quiet; the file's own name is what says which file this
+  -- is, and is the brightest thing on the left.
+  it("draws the directories above a file quietly and the file's own name brightly", function()
+    assert.same("CodeReviewFileDir", group_of("src/"))
+    assert.same("CodeReviewFileName", group_of("nonl.md"))
   end)
 
   it("colors the file's own added and removed counts apart", function()
@@ -641,7 +647,15 @@ describe("the sticky header with room for the whole summary", function()
   -- twins for free, since `hl.groups()` derives the muted set from the same table. Asserted
   -- as a link to a defined group, never as a resolved color.
   it("links the bar's own groups into the colorscheme rather than defining colors", function()
-    for _, group in ipairs({ "CodeReviewBarIcon", "CodeReviewBarSep", "CodeReviewBarTarget", "CodeReviewBarRev" }) do
+    local groups = {
+      "CodeReviewBarIcon",
+      "CodeReviewBarSep",
+      "CodeReviewBarTarget",
+      "CodeReviewBarRev",
+      "CodeReviewFileDir",
+      "CodeReviewFileName",
+    }
+    for _, group in ipairs(groups) do
       local def = vim.api.nvim_get_hl(0, { name = group })
       assert.is_truthy(def.link, ("%s is not a link: %s"):format(group, vim.inspect(def)))
       assert.is_truthy(vim.api.nvim_get_hl(0, { name = def.link }), ("%s links nowhere"):format(group))
@@ -746,6 +760,14 @@ describe("the sticky header on a pane that has to choose", function()
     assert.is_truthy(bar():find("src/newname.lua", 1, true), bar())
     assert.is_truthy(bar():find("…", 1, true), bar())
     assert.is_nil(bar():find("src/oldname.lua", 1, true), bar())
+  end)
+
+  -- The cut comes back styled, which is why the path is cut as segments rather than as a
+  -- string: what a narrow pane leaves a reviewer holding is the file's own name, and it is
+  -- still the bright half of the rule after the head has gone.
+  it("keeps the bright name in its own group through the cut", function()
+    assert.same("CodeReviewFileName", h.winbar_group(V.win, "newname.lua"))
+    assert.same("CodeReviewFileDir", h.winbar_group(V.win, "src/newname.lua"))
   end)
 
   -- The summary gives way, and gives up what the file beside it now says twice before what

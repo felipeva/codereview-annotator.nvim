@@ -32,6 +32,18 @@ scroll invalidates.
 separator are multibyte, so each rendered row records where its code text actually begins;
 assuming a fixed prefix width shifts every highlight on every changed line.
 
+**The same trap is on the file header row, and it needs no unusual path to spring.** A path is
+colored there in two ranges — its directories quiet, its own name bright — and it starts after
+`"○ ▾ "`, which is **eight bytes and four display columns**. A mark placed at the display
+column lands four bytes early and colors the chevron instead of the first directory, on every
+header row in every review. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
+`src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone
+proves the prefix and nothing about the path itself; `path_spec` builds a file list with an
+accented path by hand for the other half, which `render.build` allows because it is pure data.
+Adding such a path to the fixture would move counts and row assertions in nine specs, and the
+split itself cannot be got wrong: `/` is ASCII and UTF-8 is self-synchronising, so a cut at the
+last separator always lands on a character boundary.
+
 **The queue float's bar is buffer text, not an extmark**, and that is what makes the
 cursor-to-entry mapping exact. Every row an entry owns carries the bar, so the float can
 record which entry *every* row belongs to instead of recording headings and guessing the
@@ -84,15 +96,26 @@ window on two mechanisms at once, and each needs the other to be right. The buil
 in `EDITOR_GROUPS`; every group the bar asks for is in `LINKS`, which is what `hl.groups()`
 derives the muted set from, so a bar group added anywhere else is one a muted pane leaves
 bright. `split_spec` reads two cells of one bar for exactly this reason: one inside the path,
-which carries no group of the plugin's own and is where the muting is proven, and one on the
-file's added count, which carries one and is where the color is.
+where both mechanisms are proven at once, and one on the file's added count, which is where a
+group of the plugin's own reaching the screen at all is proven.
 
-**The path is the one thing on the bar left in the bar's own group**, and that is what makes
-it the brightest thing on the left rather than any group being brighter: the icon and the
-chevron in front of it are quiet, the separators quieter still, and everything else carries
-the group the surface saying the same thing on the diff carries — the stat, the note count
-and the untouched tally are the diff's own groups, not a second set for the bar. One color,
-one meaning, wherever a reviewer meets it.
+**A cell inside the path answers about two groups, because a `%#Group#` names only a
+foreground.** The first character of a path carries `CodeReviewFileDir` over the bar's own
+background, so that cell's *foreground* says whether a group of the plugin's is in the muted
+set and its *background* says whether `WinBar` and `WinBarNC` are. Both halves are
+mutation-checked in `split_spec`: taking `WinBarNC` out of `EDITOR_GROUPS` reds the
+background, and taking `CodeReviewFileDir` out of `LINKS` reds the foreground. The path used
+to carry no group at all, and that reading proved only the second half — a fact worth knowing
+if the styling is ever taken off the bar again.
+
+**Everything on the bar carries the group the surface saying the same thing on the diff
+carries.** The stat, the note count and the untouched tally are the diff's own groups, and the
+path is the file header row's own pair: its directories quiet, its own name bright, both from
+`file_label`'s segments rather than from a split made a second time out here. The icon and the
+chevron in front of it are quiet, the separators quieter still. One color, one meaning,
+wherever a reviewer meets it — which is what the path being styled on both surfaces buys, and
+what it cost is that the path is no longer the one thing on the bar drawing in `WinBar`
+itself.
 
 **Every name on the winbar is escaped, per segment, and the bar is padded by hand in display
 columns.** A bar is built from typed segments — chrome, which the plugin wrote, or a literal,

@@ -195,6 +195,48 @@ end
 
 M.keep_tail = keep_tail
 
+---`keep_tail` over typed segments: the last `width` columns of what they draw, still typed.
+---
+---The **sticky header** cuts a path from the left, and now that a path is styled the cut has
+---to survive with its styling on it -- so what comes back is segments and not a string. What
+---a narrow pane keeps is the file's own name, which is the bright segment at the end, and the
+---`…` is chrome the plugin wrote rather than part of any name.
+---
+---Delegated to `keep_tail` rather than re-derived, so there is one rule about what "too wide"
+---means and one about where a cut falls. The mapping back is by byte, and can be: `keep_tail`
+---cuts on character boundaries, so the position it leaves is a position in the joined text and
+---in exactly one segment of it.
+---@param segments CRBarSegment[]
+---@param width integer
+---@return CRBarSegment[]
+function M.keep_tail_segments(segments, width)
+  local text = M.segment_text(segments)
+  local kept = keep_tail(text, width)
+  if kept == text then
+    return segments
+  end
+  -- What `keep_tail` kept, as bytes taken off the head. Its own `…` is dropped here and put
+  -- back below as a segment of its own, so it carries a kind like everything else on a bar.
+  local drop = #text - (#kept - #"…")
+  local out = {}
+  local seen = 0
+  for _, seg in ipairs(segments) do
+    local from = math.max(drop - seen, 0)
+    if from < #seg.text then
+      if #out == 0 then
+        -- The ellipsis takes the group of the segment it cut into, so the cut reads as part
+        -- of the thing that was cut rather than as a mark of its own.
+        out[1] = M.chrome("…", seg.hl)
+      end
+      out[#out + 1] = from > 0 and { kind = seg.kind, text = seg.text:sub(from + 1), hl = seg.hl } or seg
+    end
+    seen = seen + #seg.text
+  end
+  -- A pane too narrow to hold even one column of the name: `keep_tail` says so with the
+  -- ellipsis alone, and so does this.
+  return #out > 0 and out or { M.chrome("…") }
+end
+
 ---Longest prefix of `text` that fits in `width` display columns, and what is left.
 ---
 ---By display width rather than by characters: a note containing CJK or an emoji occupies
@@ -562,6 +604,35 @@ function M.build(files, opts)
     pane.marks[#pane.marks + 1] = { row = row - 1, col = col, opts = opts_ }
   end
 
+  ---Color one path where it was drawn: its directories quiet, the file's own name bright.
+  ---
+  ---**In byte offsets, because that is what an extmark column is.** The icon and the chevron
+  ---in front of a path are multibyte, so a mark placed at the *display* column lands four
+  ---bytes early and colors the chevron instead of the first directory. Same arithmetic the
+  ---change bar already does, arriving one row above the code.
+  ---
+  ---`limit` is where the row stops being the path -- the end of the fitted left-hand side on
+  ---the after pane, the end of the whole row on the before pane. A header cut to fit its pane
+  ---therefore takes its coloring with it: a segment wholly past the cut is never emitted, and
+  ---the one the cut fell inside ends where the row does. An `end_col` past the end of a line
+  ---is a hard error, so this is a rule and not a tidiness. The `…` truncate leaves behind
+  ---takes the color of the segment it cut into, exactly as the sticky header's leading one
+  ---does.
+  ---@param pane table
+  ---@param row integer 1-indexed
+  ---@param col integer 0-indexed byte where the path starts on that row
+  ---@param limit integer One past the last byte of that row the path may color
+  ---@param segments CRBarSegment[]
+  local function paint_path(pane, row, col, limit, segments)
+    for _, seg in ipairs(segments) do
+      local stop = math.min(col + #seg.text, limit)
+      if seg.hl and col < stop then
+        mark(pane, row, col, { end_col = stop, hl_group = seg.hl })
+      end
+      col = col + #seg.text
+    end
+  end
+
   ---@param pane table
   ---@param text string
   ---@param anchor CRAnchor
@@ -799,9 +870,13 @@ function M.build(files, opts)
     -- The before pane draws the half that concerns it: the path the pre-image had, indented
     -- to sit under the after pane's name. A file that exists only on the after side has no
     -- pre-image path at all, so its header row is filler like the rest of it.
-    local bheader = nil
+    local bheader, bindent = nil, 0
     if before and label.before then
       local indent = (" "):rep(vim.fn.strdisplaywidth(icon) + vim.fn.strdisplaywidth(chevron) + 2)
+      -- Spaces, so the indent's byte count and its column count are the same number -- which
+      -- is exactly what the after pane's icon and chevron are not, and why that one is
+      -- measured in bytes below.
+      bindent = #indent
       bheader = truncate(indent .. M.segment_text(label.before), before_width)
     end
 
@@ -826,6 +901,14 @@ function M.build(files, opts)
     end
     if note_count > 0 then
       mark(after, row, stat_col + #stat, { end_col = #header, hl_group = "CodeReviewNoteCount" })
+    end
+    -- The path, in the two groups the **sticky header** draws it in: one function answers
+    -- what a file is called and one pair of groups therefore says it, so the two surfaces
+    -- cannot drift apart on a file only one of them had in mind. `#icon + #chevron + 2` is
+    -- bytes and not columns, which is the whole trap -- both glyphs are multibyte.
+    paint_path(after, row, #icon + #chevron + 2, #left, label.name)
+    if before and bheader then
+      paint_path(before, row, bindent, #bheader, label.before)
     end
     -- Whole-file annotations hang off the header, so they stay visible even when the
     -- file is collapsed -- which is exactly when a file-level note matters most. Their key

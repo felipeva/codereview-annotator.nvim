@@ -771,6 +771,23 @@ Set `enabled = false` on any of the three to turn it off. Each `strength` is one
 
 [What the counterpart row is for, why the tree is exempt, and how the three differ](docs/rationale.md#focus-and-fade)
 
+### A file's path
+
+A file's header row draws the directories above the file quietly and the file's own name
+brightly. The split is at the last separator, so the part every file in a directory shares
+stops competing with the part that says which file this is. A file at the repository root
+draws its name with nothing quiet in front of it.
+
+A renamed file gets the rule on both of its paths, and the arrow between them is drawn as
+punctuation. In the split layout each **pane** styles the path it names, so the old name is
+styled on the side that holds it.
+
+The **sticky header** below draws a path the same way, because one function answers what a
+file is called. On a narrow pane the path is cut from the left and keeps the bright name.
+
+`CodeReviewFileDir` and `CodeReviewFileName` are the groups, linked into your colorscheme
+like every other.
+
 ### The sticky header
 
 A file's header row scrolls off the top as soon as you read past the first screenful. The
@@ -781,8 +798,9 @@ A file's header row scrolls off the top as soon as you read past the first scree
 ```
 
 It carries the same icon, chevron, path, `+N -M` and annotation count that the in-buffer
-header carries, with the review summary right-aligned beside it. It names the file the
-**cursor** is in, which is the file an annotation attaches to.
+header carries — the path styled the same way, by the same rule — with the review summary
+right-aligned beside it. It names the file the **cursor** is in, which is the file an
+annotation attaches to.
 
 It works with the tree dismissed, and with a review opened without one.
 

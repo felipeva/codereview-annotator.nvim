@@ -1,12 +1,17 @@
 -- One painted cell of a pane's **sticky header**, read in a process of its own.
 --
 -- The intersection neither slice could see. The winbar names the file the cursor is in, and
--- a review window without focus is **muted** through a highlight namespace -- and the bar
--- carries no highlight group of the plugin's own, so it draws in `WinBar` when its window
--- has focus and in `WinBarNC` when it does not, both of which the muted set covers. Whether
--- the file segment actually recedes with its pane is therefore a question about that
--- namespace reaching the winbar, and **no assertion about the bar's text can answer it**:
--- the text is identical bright or muted. Only the cell is different.
+-- a review window without focus is **muted** through a highlight namespace. Whether the file
+-- segment actually recedes with its pane is therefore a question about that namespace
+-- reaching the winbar, and **no assertion about the bar's text can answer it**: the text is
+-- identical bright or muted. Only the cell is different.
+--
+-- **The cell answers about two groups at once, and it has to.** A path is styled now, so the
+-- first character of one carries `CodeReviewFileDir` -- but a `%#Group#` names a foreground
+-- and leaves the bar's own background showing through, so the *foreground* of this cell says
+-- whether a group of the plugin's is muted and the *background* says whether `WinBar` and
+-- `WinBarNC` are. Take either group out of the muted set and this reading goes red on the
+-- half that group owns, which is the property that makes it a proof rather than a decoration.
 --
 -- `WinBarNC` is what a non-current window's bar draws in whether or not anything is muted,
 -- which is exactly why the control reading matters: with muting off the same cell must come
@@ -19,11 +24,11 @@
 -- channels are all even, so a half-strength blend toward a black background has no rounding
 -- in it.
 --
--- `CELL` chooses which cell that is: the path, which carries no group of the plugin's own
--- and is the reading the muting is proven with, or the file's added count, which carries
--- one and is the reading the *color* is proven with. Neither can stand in for the other:
--- the path says the bar recedes with its pane, and the count says a group of the plugin's
--- reaches the screen at all.
+-- `CELL` chooses which cell that is: the first character of the path, which is the reading
+-- the muting is proven with -- of the bar's own group underneath it and of the quiet half of
+-- the path over it -- or the file's added count, which is the reading the *color* is proven
+-- with. Neither can stand in for the other: the path says the bar recedes with its pane, and
+-- the count says a group of the plugin's reaches the screen at all.
 --
 -- Not named `*_spec.lua`, so PlenaryBustedDirectory does not collect it. Spawned by
 -- `split_spec` with FIXTURE, FOCUS, MUTED and CELL in its environment, and it must NOT load
@@ -46,6 +51,12 @@ vim.api.nvim_set_hl(0, "WinBarNC", { fg = 0xee0000, bg = 0x004400 })
 -- foreground. A `%#Group#` sets the foreground and leaves the bar's background showing
 -- through, which is why only the foreground here differs from `WinBar`'s.
 vim.api.nvim_set_hl(0, "Added", { fg = 0x00cc66 })
+-- What `CodeReviewFileDir` links into: the quiet half of a path, which is what the first
+-- character of one is drawn in. Set here for the reason `Added` is -- a color of its own, and
+-- one no default colorscheme could have supplied, so a reading in it says which group it came
+-- from. Even channels, like every other color in this file, so a half-strength blend toward a
+-- black background has no rounding in it.
+vim.api.nvim_set_hl(0, "Comment", { fg = 0x8844cc })
 
 require("codereview").setup({
   layout = "split",

@@ -242,18 +242,19 @@ end
 --
 -- The groups are `hl.lua`'s, linked by default into whatever colorscheme is active, so a
 -- theme change is the theme's problem and a **muted** pane's bar recedes with the pane
--- through the twins that set already has. The path carries none of them: the bar's own group
--- is the brightest thing on a winbar, and leaving the path in it is what makes it the
--- brightest thing on the left.
+-- through the twins that set already has. The path carries two of them, and they are the
+-- in-buffer file header row's own: `file_label` hands its segments out already styled, so the
+-- bar and that header row cannot disagree about which half of a path is the loud one.
 
 local SEP = " · "
 -- One blank column at each edge, and at least two between the halves, so the two never
 -- read as one sentence.
 local MARGIN, GAP = 1, 2
 
----Columns of one bare string: the path, which is the only part of a bar that is cut rather
----than assembled. Anything already in segments is measured with `render.bar_width`, which
----is the same count plus what a segment can hold that a string cannot say.
+---Columns of one bare string. Anything in segments is measured with `render.bar_width`,
+---which is the same count plus what a segment can hold that a string cannot say -- and the
+---path is segments now, so what is left here is the floor the fitting rule keeps the path
+---at, spelled from the file's own name and an ellipsis that is not on the bar yet.
 ---@param text string
 ---@return integer
 local function cols(text)
@@ -421,16 +422,18 @@ end
 ---when a pane runs out of room the path is what gives them up.
 ---
 ---Literals, the icons included: a host chooses those, so they are not text the plugin wrote.
----The path stays a bare string rather than a segment because it is the one part the fitting
----rule cuts, and `render.keep_tail` takes text.
+---The path arrives already in segments, from the one function that answers what a file is
+---called -- so the bar and the in-buffer header row style it identically, and the cut a
+---narrow pane makes goes through `render.keep_tail_segments` with the styling on it.
 ---
 ---Colored as the in-buffer file header colors the same facts, and for the same reason one
 ---function names the file for both: the counts apart, the note count in the group the notes
----themselves carry, the icon and the chevron quiet. The path takes no group at all, which
----leaves it drawing in the bar's own -- the brightest thing on the left, and the thing the
----reviewer scrolled there to keep.
+---themselves carry, the icon and the chevron quiet. The path's own two groups are that
+---header row's, which is what makes the file's name the brightest thing on the left and the
+---directories above it the quietest -- the part the reviewer scrolled here to keep, and the
+---part every sibling file shares.
 ---@param label CRFileLabel
----@return { head: CRBarSegment[], path: string, tail: CRBarSegment[] }
+---@return { head: CRBarSegment[], path: CRBarSegment[], tail: CRBarSegment[] }
 local function file_segment(label)
   local tail = { render.chrome("  ") }
   vim.list_extend(tail, stat_segments(label.stat))
@@ -444,7 +447,7 @@ local function file_segment(label)
   end
   return {
     head = { render.literal(("%s %s "):format(label.icon, label.chevron), "CodeReviewBarIcon") },
-    path = render.segment_text(label.name),
+    path = label.name,
     tail = tail,
   }
 end
@@ -464,7 +467,7 @@ end
 ---it does: a bar that had shed the scope to spell out two more directory names would have
 ---kept the least of what it was holding.
 ---@param room integer Columns, margins already taken off
----@param file { head: CRBarSegment[], path: string, tail: CRBarSegment[] }
+---@param file { head: CRBarSegment[], path: CRBarSegment[], tail: CRBarSegment[] }
 ---@param segments { parts: CRBarSegment[], spare: boolean|nil }[]
 ---@return CRBarSegment[] left, CRBarSegment[] right
 local function fit(room, file, segments)
@@ -483,6 +486,7 @@ local function fit(room, file, segments)
   end
 
   local dropped = {}
+  local whole = render.bar_width(file.path)
   local summary, path_room
   local function measure()
     summary = join(segments, dropped)
@@ -494,8 +498,11 @@ local function fit(room, file, segments)
   measure()
 
   -- Cut back to the file's own name, and no further, before the summary gives up anything
-  -- it alone says.
-  local floor = math.min(cols(file.path), cols("…" .. file.path:match("[^/]*$")))
+  -- it alone says. That name is the last segment of the path by construction: the split is
+  -- at the last separator, so what follows it is one bright segment and nothing else -- and
+  -- on a rename spelled out in this layout it is the file's name *now*, which is the half
+  -- worth keeping.
+  local floor = math.min(whole, cols("…" .. file.path[#file.path].text))
   local next_drop = 1
   ---@param last integer Last position in `order` this step may reach
   ---@param want integer Columns the path is being kept at
@@ -507,11 +514,11 @@ local function fit(room, file, segments)
     end
   end
   -- Step 1 keeps the whole path; steps 3 and 4 keep only the file's own name.
-  shed(#spares, cols(file.path))
+  shed(#spares, whole)
   shed(#order, floor)
 
   local left = vim.list_extend({}, file.head)
-  left[#left + 1] = render.literal(render.keep_tail(file.path, path_room))
+  vim.list_extend(left, render.keep_tail_segments(file.path, path_room))
   return vim.list_extend(left, file.tail), summary
 end
 
@@ -562,13 +569,15 @@ local function update_before_winbar()
   -- header row on this pane has none: the revision keeps the bar to itself and says so by
   -- naming nothing beside it.
   local label = current_label("split")
-  local path = label and label.before and render.segment_text(label.before) or ""
+  local path = label and label.before or nil
   -- The revision is what this pane exists to name and is never cut for the path's sake: on
   -- a pane too narrow to hold both, a base revision half spelled out is worse than none of
   -- the path, which the after pane is naming anyway.
   local room = width - 2 * MARGIN - GAP - render.bar_width(left)
-  path = (path ~= "" and room >= 2) and render.keep_tail(path, room) or ""
-  set_winbar(V.before_win, lay_out(width, left, path ~= "" and { render.literal(path) } or {}))
+  -- Styled by the same rule as the after pane's own path, and by the same function: each
+  -- pane names its own side of a rename, so each side is a path and each path gets the rule.
+  local named = (path and room >= 2) and render.keep_tail_segments(path, room) or {}
+  set_winbar(V.before_win, lay_out(width, left, named))
 end
 
 ---Write one pane's render into its buffer: the lines, and nothing else.

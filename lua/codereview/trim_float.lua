@@ -202,9 +202,9 @@ end
 
 ---Turn the commits into the float's rows.
 ---
----The subject keeps the buffer's own color, which is the brightest thing this float has,
----for the reason the **sticky header** leaves the path in the bar's own group: the sha and
----the date are what a row is found by, and the subject is what it is read for.
+---The subject keeps the buffer's own color, which is the brightest thing this float has, for
+---the reason the **sticky header** leaves the file's own name the loudest thing on the left:
+---the sha and the date are what a row is found by, and the subject is what it is read for.
 ---
 ---Its highlight columns are byte offsets, not display columns -- a subject is free to be
 ---any width in either ruler, and the two part company at the first accented character. Every

@@ -342,12 +342,15 @@ The bar does not name the review itself. A bar inside a review does not need to.
 
 **It is colored.** Added counts are green and removed counts are red. The annotation count
 takes the color that annotations carry everywhere else. The delivery target is accented. The
-separators are quieter than the facts between them. The path is the brightest thing on the
-left, which is the thing you scrolled there to keep.
+separators are quieter than the facts between them. The path is split the way the file header
+row splits it — the directories above the file quiet, the file's own name bright — so the part
+that says which file this is is the thing you see first, and it is the thing you scrolled
+there to keep.
 
 The groups are the plugin's own: `CodeReviewBarIcon`, `CodeReviewBarSep`,
 `CodeReviewBarTarget` and `CodeReviewBarRev`, beside the stat and annotation-count groups the
-diff already uses. Every one is a `default = true` link into your colorscheme. A theme you
+diff already uses and the `CodeReviewFileDir` and `CodeReviewFileName` pair the file header
+row draws a path in. Every one is a `default = true` link into your colorscheme. A theme you
 have never used supplies the colors, and a theme change mid-review follows.
 
 **In the split layout each pane names its own side**, so a rename reads correctly on the side
