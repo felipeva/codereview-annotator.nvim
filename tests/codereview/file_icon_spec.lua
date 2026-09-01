@@ -428,6 +428,364 @@ describe("the before pane's header row", function()
   end)
 end)
 
+--- The file tree -----------------------------------------------------------------
+
+-- The third surface that names a file, and the one a reviewer looks at first. `panel.build`
+-- is pure in the way `render.build` is -- files and options in, lines and marks out, with no
+-- window and no repository behind it -- so every claim about what a tree row draws is
+-- answerable here. The one that is not is that the glyph a tree row draws is the glyph that
+-- file's header row draws; two surfaces agreeing is a property of neither, and it waits for
+-- a review at the end of this file.
+--
+-- Hand-built file lists rather than the nested fixture `panel_spec` reads. That spec's row
+-- assertions are structural, and an adapter wired into its process would move every one of
+-- them -- its top-level listing is spelled out glyph by glyph. This is the first act's own
+-- idiom, one surface over.
+local panel = require("codereview.panel")
+
+local TREE = {
+  one({ path = "apps/api/src/routes/users.ts" }),
+  one({ path = "apps/api/src/main.lua" }),
+  one({ path = "docs/guide.md" }),
+  one({ path = "README.md" }),
+}
+local WIDTH = 34
+
+---@param opts table|nil
+---@param files table[]|nil
+---@return CRPanelRender
+local function tree(opts, files)
+  return panel.build(
+    files or TREE,
+    vim.tbl_extend("force", { width = WIDTH, icons = ICONS, reviewed = {}, notes = {}, collapsed = {} }, opts or {})
+  )
+end
+
+---@param files table[]
+---@param path string
+---@return integer
+local function index_of(files, path)
+  for i, file in ipairs(files) do
+    if file.path == path then
+      return i
+    end
+  end
+  error(path .. " is not in this file list")
+end
+
+---A file's row in a built tree: which row it is, and the line drawn on it.
+---@param rendered CRPanelRender
+---@param path string
+---@param files table[]|nil
+---@return integer row, string line
+local function file_row(rendered, path, files)
+  local row = assert(rendered.file_row[index_of(files or TREE, path)], path .. " has no row")
+  return row, rendered.lines[row]
+end
+
+---@param rendered CRPanelRender
+---@param dir string
+---@return string
+local function dir_row(rendered, dir)
+  for row, path in pairs(rendered.row_dir) do
+    if path == dir then
+      return rendered.lines[row]
+    end
+  end
+  error(dir .. " has no row")
+end
+
+---The leftmost highlighted range on a row, read back off the row itself.
+---
+---**Read rather than computed, because the rule is about a column.** The state mark is the
+---first thing after the indent, so what the leftmost range covers *is* the state mark or the
+---rule is broken -- and an expectation computed from the same offsets the row was built from
+---would agree with a glyph that had taken the mark's place.
+---@param rendered CRPanelRender
+---@param row integer
+---@return string text, string group
+local function leading(rendered, row)
+  local first
+  for _, m in ipairs(rendered.marks) do
+    if m.row == row - 1 and m.opts.end_col and (not first or m.col < first.col) then
+      first = m
+    end
+  end
+  assert(first, "no highlighted range on that row")
+  return rendered.lines[row]:sub(first.col + 1, first.opts.end_col), first.opts.hl_group
+end
+
+---@param line string
+---@param head string
+local function begins(line, head)
+  assert.same(head, line:sub(1, #head))
+end
+
+describe("the glyph on a tree row", function()
+  it("is drawn between the state mark and the name", function()
+    local _, line = file_row(tree({ file_icon = by_extension }), "apps/api/src/main.lua")
+    begins(line, ("  %s %s main.lua"):format(ICONS.unreviewed, LUA))
+  end)
+
+  -- The rule the whole ticket rests on, on the surface a reviewer scans down: the mark is
+  -- still the first thing after the indent and the range that colors it still covers it,
+  -- whatever glyph the file carries beside it. All three states are asked, because a glyph
+  -- that had taken the mark's place would be invisible on any two of them.
+  it("leaves the state mark first on the row, in its own column", function()
+    local cases = {
+      { ICONS.unreviewed, {} },
+      { ICONS.reviewed, { reviewed = { ["apps/api/src/main.lua"] = "blob" } } },
+      { ICONS.annotated, { notes = { ["apps/api/src/main.lua:n:1"] = { {} } } } },
+    }
+    for _, case in ipairs(cases) do
+      local rendered = tree(vim.tbl_extend("force", { file_icon = by_extension }, case[2]))
+      local row, line = file_row(rendered, "apps/api/src/main.lua")
+      begins(line, ("  %s %s "):format(case[1], LUA))
+      assert.same(case[1], (leading(rendered, row)))
+    end
+  end)
+
+  it("follows the file rather than the reviewer, so two files can carry two glyphs", function()
+    local rendered = tree({ file_icon = by_extension })
+    begins(select(2, file_row(rendered, "docs/guide.md")), ("  %s %s guide.md"):format(ICONS.unreviewed, MD))
+    begins(
+      select(2, file_row(rendered, "apps/api/src/routes/users.ts")),
+      ("    %s %s users.ts"):format(ICONS.unreviewed, OTHER)
+    )
+  end)
+
+  -- The tree shows a basename and the adapter is handed the whole path -- which is what lets
+  -- the tree and the diff reach the same answer for the same file at all.
+  it("is handed the file's repository-relative path and nothing else", function()
+    local rec = recording(LUA)
+    tree({ file_icon = rec.fn }, { one({ path = "apps/api/src/main.lua" }) })
+    assert.same({ { "apps/api/src/main.lua" } }, rec.calls)
+  end)
+
+  -- **The directory decision, asserted as the absence it is.** A directory names no file, so
+  -- there is nothing to ask about it, and the adapter is reached from the file branch and
+  -- from nowhere else. `apps/api/src`, `apps/api/src/routes` and `docs` are all drawn here
+  -- and none of them is in this list.
+  it("asks about every file it draws, once each, and about no directory", function()
+    local rec = recording(LUA)
+    tree({ file_icon = rec.fn })
+    local asked = {}
+    for _, call in ipairs(rec.calls) do
+      asked[#asked + 1] = call[1]
+    end
+    table.sort(asked)
+    assert.same({
+      "README.md",
+      "apps/api/src/main.lua",
+      "apps/api/src/routes/users.ts",
+      "docs/guide.md",
+    }, asked)
+  end)
+end)
+
+describe("a directory row", function()
+  it("draws no glyph, whatever the adapter would answer for its path", function()
+    local none, wired = tree(), tree({ file_icon = by_extension })
+    for _, dir in ipairs({ "apps/api/src", "apps/api/src/routes", "docs" }) do
+      assert.same(dir_row(none, dir), dir_row(wired, dir))
+    end
+  end)
+
+  it("keeps its chevron, its compacted chain and its N/M count", function()
+    local line = dir_row(tree({ file_icon = by_extension }), "apps/api/src")
+    begins(line, ("%s apps/api/src"):format(ICONS.expanded))
+    assert.same("0/2", line:match("(%d+/%d+)%s*$"))
+  end)
+end)
+
+describe("a tree row with no glyph on it", function()
+  -- **Byte for byte the row it has always drawn.** The separator rides with the glyph rather
+  -- than standing beside it, so a file with no glyph contributes nothing rather than a space
+  -- -- which would move every name in every tree by one column and look right while doing it.
+  it("is what it always was, with no adapter wired", function()
+    begins(select(2, file_row(tree(), "apps/api/src/main.lua")), ("  %s main.lua"):format(ICONS.unreviewed))
+  end)
+
+  -- The strongest form, and the one a row that merely looks right cannot satisfy: an adapter
+  -- that raises on every file leaves every line and every mark exactly as no adapter does.
+  it("is what it always was when an adapter raises on every file", function()
+    local broken = tree({
+      file_icon = function()
+        error("no icon plugin here")
+      end,
+    })
+    assert.same(tree().lines, broken.lines)
+    assert.same(tree().marks, broken.marks)
+  end)
+end)
+
+-- A host's configuration is a host's, and this one is asked once per file on every paint and
+-- on every file crossing. Every way of being broken answers the same way, and it is the way
+-- no adapter answers: no glyph, and a row that reads exactly as it reads with nothing wired.
+describe("an adapter the tree cannot use", function()
+  local BARE_ROW = ("  %s main.lua"):format(ICONS.unreviewed)
+
+  ---@param adapter any
+  local function survives(adapter)
+    begins(select(2, file_row(tree({ file_icon = adapter }), "apps/api/src/main.lua")), BARE_ROW)
+  end
+
+  it("is survived when it raises", function()
+    survives(function()
+      error("this host's icon plugin is not loaded")
+    end)
+  end)
+
+  it("is survived when it answers with nothing", function()
+    survives(function() end)
+  end)
+
+  -- An empty glyph is not a glyph. Drawn, it is the separator behind it: a column of nothing
+  -- in front of every name, and every name in the tree moved along by one.
+  it("is survived when it answers with an empty string", function()
+    survives(function()
+      return ""
+    end)
+  end)
+
+  -- A number would draw as `42` and a table as `table: 0x...`, both of them pushing the name
+  -- along behind them.
+  it("is survived when it answers with something that is not a glyph", function()
+    survives(function()
+      return 42
+    end)
+    survives(function()
+      return { "󰢱" }
+    end)
+  end)
+
+  it("is survived when what was wired is not a function at all", function()
+    survives({ lua = LUA })
+  end)
+end)
+
+describe("a panel too narrow for the name", function()
+  local NARROW = 20
+  local LONG = { one({ path = "src/very-long-handler-name.ts" }) }
+
+  ---@param opts table|nil
+  ---@return CRPanelRender
+  local function narrow(opts)
+    return panel.build(
+      LONG,
+      vim.tbl_extend(
+        "force",
+        { width = NARROW, icons = ICONS, reviewed = {}, notes = {}, collapsed = {}, file_icon = by_extension },
+        opts or {}
+      )
+    )
+  end
+
+  -- What survives the cut is the end of the name, which is where the extension is -- and the
+  -- extension is what the glyph is about. The mark and the glyph are not what is spent.
+  it("cuts the path, and never the glyph or the mark", function()
+    local rendered = narrow()
+    local row, line = file_row(rendered, "src/very-long-handler-name.ts", LONG)
+    begins(line, ("  %s %s …"):format(ICONS.unreviewed, OTHER))
+    assert.same(ICONS.unreviewed, (leading(rendered, row)))
+    assert.is_true(vim.fn.strdisplaywidth(line) <= NARROW, line)
+  end)
+
+  it("keeps the note count against the right margin", function()
+    local rendered = narrow({ notes = { ["src/very-long-handler-name.ts:n:1"] = { {}, {} } } })
+    local _, line = file_row(rendered, "src/very-long-handler-name.ts", LONG)
+    assert.same("2", line:sub(-1))
+    assert.is_true(vim.fn.strdisplaywidth(line) <= NARROW, line)
+  end)
+
+  -- An `end_col` past the end of a row is a hard error, and a glyph is one more thing pushing
+  -- a long name over the edge of a panel this narrow.
+  it("keeps every mark inside the row the glyph helped fill", function()
+    local rendered = narrow({ notes = { ["src/very-long-handler-name.ts:n:1"] = { {}, {} } } })
+    for _, m in ipairs(rendered.marks) do
+      local line = rendered.lines[m.row + 1]
+      if m.opts.end_col then
+        assert.is_true(
+          m.opts.end_col <= #line,
+          ("%s ends at %d past a row of %d"):format(m.opts.hl_group, m.opts.end_col, #line)
+        )
+      end
+    end
+  end)
+end)
+
+describe("a file name that is not ASCII", function()
+  local ACCENTED = { one({ path = "src/ünïcödé-nàme.lua" }) }
+
+  it("is drawn whole with a glyph in front of it", function()
+    local _, line = file_row(tree({ file_icon = by_extension }, ACCENTED), "src/ünïcödé-nàme.lua", ACCENTED)
+    begins(line, ("  %s %s ünïcödé-nàme.lua"):format(ICONS.unreviewed, LUA))
+    assert.is_true(vim.fn.strdisplaywidth(line) <= WIDTH, line)
+  end)
+
+  -- Cut from the left in characters and not in bytes: a cut inside a multibyte character is
+  -- a rendering error, and every character in this name is two bytes long.
+  it("is cut on a character boundary when the panel is too narrow for it", function()
+    local rendered = panel.build(ACCENTED, {
+      width = 18,
+      icons = ICONS,
+      reviewed = {},
+      notes = {},
+      collapsed = {},
+      file_icon = by_extension,
+    })
+    local _, line = file_row(rendered, "src/ünïcödé-nàme.lua", ACCENTED)
+    begins(line, ("  %s %s …"):format(ICONS.unreviewed, LUA))
+    assert.is_truthy(line:find("nàme.lua", 1, true), line)
+    assert.same(vim.fn.strcharlen(line), vim.fn.strcharlen(vim.fn.strcharpart(line, 0)))
+  end)
+end)
+
+describe("an empty scope", function()
+  it("draws an empty tree and raises nothing", function()
+    local rendered = tree({ file_icon = by_extension }, {})
+    assert.same({ "", "0/0 reviewed" }, rendered.lines)
+    assert.same({}, rendered.file_rows)
+  end)
+end)
+
+-- **The performance rule, and the one claim here a row cannot make.** With nothing wired the
+-- tree draws the same row whether it guards the call or not: a `pcall` over a nil adapter
+-- answers with no glyph, exactly as no adapter does. So the row is silent about the only
+-- thing that matters -- whether the tree reached for the rule at all, once for every file, on
+-- every paint *and* on every file crossing.
+--
+-- The rule itself is therefore watched. The guarantee underneath it is the one #200 made
+-- structural and the block above keeps: there is no glyph shipped behind this adapter, so
+-- with nothing wired there is nothing to call.
+describe("the rule the tree reaches for", function()
+  ---Run a build with `render.file_icon` counted, and put it back afterwards.
+  ---@param opts table|nil
+  ---@return integer
+  local function calls_during(opts)
+    local real = render.file_icon
+    local calls = 0
+    render.file_icon = function(...)
+      calls = calls + 1
+      return real(...)
+    end
+    local ok, err = pcall(tree, opts)
+    render.file_icon = real
+    assert.is_true(ok, tostring(err))
+    return calls
+  end
+
+  -- First, so that the zero below is *not called* rather than *not watching*. A case about an
+  -- absence needs a case that proves the instrument can see a presence.
+  it("is reached once for each file when an adapter is wired", function()
+    assert.same(#TREE, calls_during({ file_icon = by_extension }))
+  end)
+
+  it("is not reached at all, for any file, with nothing wired", function()
+    assert.same(0, calls_during())
+  end)
+end)
+
 --- Both surfaces, one glyph -----------------------------------------------------
 
 -- The last two acts need a review, because what they assert is that the **sticky header** and
@@ -465,6 +823,15 @@ local function header(path)
   return vim.api.nvim_buf_get_lines(V.buf, row - 1, row, false)[1]
 end
 
+---That file's row in the **file tree**, as the panel buffer holds it.
+---@param path string
+---@return string
+local function tree_line(path)
+  local V = current()
+  local row = assert(V.panel_render.file_row[assert(h.file_index(V, path))], path .. " has no tree row")
+  return vim.api.nvim_buf_get_lines(V.panel_buf, row - 1, row, false)[1]
+end
+
 require("codereview").setup({ syntax = false })
 
 describe("a review opened with no adapter wired", function()
@@ -478,6 +845,10 @@ describe("a review opened with no adapter wired", function()
   it("draws the sticky header it has always drawn", function()
     local bar = h.winbar(current().win)
     assert.is_truthy(bar:find(BARE .. "src/main.lua", 1, true), bar)
+  end)
+
+  it("draws the tree row it has always drawn", function()
+    assert.same(("%s main.lua"):format(ICONS.unreviewed), vim.trim(tree_line("src/main.lua")))
   end)
 
   view.close()
@@ -540,6 +911,49 @@ describe("a file's glyph on both surfaces", function()
   it("is drawn in the group the mark and the chevron are drawn in", function()
     read_into("src/main.lua")
     assert.same("CodeReviewBarIcon", h.winbar_group(current().win, LUA))
+  end)
+end)
+
+-- **The claim the pure seam cannot make.** That the glyph a **file tree** row draws is the
+-- glyph that file's header row draws is a property of neither surface on its own, so it is
+-- asserted with a review open and both of them built. Both glyphs are read back off the rows
+-- rather than spelled again here: an expectation written twice agrees with itself whatever
+-- the two surfaces do.
+describe("the same glyph on the tree and on the diff", function()
+  ---The glyph a header row draws: the third field, after the state mark and the chevron.
+  ---@param path string
+  ---@return string|nil
+  local function on_the_diff(path)
+    return header(path):match("^%S+ %S+ (%S+) ")
+  end
+
+  ---The glyph a tree row draws: the second field, after the indent and the state mark.
+  ---@param path string
+  ---@return string|nil
+  local function on_the_tree(path)
+    return tree_line(path):match("^%s*%S+ (%S+) ")
+  end
+
+  it("is one glyph for one file", function()
+    read_into("src/main.lua")
+    -- Named first, so that the two surfaces agreeing is not two nils agreeing.
+    assert.same(LUA, on_the_diff("src/main.lua"))
+    assert.same(on_the_diff("src/main.lua"), on_the_tree("src/main.lua"))
+  end)
+
+  -- A second file with a glyph of its own, and one the plugin would never choose: what says
+  -- the tree is answering about *this* file rather than carrying a glyph it liked.
+  it("is a different glyph for a different file, on both surfaces at once", function()
+    read_into("src/nonl.md")
+    assert.same(PERCENT, on_the_diff("src/nonl.md"))
+    assert.same(on_the_diff("src/nonl.md"), on_the_tree("src/nonl.md"))
+  end)
+
+  -- And the tree row still says what it said before the glyph arrived: the state mark first
+  -- after the indent, then the glyph, then the name.
+  it("leaves the tree's state mark first on its row", function()
+    read_into("src/main.lua")
+    assert.same(("%s %s main.lua"):format(ICONS.unreviewed, LUA), vim.trim(tree_line("src/main.lua")))
   end)
 end)
 

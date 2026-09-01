@@ -45,7 +45,17 @@ spells the prefix itself and hands it over as `prefix`, and the header row paint
 `#label.prefix`: the string a row is built from and the offset a mark lands at are the same
 expression, so neither can be updated without the other. The **sticky header** puts that same
 string in one literal, which is what makes one file carry one icon on both surfaces and what
-escapes a glyph the plugin did not choose. The before pane's indent is measured off it with
+escapes a glyph the plugin did not choose.
+
+**The file tree is the third surface and it reads none of that.** A tree row is an indent, a
+state mark, a glyph and a basename — it has no chevron of its own on a file row and no path to
+paint in two ranges — so it takes the glyph and not the prefix, through `render.file_icon`,
+which is the rule `file_label` reaches for as well. That is the whole of what the two share:
+one `pcall`, one type test, and an empty string that is not a glyph. A second copy of it in
+`panel.lua` would be two places for the tree and the diff to answer differently about the same
+file, and the answer they disagreed on would be a glyph a reviewer chose. The tree's own
+offsets are unaffected either way, because the glyph goes *after* the state mark: the mark
+keeps its column, so the range that colors it keeps its bytes. The before pane's indent is measured off it with
 `strdisplaywidth` for the same reason — counted from the parts, a renamed file's two paths
 would sit apart by the width of the glyph. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
 `src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone
