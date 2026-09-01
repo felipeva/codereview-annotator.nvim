@@ -798,9 +798,9 @@ A file's header row scrolls off the top as soon as you read past the first scree
 ```
 
 It carries the same icon, chevron, path, `+N -M` and annotation count that the in-buffer
-header carries — the path styled the same way, by the same rule — with the review summary
-right-aligned beside it. It names the file the **cursor** is in, which is the file an
-annotation attaches to.
+header carries — the path styled the same way, by the same rule, and the same glyph if you
+wired [`file_icon`](#adapters) — with the review summary right-aligned beside it. It names
+the file the **cursor** is in, which is the file an annotation attaches to.
 
 It works with the tree dismissed, and with a review opened without one.
 
@@ -834,7 +834,9 @@ opts = {
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌",
             untouched = "↺", continuation = "↳" },
-                                   -- plain Unicode throughout: no Nerd Font anywhere
+                                   -- plain Unicode throughout: no Nerd Font anywhere.
+                                   -- For a per-filetype icon beside these, wire the
+                                   -- `file_icon` adapter -- see Adapters
   types = nil,                     -- defaults to the five above. See Annotation types
 }
 ```
@@ -846,9 +848,9 @@ linked, and none is yours to set.
 
 ## Adapters
 
-The plugin has no opinion about where a review goes, about which pickers you use, or about
-which diff tool you read a rewrite in. Six optional functions inject that. **None are
-required.**
+The plugin has no opinion about where a review goes, about which pickers you use, about
+which diff tool you read a rewrite in, or about which icon a file deserves. Seven optional
+functions inject that. **None are required.**
 
 | Adapter | What it supplies | Without it |
 | --- | --- | --- |
@@ -858,6 +860,7 @@ required.**
 | `compose` | Collects note text | The composer the plugin ships |
 | `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
 | `pick_checkout` | Chooses which checkout to switch to | The picker the plugin ships |
+| `file_icon` | Gives a file the icon its filetype has in your config | No filetype icon. Nothing is called per file |
 
 ```lua
 opts = {
@@ -867,6 +870,7 @@ opts = {
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
   open_diff = function(spec) end,  -- spec: { path, before, after, line }
   pick_checkout = function(checkouts, cb) cb(checkouts[1].path) end,
+  file_icon = function(path) return require("nvim-web-devicons").get_icon(path) end,
 }
 ```
 
@@ -939,6 +943,24 @@ opts = {
       prompt = "Switch the review to:",
       format_item = function(c) return c.branch or c.path end,
     }, function(chosen) cb(chosen and chosen.path) end)
+  end,
+
+  -- Give a file the icon its filetype has in your config, drawn on its header row and on
+  -- the sticky header alike. The plugin ships no filetype glyphs and depends on no icon
+  -- plugin, so without this a file simply has none -- and nothing is called per file,
+  -- because there is no shipped glyph behind this to reach through a function.
+  --
+  -- `path` is repository-relative and is the post-image path, which is the name both
+  -- surfaces draw. Answer with one glyph, or with nil for a file you have no icon for.
+  --
+  -- It is a second thing about the file and never a replacement for the first: the
+  -- reviewed, annotated and unreviewed marks keep their column and their meaning.
+  --
+  -- Called once per file per paint -- three hundred times on a large review -- so an
+  -- adapter that raises, or that answers with anything but a string, is survived rather
+  -- than reported: that file draws without a glyph and the review goes on.
+  file_icon = function(path)
+    return (require("nvim-web-devicons").get_icon(path, nil, { default = true }))
   end,
 }
 ```
