@@ -652,6 +652,69 @@ describe("]a and [a", function()
     queue.clear()
     view.paint(fi)
   end)
+
+  -- The sentence beside the keys. What the keys reach is unchanged; what they *say* when they
+  -- reach nothing was a claim about the review made from a fact about one file, and a
+  -- reviewer with annotations in other files read it as their work being gone (#215).
+  it("says this file has none, and names the key that reviews the queue", function()
+    unreview()
+    queue.clear()
+    -- One annotation, and it is in a file this case will not draw.
+    local elsewhere = assert(h.file_index(V, "src/routes.lua"))
+    show(elsewhere)
+    vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, V.files[elsewhere].path)), 0 })
+    annotate.annotate("bug")
+    local bare = assert(h.file_index(V, "src/main.lua"))
+    show(bare)
+    assert.same(1, #queue.all())
+
+    local header = assert(V.render.file_rows[bare])
+    for _, key in ipairs({ "]a", "[a" }) do
+      vim.api.nvim_win_set_cursor(V.win, { header, 0 })
+      local said = press(V.win, key)
+      assert.is_true(h.notified(said, "No annotations in this file"), key .. ": " .. vim.inspect(said))
+      assert.is_true(h.notified(said, "`Q` reviews the queue"), key .. ": " .. vim.inspect(said))
+      -- Neither key drew another file, and neither moved off the one that is drawn.
+      assert.same({ bare }, files_drawn(V.render))
+      assert.same(header, vim.api.nvim_win_get_cursor(V.win)[1])
+    end
+    -- The queue is a rendering choice's business in neither direction: the annotation made
+    -- above is still in it, unread by any of this.
+    assert.same(1, #queue.all())
+    queue.clear()
+    view.paint(bare)
+  end)
+
+  -- The honest case keeps its honest answer. Nothing found and nothing written is not a
+  -- narrow fact, so *yet* is true and the sentence does not move.
+  it("keeps the wide sentence when the queue holds nothing either", function()
+    queue.clear()
+    local bare = assert(h.file_index(V, "src/main.lua"))
+    show(bare)
+    assert.same(0, #queue.all())
+    vim.api.nvim_win_set_cursor(V.win, { assert(V.render.file_rows[bare]), 0 })
+    local said = press(V.win, "]a")
+    assert.is_true(h.notified(said, "No annotations yet"), vim.inspect(said))
+  end)
+
+  -- And with solo off the keys searched every file, so nothing found really does mean nothing
+  -- written. This is the sentence a reviewer has always had, and a fix for how solo reads must
+  -- not change how everyone else reads.
+  it("keeps the wide sentence with solo off and nothing written anywhere", function()
+    queue.clear()
+    config.get().solo = false
+    view.paint(1)
+    vim.api.nvim_win_set_cursor(V.win, { 1, 0 })
+    local said = press(V.win, "]a")
+    local drawn = #files_drawn(V.render)
+    -- Read, put the option back, and only then assert, so a failure here does not leave solo
+    -- off under every case below this one.
+    config.get().solo = true
+    view.paint(1)
+
+    assert.is_true(drawn > 1, "solo did not come off, so this case searched one file")
+    assert.is_true(h.notified(said, "No annotations yet"), vim.inspect(said))
+  end)
 end)
 
 -- **`R` is the one key whose meaning solo changes** rather than merely repainting for.

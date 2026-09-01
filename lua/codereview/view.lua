@@ -1292,7 +1292,37 @@ function M.jump_annotation(forward)
 
   local rows = vim.tbl_keys(owner)
   if #rows == 0 then
-    info("No annotations yet")
+    -- **The sentence says what was searched.** Under **solo** the anchors name one file, so
+    -- nothing found is a fact about that file -- while *No annotations yet* is a claim about
+    -- the review, which a reviewer holding six annotations in other files reads as their work
+    -- being gone. This branch chooses the sentence and never what the key reaches: `]a` and
+    -- `[a` go on collecting from the anchors, for the reason `]h` and `[h` stop at the drawn
+    -- file (ADR-0009), and the **queue float** is the surface that moves over every
+    -- annotation. The pointer follows `gw`'s refusal, which names the layout and then the key
+    -- that returns to it: a message ending at "there is nothing here" reads as a broken key.
+    --
+    -- Asked of `soloed()` rather than of `config.solo()`, because it is the answer the paint
+    -- was handed, so the keys and the sentence cannot come to disagree about what was drawn.
+    -- **The empty scope leans on that**: `soloed()` is nil with no files, so a review with
+    -- nothing in it keeps the wide sentence over an empty anchor map exactly as it did before
+    -- this branch existed. A `soloed()` that ever answered an index there would move this
+    -- silently, and nothing here would report it.
+    --
+    -- The queue is read through `V.notes`, which the absence above was judged against, so
+    -- both halves of the sentence read one snapshot of it. An empty queue keeps the wide
+    -- sentence: nothing found and nothing written is the honest case, and *yet* is true.
+    --
+    -- **"In this file" is what the key could reach, not what exists about the file.** An
+    -- annotation whose key matches no anchor -- stale, or on a file collapsed because it is
+    -- reviewed -- is about the drawn file and is still called absent here. That is not a bug
+    -- to be fixed later: the message is about a key, `Q` does reach that annotation, and
+    -- telling "elsewhere" from "here but unanchored" needs the counting this deliberately
+    -- does not do.
+    if soloed() and next(V.notes) ~= nil then
+      info("No annotations in this file. `Q` reviews the queue")
+    else
+      info("No annotations yet")
+    end
     return
   end
   table.sort(rows)
