@@ -1,18 +1,19 @@
 ---Highlight groups.
 ---
----Everything is a `default = true` link to a group colorschemes already define, so the
----view inherits the active theme instead of hardcoding a palette, and any of these can be
----overridden in a user's config without the plugin fighting back.
+---Every group resolves to one a colorscheme already defines -- as a `default = true` link,
+---or, where an attribute has to be added to it, as a group computed from that one's colors.
+---So the view inherits the active theme instead of hardcoding a palette, and any of these
+---can be overridden in a user's config without the plugin fighting back.
 ---
 ---**A group a review window draws in has to be named in one of the tables below.** They are
 ---not just where the links live: `M.groups()` derives the set the **muted** window is built
 ---from by reading them, so a group that exists anywhere else is one a muted window leaves at
 ---full brightness. Adding a group means adding it here -- to `LINKS` if it links to
----something a colorscheme defines, to `SPAN_GROUPS` if it is computed, to `EDITOR_GROUPS` if
----it is the editor's own and this plugin merely draws through it -- and then it is muted
----without a second list learning about it. There is deliberately no register to remember to
----update, because the one thing that would go wrong is invisible until someone looks at an
----unfocused pane.
+---something a colorscheme defines, to `SPAN_GROUPS` or `FRAME_SOURCES` if it is computed, to
+---`EDITOR_GROUPS` if it is the editor's own and this plugin merely draws through it -- and
+---then it is muted without a second list learning about it. There is deliberately no register
+---to remember to update, because the one thing that would go wrong is invisible until someone
+---looks at an unfocused pane.
 ---
 ---**The blended colors are groups of this module, not colors in a window.** A group that
 ---a **muted** window draws, that a **faded** file's row carries, or that a muted pane lights
@@ -123,6 +124,36 @@ local TYPE_FALLBACK = "DiagnosticInfo"
 local SPAN_SOURCE = "DiffText"
 local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 
+-- The **frame**: the rule above and below a file's body, so a file has a visible end and
+-- not only a visible beginning. Each group here takes the colors of the group it is keyed
+-- to and adds an underline.
+--
+-- **Computed rather than linked, and that is forced rather than preferred.** A
+-- `default = true` link copies its target's attributes wholesale, so a group linked to
+-- `Title` cannot be `Title` *and* an underline. The header row already carries a line-wide
+-- group; what the frame changes is which one. The **pad** row carried none, and its group
+-- is new.
+--
+-- **Both edges are `underline`.** `overline` is accepted by this API and comes back in the
+-- `cterm` table, so the temptation is real -- but it maps to a terminal sequence many
+-- emulators ignore, and a bottom edge some terminals do not draw is one nothing reports.
+-- The pad row's underline sits at the bottom of a blank row, which is visually just above
+-- the next file's header, so one attribute draws both edges.
+--
+-- **The pad row's rule takes the header's foreground and nothing else.** The two edges of
+-- one frame are one color -- a second source would let a colorscheme make the top and the
+-- bottom of one frame two different things -- and a background would make the pad row a
+-- band rather than a rule. A file that is reviewed *and* expanded is the one case where the
+-- top edge is the reviewed group and the bottom edge is not; it draws a bottom edge one
+-- shade brighter than its top, which is the price of one pad group rather than two.
+---@type table<string, string>
+local FRAME_SOURCES = {
+  CodeReviewFrameHeader = "CodeReviewFileHeader",
+  CodeReviewFrameReviewed = "CodeReviewFileReviewed",
+}
+local FRAME_PAD = "CodeReviewFramePad"
+local FRAME_PAD_SOURCE = "CodeReviewFileHeader"
+
 -- What a review window draws in that is not this plugin's to define: the text with no
 -- capture over it, the row under the cursor, the gutter and the winbar. Named here rather
 -- than where they are muted, so that every group this plugin has an opinion about is in one
@@ -135,6 +166,32 @@ local function apply_spans()
   for _, group in ipairs(SPAN_GROUPS) do
     vim.api.nvim_set_hl(0, group, { bg = source.bg, ctermbg = source.ctermbg, default = true })
   end
+end
+
+---Write the **frame**'s groups against the colors the links above now resolve to.
+---
+---`cterm` is set by hand rather than left to follow the true-color attributes. It follows
+---them only when it is *absent*, and a source group that carries any cterm attribute of its
+---own -- `Title` is bold in Neovim's own default theme -- hands one over in the copy. The
+---frame would then be underlined on a true-color terminal and not on any other, which is the
+---one failure this whole family of groups exists to avoid.
+local function apply_frame()
+  for group, source in pairs(FRAME_SOURCES) do
+    local def = vim.api.nvim_get_hl(0, { name = source, link = false })
+    local framed = vim.tbl_extend("force", {}, def)
+    framed.cterm = vim.tbl_extend("force", {}, def.cterm or {})
+    framed.underline, framed.cterm.underline = true, true
+    framed.default = true
+    vim.api.nvim_set_hl(0, group, framed)
+  end
+  local head = vim.api.nvim_get_hl(0, { name = FRAME_PAD_SOURCE, link = false })
+  vim.api.nvim_set_hl(0, FRAME_PAD, {
+    fg = head.fg,
+    ctermfg = head.ctermfg,
+    underline = true,
+    cterm = { underline = true },
+    default = true,
+  })
 end
 
 ---Every highlight group a review window is known to draw in.
@@ -153,6 +210,10 @@ function M.groups()
     out[#out + 1] = group
   end
   vim.list_extend(out, SPAN_GROUPS)
+  for group in pairs(FRAME_SOURCES) do
+    out[#out + 1] = group
+  end
+  out[#out + 1] = FRAME_PAD
   vim.list_extend(out, EDITOR_GROUPS)
   for _, t in ipairs(require("codereview.config").get().types) do
     out[#out + 1] = t.hl
@@ -308,6 +369,7 @@ function M.apply()
     vim.api.nvim_set_hl(0, group, { link = target, default = true })
   end
   apply_spans()
+  apply_frame()
 
   -- A configured type names a group this module cannot know about, so without this a
   -- custom type renders with no color at all. After LINKS and with `default = true`, so

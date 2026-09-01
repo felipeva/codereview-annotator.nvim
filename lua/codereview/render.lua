@@ -25,7 +25,7 @@
 local M = {}
 
 ---@class CRAnchor
----@field kind "file"|"sep"|"hunk"|"line"|"pad"|"note"|"fill"
+---@field kind "file"|"hunk"|"line"|"pad"|"note"|"fill"
 ---@field file integer        Index into the file list
 ---@field hunk integer|nil    Index into that file's hunks
 ---@field line integer|nil    Index into that hunk's lines
