@@ -367,21 +367,29 @@ end
 
 ---A host's own glyph for a file, or nil when it has none to give.
 ---
+---**Exported because three surfaces name a file and one rule decides what its glyph is.**
+---The diff's header row and the **sticky header** read it through `file_label`; the **file
+---tree** reads it here, because a tree row is not a label and needs the glyph alone. Two
+---copies of this rule is two places for those surfaces to come to disagree about the same
+---file, which is the whole of *one file, one icon*.
+---
 ---**The guard is at the call site and it is the performance rule made structural.** There is
 ---no glyph shipped behind this adapter and therefore no default implementation of it to
 ---call: with nothing wired the answer is an absence, reached by a nil test rather than by a
----function, three hundred times on a large review.
+---function, three hundred times on a large review. The nil test stays out there, at each
+---caller, rather than moving in here: a nil adapter answered inside this function is still
+---a call per file, and the tree is rebuilt on every file crossing as well as on every paint.
 ---
 ---`pcall` because a paint is the wrong place to raise from: a host's icon plugin is called
 ---once per file per paint, and an adapter that throws would take down every review rather
 ---than the one file it could not name. What comes back is checked as well as caught -- a
 ---number or a table would reach the header row as `123` or as `table: 0x...` and move every
 ---byte offset on the row behind it. Both failures answer the same way, which is the way no
----adapter answers: no glyph, and a header row that reads exactly as it reads without one.
+---adapter answers: no glyph, and a row that reads exactly as it reads without one.
 ---@param adapter fun(path: string): string|nil
 ---@param path string
 ---@return string|nil
-local function injected_icon(adapter, path)
+function M.file_icon(adapter, path)
   local ok, glyph = pcall(adapter, path)
   if not ok or type(glyph) ~= "string" or glyph == "" then
     return nil
@@ -465,7 +473,7 @@ function M.file_label(file, opts)
   -- reviewed* in exchange for *this file is TypeScript*. Nothing is wired is the common case
   -- and costs the comparison in front of the `and`: the adapter is the only implementation
   -- there is, so with none of it there is nothing to call.
-  local file_icon = opts.file_icon and injected_icon(opts.file_icon, file.path) or nil
+  local file_icon = opts.file_icon and M.file_icon(opts.file_icon, file.path) or nil
 
   return {
     reviewed = reviewed,

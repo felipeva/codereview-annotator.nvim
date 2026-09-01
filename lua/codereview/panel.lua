@@ -3,7 +3,15 @@
 ---The main buffer answers "what changed here"; this answers "where am I and how much is
 ---left", which a single scrolling document cannot show. A flat list of basenames could not
 ---either: in any real repository half the entries are called `index.ts`.
+---
+---Pure, and one edge: `render` decides what a **host**'s `file_icon` adapter answers with,
+---for the tree as for the two surfaces the diff draws. The rule is one `pcall` and one type
+---test, and a second copy of it here is two places for the tree and the diff to come to
+---disagree about the same file -- which is the whole of *one file, one icon*. It lives in
+---`render` because `render` already owns what a file is called wherever it is named.
 local M = {}
+
+local render = require("codereview.render")
 
 ---@class CRPanelNode
 ---@field kind "dir"|"file"
@@ -130,7 +138,7 @@ end
 --- Rendering -------------------------------------------------------------------
 
 ---@param files CRFile[]
----@param opts { width: integer, icons: table, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
+---@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
 ---@return CRPanelRender
 function M.build(files, opts)
   local icons = opts.icons
@@ -154,6 +162,11 @@ function M.build(files, opts)
     local indent = ("  "):rep(depth)
 
     if node.kind == "dir" then
+      -- **A directory row draws no glyph, and that is a decision rather than an omission.**
+      -- A directory names no file, so there is nothing to ask the adapter about, and asking
+      -- about an invented path would be the plugin having the opinion the adapter exists to
+      -- avoid (ADR-0001). The adapter is reached from the file branch below and from nowhere
+      -- else, so a tree of directories asks it nothing at all.
       local shut = collapsed[node.path]
       local chevron = shut and icons.collapsed or icons.expanded
       local right = ("%d/%d"):format(node.reviewed, node.total)
@@ -184,8 +197,27 @@ function M.build(files, opts)
     local reviewed = node.reviewed == 1
     local icon = reviewed and icons.reviewed or (node.notes > 0 and icons.annotated or icons.unreviewed)
     local right = node.notes > 0 and tostring(node.notes) or ""
-    local name = truncate_left(node.name, width - #indent - 2 - #right - 2)
-    local head = ("%s%s %s"):format(indent, icon, name)
+    -- The **state** mark above stays the leftmost thing after the indent: a reviewer reads
+    -- that column down the page for what they have already done, and a glyph of a width the
+    -- plugin does not control put in front of it would break the one thing it is for. So the
+    -- glyph is a second thing about the file, between the mark and the name.
+    --
+    -- Nothing wired is the common case and costs the comparison in front of the `and`: the
+    -- adapter is the only implementation there is, so with none of it there is nothing to
+    -- call. The tree is rebuilt on every file crossing as well as on every paint, so that
+    -- matters more here than it does on the diff.
+    local glyph = opts.file_icon and render.file_icon(opts.file_icon, node.path) or nil
+    -- The separator rides with the glyph rather than standing beside it, so a file with no
+    -- glyph contributes nothing here at all rather than a space -- which would move every
+    -- name on every row of every tree by one column and look right while doing it.
+    local lead = glyph and (glyph .. " ") or ""
+    -- **The name's budget pays for the glyph**, and the name goes on being cut from the
+    -- left, so what survives a narrow panel is the end of the name -- which is where the
+    -- extension is, and the extension is what the glyph is about. In display columns,
+    -- because that is what a panel is 34 of: a host's glyph is multibyte, and the ones it is
+    -- likeliest to answer with are one column wide while some are two.
+    local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - vim.fn.strdisplaywidth(lead))
+    local head = ("%s%s %s%s"):format(indent, icon, lead, name)
     local pad = math.max(1, width - vim.fn.strdisplaywidth(head) - #right - 1)
     local text = head .. (" "):rep(pad) .. right
 

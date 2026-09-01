@@ -56,6 +56,7 @@ function M.paint_panel(V, view)
   V.panel_render = panel.build(V.files, {
     width = vim.api.nvim_win_get_width(V.panel_win),
     icons = cfg.icons,
+    file_icon = cfg.file_icon,
     reviewed = V.reviewed,
     notes = V.notes,
     collapsed = V.collapsed,
