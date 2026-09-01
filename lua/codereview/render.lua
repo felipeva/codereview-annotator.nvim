@@ -396,6 +396,8 @@ end
 ---@field icon string            The **state** mark: reviewed, annotated or unreviewed
 ---@field file_icon string|nil   A host's own glyph for the file, beside that mark; nil for none
 ---@field chevron string
+---@field prefix string          Those three and their separators: what both surfaces draw
+---                              in front of the path, and the bytes the path starts at
 ---@field name CRBarSegment[]    Its path as this layout spells it: `old → new` when unified
 ---@field before CRBarSegment[]|nil  The pre-image path; nil for a file with no pre-image
 ---@field stat string            `+N -M`, or `binary`
@@ -456,18 +458,33 @@ function M.file_label(file, opts)
     path_segments(file.old_path or file.path, before)
   end
 
+  local icon = reviewed and icons.reviewed or (notes > 0 and icons.annotated or icons.unreviewed)
+  local chevron = expanded and icons.expanded or icons.collapsed
+  -- The **state** mark above keeps its column and its meaning; this is a second thing about
+  -- the file rather than a replacement for it, so that a reviewer never loses *this file is
+  -- reviewed* in exchange for *this file is TypeScript*. Nothing is wired is the common case
+  -- and costs the comparison in front of the `and`: the adapter is the only implementation
+  -- there is, so with none of it there is nothing to call.
+  local file_icon = opts.file_icon and injected_icon(opts.file_icon, file.path) or nil
+
   return {
     reviewed = reviewed,
     expanded = expanded,
     notes = notes,
-    icon = reviewed and icons.reviewed or (notes > 0 and icons.annotated or icons.unreviewed),
-    -- The **state** mark above keeps its column and its meaning; this is a second thing
-    -- about the file rather than a replacement for it, so that a reviewer never loses *this
-    -- file is reviewed* in exchange for *this file is TypeScript*. Nothing is wired is the
-    -- common case and costs the comparison in front of the `and`: the adapter is the only
-    -- implementation there is, so with none of it there is nothing to call.
-    file_icon = opts.file_icon and injected_icon(opts.file_icon, file.path) or nil,
-    chevron = expanded and icons.expanded or icons.collapsed,
+    icon = icon,
+    file_icon = file_icon,
+    chevron = chevron,
+    -- What both surfaces draw in front of the path, spelled once here rather than twice out
+    -- there. The header row paints its path at `#prefix` bytes and the winbar puts the same
+    -- string in one literal, so the offset a mark lands at and the columns a bar spends are
+    -- the same answer -- and a glyph a host chose cannot reach either surface unescaped or
+    -- at the wrong column because one of the two spellings was not updated.
+    --
+    -- **With nothing wired this is byte-for-byte the string it always was.** The separator
+    -- rides with the glyph rather than standing beside it, so a file with no glyph
+    -- contributes nothing here at all rather than a space -- which would shift every path
+    -- offset on every header row in every review by one byte, and look right while doing it.
+    prefix = ("%s %s %s"):format(icon, chevron, file_icon and file_icon .. " " or ""),
     -- A rename reads as a rename when each pane draws its own path; only the unified
     -- layout, which has one header to say it in, spells the arrow out. Both of its paths
     -- take the rule, because dimming one of them says the wrong thing about which is which.
@@ -922,9 +939,8 @@ function M.build(files, opts)
     -- the same rules, and this is the surface those rules are named after.
     local label = M.file_label(file, opts)
     local reviewed, expanded, note_count = label.reviewed, label.expanded, label.notes
-    local icon, chevron = label.icon, label.chevron
 
-    local left = ("%s %s %s"):format(icon, chevron, M.segment_text(label.name))
+    local left = label.prefix .. M.segment_text(label.name)
     local stat, right = label.stat, label.right
 
     left = truncate(left, math.max(10, width - #right - 2))
@@ -936,10 +952,12 @@ function M.build(files, opts)
     -- pre-image path at all, so its header row is filler like the rest of it.
     local bheader, bindent = nil, 0
     if before and label.before then
-      local indent = (" "):rep(vim.fn.strdisplaywidth(icon) + vim.fn.strdisplaywidth(chevron) + 2)
+      local indent = (" "):rep(vim.fn.strdisplaywidth(label.prefix))
       -- Spaces, so the indent's byte count and its column count are the same number -- which
-      -- is exactly what the after pane's icon and chevron are not, and why that one is
-      -- measured in bytes below.
+      -- is exactly what the after pane's prefix is not, and why that one is measured in
+      -- bytes below. Measured off that prefix rather than counted from its parts, so a file
+      -- carrying a host's glyph keeps the two panes' paths under one another: a count would
+      -- have to learn about every glyph the prefix grows.
       bindent = #indent
       bheader = truncate(indent .. M.segment_text(label.before), before_width)
     end
@@ -986,9 +1004,10 @@ function M.build(files, opts)
     end
     -- The path, in the two groups the **sticky header** draws it in: one function answers
     -- what a file is called and one pair of groups therefore says it, so the two surfaces
-    -- cannot drift apart on a file only one of them had in mind. `#icon + #chevron + 2` is
-    -- bytes and not columns, which is the whole trap -- both glyphs are multibyte.
-    paint_path(after, row, #icon + #chevron + 2, #left, label.name)
+    -- cannot drift apart on a file only one of them had in mind. `#label.prefix` is bytes and
+    -- not columns, which is the whole trap -- the state mark and the chevron are multibyte,
+    -- and a host's glyph is multibyte too.
+    paint_path(after, row, #label.prefix, #left, label.name)
     if before and bheader then
       paint_path(before, row, bindent, #bheader, label.before)
     end
