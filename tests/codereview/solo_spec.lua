@@ -562,10 +562,9 @@ describe("annotating a soloed file", function()
   end)
 end)
 
--- `R`, `]h` and `[h` keep their present meaning in this ticket. `]h` reaching the end of
--- what is drawn is newly *reachable* under solo, though -- unsoloed it would have walked
--- into the next file -- so what it says there is pinned here rather than left for the next
--- ticket to discover.
+-- `]h` keeps the meaning it has, and reaching the end of what is drawn is newly *reachable*
+-- under solo -- unsoloed it would have walked into the next file -- so what it says there is
+-- pinned rather than left for a rewrite to lose.
 describe("the keys this ticket does not change", function()
   it("]h stops at the last hunk of the drawn file and says so", function()
     show(assert(h.file_index(V, "src/main.lua")))
@@ -573,16 +572,166 @@ describe("the keys this ticket does not change", function()
     local said = press(V.win, "]h")
     assert.is_true(h.notified(said, "No next hunk here"), vim.inspect(said))
   end)
+end)
 
-  it("R marks the drawn file reviewed and collapses it, leaving its header on screen", function()
+-- **`R` is the one key whose meaning solo changes** rather than merely repainting for.
+-- Outside solo it collapses the file it marks and the reviewer reads on down the diff; in
+-- solo there is nothing else drawn to read on into, so the file gives way to the next
+-- unreviewed one and marking and moving are one motion (`CONTEXT.md` under **Solo**, and
+-- ADR-0009).
+--
+-- The sentences are the motion's own rather than a second set meaning the same thing: `R`
+-- comes to `]F` to go on, so it wraps where `]F` wraps and says the review is done where
+-- `]F` says it. Both are asserted here rather than assumed.
+--
+-- Every case below starts by clearing the marks rather than leaving them cleared, because
+-- these run top to bottom and a case that fails never reaches its own cleanup. Cleaning up
+-- afterwards makes one red case red the two below it as well.
+describe("R with solo on", function()
+  it("marks the drawn file reviewed and draws the next unreviewed file", function()
+    unreview()
     local fi = assert(h.file_index(V, "src/main.lua"))
+    local next_up = assert(h.file_index(V, "src/newname.lua"))
     show(fi)
     vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
     press(V.win, "R")
     assert.is_truthy(V.reviewed[V.files[fi].path])
+    assert.same({ next_up }, files_drawn(V.render))
+    assert.same(next_up, at())
+  end)
+
+  -- The collapse is kept, and it is what the reviewer meets on the way back rather than
+  -- anything they see now: reviewed means collapsed is one rule, it is persisted, and a file
+  -- marked while soloing has to come back collapsed when the drawing stops.
+  it("collapses the file it marked, which is what ]f back onto it finds", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    press(V.win, "R")
+    assert.same(false, V.expanded[V.files[fi].path])
+    press(V.win, "[f")
+    assert.same({ fi }, files_drawn(V.render))
+    assert.same(2, #V.render.lines)
+    assert.is_truthy(V.render.lines[1]:find("src/main.lua", 1, true), V.render.lines[1])
+    assert.same("", V.render.lines[2])
+  end)
+
+  it("wraps to the first unreviewed file in the motion's own words", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    for i = fi + 1, #V.files do
+      V.reviewed[V.files[i].path] = V.files[i].blob or ""
+    end
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    local said = press(V.win, "R")
+    assert.is_true(h.notified(said, "Wrapped to the first unreviewed file"), vim.inspect(said))
+    assert.same({ 1 }, files_drawn(V.render))
+  end)
+
+  -- Story 15: finishing has to be legible. The sentence is `]F`'s own, and the view is left
+  -- on the file that was just marked -- collapsed, so its header is what is on screen, which
+  -- is story 39's "never blank with a file selected" rather than an empty window.
+  it("says the review is done on the last unreviewed file, and stays on it", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    for i, file in ipairs(V.files) do
+      if i ~= fi then
+        V.reviewed[file.path] = file.blob or ""
+      end
+    end
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    local said = press(V.win, "R")
+    assert.is_true(h.notified(said, "Everything in this scope is reviewed"), vim.inspect(said))
+    assert.is_truthy(V.reviewed[V.files[fi].path])
     assert.same({ fi }, files_drawn(V.render))
     assert.same(1, V.render.file_rows[fi])
+    assert.same(fi, at())
+    -- What is on screen, and not merely which file the render is about: the header row and
+    -- the pad under it. Without this the mark could reach the state and never reach a paint.
+    assert.same(2, #V.render.lines)
+  end)
+
+  -- Unmarking is a reviewer correcting themselves. Being carried off the file they have just
+  -- reopened would undo the correction, and the motion would skip past it besides.
+  it("does not advance when it unmarks a file", function()
     unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    V.reviewed[V.files[fi].path] = V.files[fi].blob or ""
+    V.expanded[V.files[fi].path] = false
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    press(V.win, "R")
+    assert.is_nil(V.reviewed[V.files[fi].path])
+    assert.same({ fi }, files_drawn(V.render))
+    assert.is_true(V.expanded[V.files[fi].path])
+  end)
+
+  -- From the tree the file marked and the file the diff cursor is in are two different
+  -- files, so this is where "the motion starts from the file that was marked" is a claim
+  -- rather than a restatement: the diff is drawing `src/main.lua` and the row says
+  -- `src/routes.lua`, and what is drawn afterwards is the file after *routes*.
+  it("from the tree marks the file on the row and draws the next unreviewed one", function()
+    unreview()
+    show(assert(h.file_index(V, "src/main.lua")))
+    local marked = assert(h.file_index(V, "src/routes.lua"))
+    local next_up = assert(h.file_index(V, "src/untracked.bin"))
+    local row = V.panel_render.file_row[marked]
+    vim.api.nvim_win_set_cursor(V.panel_win, { row, 0 })
+    press(V.panel_win, "R")
+    assert.is_truthy(V.reviewed[V.files[marked].path])
+    assert.same({ next_up }, files_drawn(V.render))
+    assert.same(next_up, at())
+    -- The tree's cursor is left on the row it was on, as it is with solo off.
+    assert.same(row, vim.api.nvim_win_get_cursor(V.panel_win)[1])
+  end)
+
+  -- A directory row marks a whole subtree and reports that in a sentence of its own. It is a
+  -- different motion from the file-by-file loop, so it does not carry the reviewer anywhere,
+  -- and the drawn file inside it is left collapsed on its header rather than blank.
+  it("on a directory row marks the subtree and draws no other file", function()
+    unreview()
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    show(fi)
+    vim.api.nvim_win_set_cursor(V.panel_win, { 1, 0 })
+    local said = press(V.panel_win, "R")
+    -- Exactly that sentence and no other. Marking the only directory of a flat fixture marks
+    -- every file, so there is nothing left to go on to and "it did not go on" cannot be read
+    -- off which file is drawn -- but a motion that ran would have said so, and this is where
+    -- that shows.
+    assert.same({ ("Marked %d files under src"):format(#V.files) }, said)
+    assert.same({ fi }, files_drawn(V.render))
+    assert.same(1, V.render.file_rows[fi])
+  end)
+end)
+
+describe("R with solo off", function()
+  it("collapses the file it marks and goes nowhere, exactly as it does today", function()
+    unreview()
+    config.get().solo = false
+    view.paint(1)
+    local fi = assert(h.file_index(V, "src/main.lua"))
+    vim.api.nvim_win_set_cursor(V.win, { V.render.file_rows[fi], 0 })
+    press(V.win, "R")
+    -- Read, put the option back, and only then assert: an assertion that fails here would
+    -- otherwise leave solo off under every case below this one.
+    local marked = V.reviewed[V.files[fi].path]
+    local drawn, spent, landed = files_drawn(V.render), #rows_of(V.render, fi), at()
+    unreview()
+    config.get().solo = true
+    view.paint(1)
+
+    assert.is_truthy(marked)
+    local every = {}
+    for i = 1, #V.files do
+      every[i] = i
+    end
+    assert.same(every, drawn)
+    -- Down to its header and its pad, with the reviewer left on it.
+    assert.same(2, spent)
+    assert.same(fi, landed)
   end)
 end)
 
