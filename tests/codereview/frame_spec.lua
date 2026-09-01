@@ -121,7 +121,20 @@ describe("the frame's groups", function()
     for _, group in ipairs(FRAME_GROUPS) do
       local def = vim.api.nvim_get_hl(0, { name = group })
       assert.is_nil(def.link, ("%s is a link: %s"):format(group, vim.inspect(def)))
-      assert.is_truthy(def.fg or def.bg, ("%s has no colour of its own: %s"):format(group, vim.inspect(def)))
+      assert.is_truthy(def.sp, ("%s has no colour of its own: %s"):format(group, vim.inspect(def)))
+    end
+  end)
+
+  -- A rule is an underline and the colour of that underline. A `line_hl_group` replaces every
+  -- attribute it sets on every inline highlight the row carries, at any priority and in
+  -- either direction, so a foreground here would draw the whole file header row in one
+  -- colour -- the stat, the note count and a styled path with it. The cells at the foot of
+  -- this file are what prove the consequence; this is the shape it rests on.
+  it("carry no foreground and no background, so they replace nothing on the row", function()
+    for _, group in ipairs(FRAME_GROUPS) do
+      local def = vim.api.nvim_get_hl(0, { name = group })
+      assert.is_nil(def.fg, ("%s carries a foreground: %s"):format(group, vim.inspect(def)))
+      assert.is_nil(def.bg, ("%s carries a background: %s"):format(group, vim.inspect(def)))
     end
   end)
 
@@ -168,15 +181,15 @@ describe("the frame's groups", function()
   -- Each pair comes from one source, so a file's top edge and its bottom edge cannot
   -- disagree about its state. Read as colours rather than as names: the names are this
   -- file's own constants and would agree with themselves.
-  it("draw each pair's two edges in one foreground", function()
+  it("draw each pair's two edges in one colour", function()
     assert.same(
-      vim.api.nvim_get_hl(0, { name = TOP }).fg,
-      vim.api.nvim_get_hl(0, { name = BOTTOM }).fg,
+      vim.api.nvim_get_hl(0, { name = TOP }).sp,
+      vim.api.nvim_get_hl(0, { name = BOTTOM }).sp,
       "the two edges of an unreviewed file's frame are two colours"
     )
     assert.same(
-      vim.api.nvim_get_hl(0, { name = TOP_REVIEWED }).fg,
-      vim.api.nvim_get_hl(0, { name = BOTTOM_REVIEWED }).fg,
+      vim.api.nvim_get_hl(0, { name = TOP_REVIEWED }).sp,
+      vim.api.nvim_get_hl(0, { name = BOTTOM_REVIEWED }).sp,
       "the two edges of a reviewed file's frame are two colours"
     )
   end)
@@ -185,7 +198,7 @@ describe("the frame's groups", function()
   -- file takes would pass over one colour.
   it("draw a reviewed file's frame in a different colour from an unreviewed one's", function()
     assert.is_true(
-      vim.api.nvim_get_hl(0, { name = TOP }).fg ~= vim.api.nvim_get_hl(0, { name = TOP_REVIEWED }).fg,
+      vim.api.nvim_get_hl(0, { name = TOP }).sp ~= vim.api.nvim_get_hl(0, { name = TOP_REVIEWED }).sp,
       "both pairs resolve to one colour, so no case below can tell them apart"
     )
   end)
@@ -441,20 +454,18 @@ describe("both panes of a split layout", function()
   end)
 end)
 
---- One painted cell -------------------------------------------------------------
+--- What a screen really holds ---------------------------------------------------
 
--- Everything above is group names on marks, and a group name cannot say whether the rule was
--- *painted*, nor in what colour. The claim the four groups were put where `hl.groups()` reads
--- them for is that a frame row inside a **muted** pane comes out muted with it -- and a group
--- named anywhere else comes out at full brightness with nothing to report it.
+-- Everything above is group names on marks. A mark set can be complete, correct and
+-- invisible: a group name cannot say whether the rule was painted, in what colour, or what
+-- it did to the marks beneath it. These readings are taken from the screen.
 --
--- One child, one cell, because `nvim__inspect_cell` is honest only on the first call a process
--- makes. The cell is the last column of the pane on the blank pad row that closes a file: a
--- blank row carries the line-wide group and nothing else, and the last column is as far past
--- the end of the text as a rule the full width of the pane has to reach.
-describe("the cell a reviewer's screen really holds", function()
+-- One child per cell, because `nvim__inspect_cell` is honest only on the first call a process
+-- makes.
+describe("the cells a reviewer's screen really holds", function()
+  ---@param cell string
   ---@return string
-  local function child()
+  local function child(cell)
     local run = vim
       .system({
         vim.v.progpath,
@@ -466,6 +477,7 @@ describe("the cell a reviewer's screen really holds", function()
         text = true,
         env = {
           FIXTURE = root,
+          CELL = cell,
           XDG_STATE_HOME = vim.fn.tempname() .. "-state",
           GIT_CONFIG_GLOBAL = "/dev/null",
           GIT_CONFIG_SYSTEM = "/dev/null",
@@ -475,15 +487,60 @@ describe("the cell a reviewer's screen really holds", function()
     -- `nvim -l` sends print to stderr, so read both streams rather than guessing.
     local out = (run.stdout or "") .. (run.stderr or "")
     assert(run.code == 0, out)
-    return vim.trim(out)
+    return (vim.trim(out):gsub(" at %d+,%d+$", ""))
   end
+
+  local covered = child("covered")
+  local bare = child("bare")
+  local pad = child("pad")
+
+  --- The bottom rule, in a pane without focus --------------------------------------
 
   -- 0x00ee00 is what `Title` is set to in the child, and 0x007700 is that halfway to a black
   -- `Normal` background -- the muting's own arithmetic and nothing else's. A frame group the
-  -- namespace did not name would read `fg=00ee00` here, on a screen that looks wrong to a
+  -- namespace did not name would read `sp=00ee00` here, on a screen that looks wrong to a
   -- reviewer and right to every assertion made over names.
   it("mutes the bottom rule with its pane, and keeps its underline out there", function()
-    assert.same('cell " " fg=007700 bg=000000 underline=true', (child():gsub(" at %d+,%d+$", "")))
+    assert.same('cell " " fg=808080 sp=007700 underline=true', pad)
+  end)
+
+  --- The top rule, and what it must not do to the row ------------------------------
+
+  -- The defect this shape exists for. A `line_hl_group` replaces every attribute it sets on
+  -- every inline highlight the row carries, at any priority and in either direction -- so a
+  -- frame group with a foreground draws the whole header row in the frame's colour and the
+  -- marks beneath it are emitted, correct and invisible.
+  --
+  -- `covered` is a cell under a column mark on the header row; `bare` is a cell on the same
+  -- row that no column mark covers.
+  it("leaves a column mark on the header row its own colour", function()
+    assert.same('cell "r" fg=2266aa sp=00ee00 underline=true', covered)
+  end)
+
+  it("colours the rest of that row in the header's own group", function()
+    assert.same('cell "g" fg=00ee00 sp=00ee00 underline=true', bare)
+  end)
+
+  -- **The claim the two absolute readings cannot make between them.** Each of them passes
+  -- for one reason and fails for two: a frame that flattens the row makes both cells the
+  -- frame's colour, and a column mark that is never emitted makes both cells the header's.
+  -- The absolute values name which failure it was; this says there was one.
+  it("draws the two cells in different colours, which is the whole of the claim", function()
+    local function fg_of(reading)
+      return assert(reading:match("fg=(%x+)"), reading)
+    end
+    assert.is_true(
+      fg_of(covered) ~= fg_of(bare),
+      ("the header row is one flat colour: %s against %s"):format(covered, bare)
+    )
+  end)
+
+  -- Both cells carry the rule, so it is continuous across a row whose colours are not.
+  it("runs the rule across the whole row whatever each cell is coloured in", function()
+    for _, reading in ipairs({ covered, bare }) do
+      assert.is_truthy(reading:find("underline=true", 1, true), reading)
+      assert.is_truthy(reading:find("sp=00ee00", 1, true), reading)
+    end
   end)
 end)
 

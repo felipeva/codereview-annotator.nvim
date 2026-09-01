@@ -775,13 +775,28 @@ function M.build(files, opts)
     if before then
       before.file_rows[fi] = row
     end
-    -- The **frame**'s top edge. The header row already carried a line-wide group, so what
-    -- the frame changes is which one -- no mark is added, and a collapsed file gets its one
-    -- rule from the same line every other file gets its top edge from.
+    -- The **frame**'s top edge, and the header row's own colour beside it.
+    --
+    -- **The colour is a column mark and not the line-wide group it used to be.** A line-wide
+    -- group replaces every attribute it sets on every inline highlight the row carries, at
+    -- any priority and in either direction, so a line group with a foreground flattens the
+    -- whole row to one colour -- which is what the header row's `CodeReviewFileHeader` had
+    -- always done to the `+N -M` stat and the note count emitted below. The frame carries no
+    -- foreground at all (its rule's colour is `sp`), and what the row is coloured in now
+    -- composes with the marks under it by priority, which is what priority does arbitrate.
+    -- `docs/design-notes.md` has the measurement; the two shapes are not interchangeable.
+    --
+    -- Below the band the marks under it use, so a surface that colours a run of this row --
+    -- the stat here, a **path**'s own styling -- wins on the columns it owns.
     local frame = FRAME[reviewed]
+    local base = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader"
     mark(after, row, 0, { line_hl_group = frame.top })
+    mark(after, row, 0, { end_col = #header, hl_group = base, priority = M.PRIORITY.diff })
     if before then
       mark(before, row, 0, { line_hl_group = frame.top })
+      if bheader and #bheader > 0 then
+        mark(before, row, 0, { end_col = #bheader, hl_group = base, priority = M.PRIORITY.diff })
+      end
     end
     -- Color only the +N/-M inside the stat, not the note count that may follow it.
     local stat_col = #header - #right

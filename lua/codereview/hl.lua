@@ -140,6 +140,14 @@ local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 -- The pad row's underline sits at the bottom of a blank row, which is visually just above
 -- the next file's header, so one attribute draws both edges.
 --
+-- **A rule is an underline and the colour of that underline, and never a foreground.** All
+-- four groups are emitted as `line_hl_group`, and a line-wide group replaces every attribute
+-- it sets on every inline highlight the row carries -- at any priority, in either direction.
+-- So a frame group carrying an `fg` would flatten the whole header row to one colour: the
+-- path's own styling, the `+N -M` stat and the note count alike. The colour goes in `sp`,
+-- which is the underline's own, and the row's foreground is left to the marks that own it.
+-- See `docs/design-notes.md`, which has the measurement.
+--
 -- **Keyed by the header's group, so one file's two edges come from one source.** A frame
 -- whose edges disagree about the file's state reads as a rendering fault rather than as a
 -- shade, and the disagreement is reachable: `za` expands a file without unmarking it, so a
@@ -176,25 +184,19 @@ end
 local function apply_frame()
   for source, pair in pairs(FRAME_SOURCES) do
     local def = vim.api.nvim_get_hl(0, { name = source, link = false })
-
-    -- The header row's own group, with the attribute added and everything else the header
-    -- already drew in left alone -- a bold `Title` stays bold.
-    local framed = vim.tbl_extend("force", {}, def)
-    framed.cterm = vim.tbl_extend("force", {}, def.cterm or {})
-    framed.underline, framed.cterm.underline = true, true
-    framed.default = true
-    vim.api.nvim_set_hl(0, pair.framed, framed)
-
-    -- The pad row's rule: that same foreground and nothing else. A background would make
-    -- the pad row a band rather than a rule, and the row is blank, so there is no text for
-    -- a bold or an italic to fall on.
-    vim.api.nvim_set_hl(0, pair.pad, {
-      fg = def.fg,
-      ctermfg = def.ctermfg,
+    -- One shape for both edges: the attribute, and the colour of the attribute. Nothing
+    -- else, so nothing the row carries is replaced by a group that is only there to draw a
+    -- line. `sp` has no `cterm` counterpart -- a terminal palette has no underline colour --
+    -- so on cterm the rule draws in whatever foreground the cell already had, which is the
+    -- rendering that terminal can give rather than a wrong one.
+    local rule = {
+      sp = def.fg,
       underline = true,
       cterm = { underline = true },
       default = true,
-    })
+    }
+    vim.api.nvim_set_hl(0, pair.framed, rule)
+    vim.api.nvim_set_hl(0, pair.pad, rule)
   end
 end
 
@@ -301,18 +303,24 @@ end
 ---
 ---Only the true-color attributes are blended. `ctermfg` and `ctermbg` are indices into a
 ---palette with no channels to pull, so they are copied without a change.
+---
+---`sp` is blended beside `fg` and `bg`, and a group whose *only* colour is `sp` has a twin
+---like any other. That is what the **frame** is: an underline and the colour of the
+---underline, with no foreground at all. Left out, the rule a file is framed with would be
+---the one bright line in a pane that has lost focus.
 ---@param family CRBlendFamily
 ---@param group string
 ---@return boolean written True if the twin now holds a blend of `group`.
 local function write_twin(family, group)
   local ok, def = pcall(vim.api.nvim_get_hl, 0, { name = group, link = false })
-  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil) then
+  if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil and def.sp == nil) then
     return false
   end
   local strength = require("codereview.config").get()[FAMILIES[family].option].strength
   local twin = vim.tbl_extend("force", {}, def)
   twin.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
   twin.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
+  twin.sp = def.sp and blend(def.sp, backdrop(), strength) or nil
   return (pcall(vim.api.nvim_set_hl, 0, FAMILIES[family].prefix .. group, twin))
 end
 
