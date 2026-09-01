@@ -319,9 +319,9 @@ describe("every other view-wide key", function()
 
   it("gs leaves it on, all the way round the cycle", function()
     -- Round the whole cycle rather than one step: a **scope** change replaces the file list
-    -- under the soloed index, and the scopes this fixture reaches on the way hold one file
-    -- each -- where "one file drawn" is true whether or not the switch survived. Coming back
-    -- to a scope of eight is what makes the last assertion mean something.
+    -- under the soloed index, and two of the scopes on the way hold one file -- where "one
+    -- file drawn" is true whether or not the switch survived. Coming back to a scope of
+    -- eight is what makes the last assertion mean something.
     local scopes = {}
     repeat
       feed_in(V.win, "gs")
