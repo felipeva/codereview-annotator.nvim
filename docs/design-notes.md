@@ -45,7 +45,17 @@ spells the prefix itself and hands it over as `prefix`, and the header row paint
 `#label.prefix`: the string a row is built from and the offset a mark lands at are the same
 expression, so neither can be updated without the other. The **sticky header** puts that same
 string in one literal, which is what makes one file carry one icon on both surfaces and what
-escapes a glyph the plugin did not choose. The before pane's indent is measured off it with
+escapes a glyph the plugin did not choose.
+
+**The file tree is the third surface and it reads none of that.** A tree row is an indent, a
+state mark, a glyph and a basename — it has no chevron of its own on a file row and no path to
+paint in two ranges — so it takes the glyph and not the prefix, through `render.file_icon`,
+which is the rule `file_label` reaches for as well. That is the whole of what the two share:
+one `pcall`, one type test, and an empty string that is not a glyph. A second copy of it in
+`panel.lua` would be two places for the tree and the diff to answer differently about the same
+file, and the answer they disagreed on would be a glyph a reviewer chose. The tree's own
+offsets are unaffected either way, because the glyph goes *after* the state mark: the mark
+keeps its column, so the range that colors it keeps its bytes. The before pane's indent is measured off it with
 `strdisplaywidth` for the same reason — counted from the parts, a renamed file's two paths
 would sit apart by the width of the glyph. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
 `src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone
@@ -373,13 +383,44 @@ hundred of them are **0.15 ms**. The whole walk went from 44.2 ms to 45.9 ms, so
 a hundredth of the marks for four hundredths of the milliseconds, which is what an extmark
 costs relative to a table with three strings in it.
 
-**An injected file icon costs 0.3 µs a file, and with nothing wired it costs a nil test.**
-The `file_icon` adapter is asked **301 times on a three-hundred-file paint** — once per file
-the render draws, and once more for the **sticky header**'s own file, which is a second
-winbar's worth more in the split layout. Counted rather than argued, and with nothing wired
-the same count is **0**: there is no shipped glyph behind that adapter and therefore no
+**An injected file icon costs 0.3 µs a file on the diff and 0.2 µs a file in the tree, and
+with nothing wired it costs a nil test.** The `file_icon` adapter is asked **601 times on a
+three-hundred-file paint** — once per file the render draws, once more for the **sticky
+header**'s own file, which is a second winbar's worth more in the split layout, and once per
+file again for the **file tree**, which is built from the same file list one surface over. A
+**file crossing** asks it **301 times**: the diff is not re-rendered there, so the winbar's own
+file is the single call the diff makes, and the tree is rebuilt whole. That is the count that
+moved when #217 landed — a crossing asked *once* before it — and it is why the tree's guard
+matters more than the render's. Counted rather than argued, and with nothing wired every one
+of those counts is **0**: there is no shipped glyph behind that adapter and therefore no
 default implementation of it to call, which is the whole of the guarantee. It is a rule a
 later edit cannot break by accident, where "we remembered not to call it" is one that can.
+
+**The tree's build resolves what a paint cannot, and it is where #217's numbers were taken.**
+`panel.build` at three hundred files is 0.48 to 0.51 ms and it is pure, so two arms duel inside
+one process with the heap collected before every timing and the order reversed each round —
+twelve rounds of twenty builds an arm, medians. A wired adapter reads **+0.05 to +0.06 ms**,
+0.16 to 0.21 µs a file, against a null of ±0.005: ten times the floor, and resolved. One that
+*raises* on every file reads **+6.6 to +6.9 ms**, 22 to 23 µs a file — the same figure the
+render's own walk gave above, arrived at independently, which is the best evidence either
+number is real. Three campaigns in three processes.
+
+**Nothing wired pays what it paid, and the first draft of #217 did not.** Both versions of
+`panel.lua` load into one process and duel each other, the way the label walk was resolved
+above. The row as first written measured the glyph's width with `strdisplaywidth` whether or
+not there was a glyph, and read **+0.04 ms, 0.14 µs a file**, against a null of ±0.002 — one
+call across the vimscript bridge per file row, on the one surface that is rebuilt on every file
+crossing as well as on every paint. Guarded behind the glyph, the same duel reads −0.002,
++0.003 and −0.013 ms across three campaigns against nulls of −0.002, +0.005 and −0.014: the
+same number twice. A width of zero needs no call to reach.
+
+**A crossing cannot resolve any of that, so the count is what is watched there.** `]f` at three
+hundred files is 21 to 23 ms a press, and its own null — two unwired arms, twenty presses each
+over files neither arm has drawn — reads −0.02, −0.12 and −0.57 ms across the same three
+campaigns. The three hundred adapter calls a crossing gained are 0.06 ms of that, an order of
+magnitude under the noise. Two duels over one range of files cannot be compared either: the
+second one replays captures the first one paid to build, which read 9.5 ms against 22.4 ms
+before each duel was given files of its own.
 
 **The paint cannot resolve those calls, and the label walk can.** Same method as everything
 else here — collect before every timing, alternate the arms, even rounds, medians. A paint at

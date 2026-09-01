@@ -27,7 +27,7 @@ change there is felt through.
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
-| `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies | pure |
+| `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies; a file row's glyph is `render`'s answer, never a second copy of the rule | pure |
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |
@@ -42,8 +42,8 @@ change there is felt through.
 
 ## How they stack
 
-- **Require nothing**: `diff`, `drafts`, `panel`, `queue`, `types`.
-- **Above them**, in that order: `git`, `payload`, `render`; then `state`, `config`; then
+- **Require nothing**: `diff`, `drafts`, `queue`, `types`.
+- **Above them**, in that order: `git`, `payload`, `render`, `panel`; then `state`, `config`; then
   `archive`, `delivery`, `keymaps`, `syntax`; then `checkout`, `composer`, `hl`, `fade`,
   `queue_float`, `trim_float`, `view_layout`; then `view_panel`.
 - **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that

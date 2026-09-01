@@ -737,6 +737,12 @@ directory, so you can see which packages are done without opening them.
 
 The tree follows the diff cursor, and `<Tab>` into it lands on the file you were reading.
 
+A file row carries the reviewed, annotated or unreviewed mark first, then the glyph your
+[`file_icon`](#adapters) adapter gave that file — the same glyph the diff and the sticky
+header draw for it, decided by one rule so the three cannot disagree. The mark keeps its
+column, the glyph comes out of the name's budget, and a narrow panel cuts the name from the
+left, so the end of it survives. A directory row carries none: a directory names no file.
+
 `gp` dismisses and summons the tree. `panel.enabled` decides whether a review *opens* with
 one. Collapsed directories belong to the review rather than to the tree, so they are exactly
 as you left them when the tree comes back.
@@ -860,7 +866,7 @@ functions inject that. **None are required.**
 | `compose` | Collects note text | The composer the plugin ships |
 | `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
 | `pick_checkout` | Chooses which checkout to switch to | The picker the plugin ships |
-| `file_icon` | Gives a file the icon its filetype has in your config | No filetype icon. Nothing is called per file |
+| `file_icon` | Gives a file the icon its filetype has in your config, on the diff, the sticky header and the file tree | No filetype icon. Nothing is called per file |
 
 ```lua
 opts = {
@@ -945,20 +951,24 @@ opts = {
     }, function(chosen) cb(chosen and chosen.path) end)
   end,
 
-  -- Give a file the icon its filetype has in your config, drawn on its header row and on
-  -- the sticky header alike. The plugin ships no filetype glyphs and depends on no icon
-  -- plugin, so without this a file simply has none -- and nothing is called per file,
-  -- because there is no shipped glyph behind this to reach through a function.
+  -- Give a file the icon its filetype has in your config, drawn on every surface that
+  -- names it: its header row, the sticky header, and its row in the file tree. The plugin
+  -- ships no filetype glyphs and depends on no icon plugin, so without this a file simply
+  -- has none -- and nothing is called per file, because there is no shipped glyph behind
+  -- this to reach through a function.
   --
-  -- `path` is repository-relative and is the post-image path, which is the name both
-  -- surfaces draw. Answer with one glyph, or with nil for a file you have no icon for.
+  -- `path` is repository-relative and is the post-image path, which is the name all three
+  -- surfaces draw. Answer with one glyph, or with nil for a file you have no icon for. One
+  -- rule decides what your answer becomes, so a file cannot carry one glyph on the diff and
+  -- another in the tree.
   --
   -- It is a second thing about the file and never a replacement for the first: the
   -- reviewed, annotated and unreviewed marks keep their column and their meaning.
   --
-  -- Called once per file per paint -- three hundred times on a large review -- so an
-  -- adapter that raises, or that answers with anything but a string, is survived rather
-  -- than reported: that file draws without a glyph and the review goes on.
+  -- Called once per file per paint by the diff and by the tree, and the tree is rebuilt on
+  -- every file crossing too -- so an adapter that raises, or that answers with anything but
+  -- a string, is survived rather than reported: that file draws without a glyph and the
+  -- review goes on.
   file_icon = function(path)
     return (require("nvim-web-devicons").get_icon(path, nil, { default = true }))
   end,

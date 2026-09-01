@@ -232,25 +232,29 @@ M.defaults = {
   ---reported.
   ---@type fun(checkouts: CRCheckout[], cb: fun(chosen: string|nil))|nil
   pick_checkout = nil,
-  ---Give a file the icon its filetype has in your configuration, drawn on its header row
-  ---and on the **sticky header** alike. The plugin ships no filetype glyphs and takes a
-  ---dependency on no icon plugin (ADR-0001): a configuration that already has devicons
-  ---wires them in here, and one that does not loses nothing.
+  ---Give a file the icon its filetype has in your configuration, drawn on **every surface
+  ---that names it**: its header row, the **sticky header**, and its row in the **file
+  ---tree**. The plugin ships no filetype glyphs and takes a dependency on no icon plugin
+  ---(ADR-0001): a configuration that already has devicons wires them in here, and one that
+  ---does not loses nothing.
   ---
-  ---Handed the repository-relative path -- the post-image one, which is the name both
-  ---surfaces draw -- and answers with one glyph. Answer with nil for a file you have no
-  ---icon for; nothing is drawn there, and that file's header row reads exactly as it does
-  ---with no adapter wired.
+  ---Handed the repository-relative path -- the post-image one, which is the name all three
+  ---surfaces draw -- and answers with one glyph. One rule decides what that answer becomes,
+  ---so a file cannot carry one glyph on the diff and another in the tree. Answer with nil
+  ---for a file you have no icon for; nothing is drawn there, and that file's rows read
+  ---exactly as they do with no adapter wired.
   ---
   ---**A second thing about the file, and never a replacement for the first.** The reviewed,
-  ---annotated and unreviewed marks keep their column and their meaning, because a reviewer
-  ---must not lose *this file is reviewed* in exchange for *this file is TypeScript*.
+  ---annotated and unreviewed marks keep their column and their meaning on both the header
+  ---row and the tree row, because a reviewer must not lose *this file is reviewed* in
+  ---exchange for *this file is TypeScript*.
   ---
-  ---Called once per file per paint, which is three hundred times on a large review -- so an
-  ---adapter that raises, or answers with something that is not a glyph, is survived rather
-  ---than reported: that file draws without one and the review goes on. Nothing is wired is
-  ---not that path at all. There is no shipped glyph behind this and therefore no default
-  ---implementation to call, so a review with nothing wired here calls nothing per file.
+  ---Called once per file per paint by each of the two builds, and the tree's build runs on
+  ---every **file crossing** as well -- so an adapter that raises, or answers with something
+  ---that is not a glyph, is survived rather than reported: that file draws without one and
+  ---the review goes on. Nothing is wired is not that path at all. There is no shipped glyph
+  ---behind this and therefore no default implementation to call, so a review with nothing
+  ---wired here calls nothing per file on either surface.
   ---@type (fun(path: string): string|nil)|nil
   file_icon = nil,
 }
