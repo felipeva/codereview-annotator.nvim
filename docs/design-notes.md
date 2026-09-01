@@ -281,6 +281,28 @@ is the only fixture line that can fail this, and it is there on purpose.
 
 ## Performance
 
+**Styling a path cost the render walk about 1.3 ms at three hundred files, and the marks
+cost seven times what the allocation did.** The prediction was the other way round: the label
+returns a table of segments where it returned a string, it runs once per file per paint, and
+that was the thing to watch. Measured in one process with both implementations loaded side by
+side — `render.lua` is pure at load and pure at call with no notes in the options, so the two
+trees' copies duel each other with the allocator taken out of the answer — `file_label` went
+from **0.022 µs to 0.51 µs a call**, a factor of twenty-three on a number so small that three
+hundred of them are **0.15 ms**. The whole walk went from 44.2 ms to 45.9 ms, so the other
+**1.1 ms** is the two extmarks a header row gained: 211,200 marks to 211,800, `+0.28%`. Twice
+a hundredth of the marks for four hundredths of the milliseconds, which is what an extmark
+costs relative to a table with three strings in it.
+
+**Nothing downstream of that separates from the machine.** A repaint at three hundred files is
+about 81 ms and swings 73 to 128 between runs; `]f` is 12 ms a press warm and 21 ms cold, and
+the crossing gains **one** `file_label` call in the unified layout and **two** in the split
+one — half a microsecond and one microsecond, four to eight parts in a hundred thousand of a
+press. Eight alternated processes an arm found no difference in either that a second campaign
+reproduced: `perf.lua`'s own repaint line read `+17%` at sixty files in one campaign and
+`−30%` at three hundred in the same one, which is what a single untimed shot is worth. Read
+the counts, and read a duel run in one process; do not read one tier line twice and believe
+the difference.
+
 **Blob hashes are resolved in two batched calls**, `git hash-object` for working-tree
 files and `git cat-file --batch-check` for everything behind a ref. One process per file
 was, measurably, more expensive than all the treesitter work combined — on a 60-file diff
