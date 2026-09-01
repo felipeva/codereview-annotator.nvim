@@ -233,15 +233,27 @@ layouts and with files collapsed rather than argued. The half that is easy to dr
 rewrite is the `[f`-from-inside-a-file one: both rules agree from a header row, so a case that
 presses `[f` only from headers passes with it wrong.
 
-**The hunk keys and the annotation keys stop at the drawn file for free, so there is no
-`if solo` to find.** `hunk_rows` and the anchor map are both built inside the render's file
-walk, which solo gates one file up, so a soloed render can only describe the file it drew:
-`]h` at that file's last hunk finds no next row and reports it, and `]a` reaches that file's
-notes and no other's. A reader looking for the branch that makes this happen will not find
-one, and adding one would be a second mechanism saying what the first already says. The
-**queue** is untouched by it — notes on files that are not drawn are still in it and still
-submit, so what these keys reach is a question about rows rather than about what a reviewer
-has written.
+**The hunk keys and the annotation keys stop at the drawn file for free, so no `if solo`
+decides what they reach.** `hunk_rows` and the anchor map are both built inside the render's
+file walk, which solo gates one file up, so a soloed render can only describe the file it
+drew: `]h` at that file's last hunk finds no next row and reports it, and `]a` reaches that
+file's notes and no other's. A reader looking for the branch that makes *that* happen will
+not find one, and adding one would be a second mechanism saying what the first already says.
+The **queue** is untouched by it — notes on files that are not drawn are still in it and
+still submit, so what these keys reach is a question about rows rather than about what a
+reviewer has written.
+
+**The one `soloed()` branch in `jump_annotation` chooses the sentence, not the rows.** There
+is now a branch to find, and this is all it does. Nothing found is a fact about the drawn
+file, while *No annotations yet* is a claim about the review, so a reviewer with six
+annotations in files that are not drawn read it as their work being gone (#215). The message
+narrows and names `Q`; the key goes on collecting from the anchors. Do not read that branch
+as permission to add a second one — the moment `if soloed()` decides what `]a` can *reach*,
+the paragraph above stops being true. Two things it leans on, neither of them visible from
+the branch itself: `soloed()` answers nil on an empty **scope**, which is what keeps an empty
+review on the wide sentence with no case of its own; and the queue is read through `V.notes`,
+the same snapshot the absence was judged against, so the two halves of the sentence cannot
+disagree about what was searched.
 
 **`R` still collapses the file it marks under solo; the advance was added beside the collapse
 rather than in place of it.** Reviewed means collapsed is one rule, it is persisted, and solo
