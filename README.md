@@ -18,7 +18,7 @@ the end.
 │     ▾ routes    0/1 ││  19 │  const app = express()                              │
 │       ○ users.ts    ││ ▌20 │ -const cfg = load()                                 │
 │     ● main.ts     3 ││ ▌21 │ +const cfg = loadConfig()                           │
-│   ▾ web/src     0/2 ││ ▌   │   🐞 why the rename? no callers were updated        │
+│   ▾ web/src     0/2 ││ ▌   │   ✗ why the rename? no callers were updated         │
 │     ✓ index.ts      ││  22 │  app.listen(cfg.port)                               │
 │ ▾ packages/…    0/1 ││                                                           │
 │   ○ types.ts        ││ ✓ ▸ apps/api/src/routes.ts                       +4 -0    │
@@ -333,13 +333,18 @@ for it by name with nothing dispatched and the plugin says so in one sentence.
 
 A type is not decoration. It changes what the receiving agent is told to do with that group.
 
-| Type | Key | Group directive in the payload |
-| --- | --- | --- |
-| bug | `ab` | diagnose and fix these |
-| fix | `af` | apply these changes |
-| suggestion | `as` | evaluate; apply if sound |
-| nitpick | `an` | low priority — batch these together |
-| issue | `ai` | do NOT fix — summarize these for tracking |
+| Type | Glyph | Key | Group directive in the payload |
+| --- | --- | --- | --- |
+| bug | `✗` | `ab` | diagnose and fix these |
+| fix | `✎` | `af` | apply these changes |
+| suggestion | `✦` | `as` | evaluate; apply if sound |
+| nitpick | `▫` | `an` | low priority — batch these together |
+| issue | `⚑` | `ai` | do NOT fix — summarize these for tracking |
+
+The glyph is what the picker offers each type with, and what a queued note carries in front
+of its prose. It is also all an **archived** entry keeps: that entry gives up its type's
+color on purpose, so the glyph is what still says what kind of finding it was. Plain
+Unicode, one column wide — no patched font, here or anywhere else the plugin draws.
 
 `aa` opens a picker instead. Its last entry is **`no type`**. An untyped annotation says that
 something is worth reading, without saying what to do about it. It behaves like any other
@@ -366,7 +371,7 @@ types = {
 | `name` | **required** — what `annotate()` takes and what an entry stores |
 | `key` | **required** — pressed after the `a` prefix, so `q` binds `aq` |
 | `label` | the name, title-cased and pluralized: `question` → `Questions` |
-| `icon` | `icons.annotated` |
+| `icon` | `icons.annotated` — an empty string counts as none and gets the same |
 | `hl` | `CodeReview<Name>`, auto-linked to `DiagnosticInfo` so it has color |
 | `directive` | none — the payload heading is then just `## Questions (3)` |
 
@@ -603,7 +608,7 @@ opts = { layout = "split" }   -- "unified" (default) or "split". Validated at se
 │   ▾ api/src  1/2 ││ @@ -19,6 @@                 ││ @@ +19,8 @@ function boot()  │
 │     ● main.ts  3 ││  19 │  const app = express()││  19 │  const app = express() │
 │   ▾ web/src  0/2 ││ ▌20 │ -const cfg = load()   ││ ▌20 │ +const cfg = loadCfg() │
-│     ✓ index.ts   ││                             ││ ▌   │   🐞 why the rename?   │
+│     ✓ index.ts   ││                             ││ ▌   │   ✗ why the rename?    │
 │ ○ README.md      ││                             ││ ▌21 │ +cfg.validate()        │
 │ 2/7 reviewed     ││  21 │  app.listen(cfg.port) ││  22 │  app.listen(cfg.port)  │
 └──────────────────┘└─────────────────────────────┘└──────────────────────────────┘

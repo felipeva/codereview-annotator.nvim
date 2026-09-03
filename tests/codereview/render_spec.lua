@@ -13,6 +13,7 @@ local archive = require("codereview.archive")
 local config = require("codereview.config")
 local queue = require("codereview.queue")
 local state = require("codereview.state")
+local types = require("codereview.types")
 
 describe("the anchor map", function()
   view.open("branch")
@@ -306,6 +307,28 @@ describe("archived entries", function()
     local groups = h.virt_groups(V)
     assert.is_true(groups.CodeReviewBug or false, vim.inspect(vim.tbl_keys(groups)))
     assert.is_true(groups.CodeReviewArchived or false, vim.inspect(vim.tbl_keys(groups)))
+  end)
+
+  -- The two rows the glyphs exist for, read together because *the same glyph* is the claim:
+  -- both entries here are bugs, and the archived one has given up the color that said so.
+  -- The marker's own non-blank run rather than the whole prefix, so the columns the prefix
+  -- reserves stay the render's business and not this file's.
+  it("marks a queued entry with its type's glyph, in that type's group", function()
+    local marker = assert(virt_at(header))[1][1]
+    assert.is_truthy(marker[1]:match("%S"), ("the marker in front of a queued note is blank: %q"):format(marker[1]))
+    assert.same(assert(types.get(config.get().types, "bug")).icon, marker[1]:match("%S+"))
+    assert.same("CodeReviewBug", marker[2])
+  end)
+
+  it("keeps that glyph on the archived entry, in the archive's own group", function()
+    local virt = assert(virt_at(header))
+    local queued_marker, archived_marker = virt[1][1], virt[2][1]
+    assert.is_truthy(
+      archived_marker[1]:match("%S"),
+      ("the marker in front of an archived note is blank: %q"):format(archived_marker[1])
+    )
+    assert.same(queued_marker[1]:match("%S+"), archived_marker[1]:match("%S+"))
+    assert.same("CodeReviewArchived", archived_marker[2])
   end)
 
   -- Not merely "nothing archived is drawn": with the flag off the render has to be the one
