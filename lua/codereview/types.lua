@@ -17,6 +17,15 @@ local M = {}
 ---Every field but `name` and `key` may be left out, and an empty string is left out:
 ---clearing one asks for what the plugin derives rather than for nothing at all.
 
+---The prefix an annotation key is pressed after: `b` is the bug type's key, `ab` annotates
+---one. Bare `b`/`f`/`s`/`n` would shadow back-word, find-char and next-search, and `a`
+---(append) is dead in a nomodifiable buffer, so the prefix costs a keystroke and no motion.
+---
+---Here rather than in `keymaps.lua`, which binds it, because the type picker prints it too:
+---a picker naming a key nothing binds is worse than one naming no key at all, and two
+---literals a module apart are how that becomes true.
+M.PREFIX = "a"
+
 ---Order is meaningful: it is the order groups appear in the payload, most actionable
 ---first, so the important work is not buried under nitpicks.
 ---
@@ -151,8 +160,8 @@ function M.normalize(list, opts)
     end
     by_name[t.name] = i
 
-    -- `aa` opens the type picker, so a type keyed "a" would shadow it.
-    if t.key == "a" then
+    -- `aa` opens the type picker, so a type keyed with the prefix itself would shadow it.
+    if t.key == M.PREFIX then
       fail("types[%d] uses key %q, which collides with the `aa` type picker", i, t.key)
     end
     if by_key[t.key] then

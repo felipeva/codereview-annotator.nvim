@@ -346,9 +346,27 @@ of its prose. It is also all an **archived** entry keeps: that entry gives up it
 color on purpose, so the glyph is what still says what kind of finding it was. Plain
 Unicode, one column wide — no patched font, here or anywhere else the plugin draws.
 
-`aa` opens a picker instead. Its last entry is **`no type`**. An untyped annotation says that
-something is worth reading, without saying what to do about it. It behaves like any other
-entry, and its group renders last under a bare `## Untyped (n)` heading.
+`aa` opens a picker instead. It offers each type as its glyph, its name, the key that
+reaches it and its directive, so the menu teaches the keystroke that makes the menu
+unnecessary:
+
+```
+✗  bug         ab  diagnose and fix these
+✎  fix         af  apply these changes
+✦  suggestion  as  evaluate; apply if sound
+▫  nitpick     an  low priority — batch these together
+⚑  issue       ai  do NOT fix — summarize these for tracking
+•  no type
+```
+
+The rows are built from your own types, so a replaced set is offered with its own names and
+its own keys, and a type with no directive is offered without one. None of this reaches the
+agent: what a group is told to do is the directive itself, and the key and the glyph stay in
+the picker.
+
+The last entry is **`no type`**. An untyped annotation says that something is worth reading,
+without saying what to do about it. It behaves like any other entry, and its group renders
+last under a bare `## Untyped (n)` heading.
 
 Declining a type is not dismissing. Press `<Esc>` to abandon the annotation.
 
@@ -373,7 +391,7 @@ types = {
 | `label` | the name, title-cased and pluralized: `question` → `Questions` |
 | `icon` | `icons.annotated` — an empty string counts as none and gets the same |
 | `hl` | `CodeReview<Name>`, auto-linked to `DiagnosticInfo` so it has color |
-| `directive` | none — the payload heading is then just `## Questions (3)` |
+| `directive` | none — the payload heading is then just `## Questions (3)`, and the picker's row for it stops at the key |
 
 Order is the order the groups appear in the payload, most actionable first.
 

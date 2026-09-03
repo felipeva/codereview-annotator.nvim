@@ -335,6 +335,46 @@ describe("a custom type end to end", function()
     assert.is_true(text:find("## Blockers", 1, true) < text:find("## Questions", 1, true))
   end)
 
+  -- The picker's labels are built from the configured list, so a host who replaced the
+  -- vocabulary meets their own types and their own keys in it. Read once and asserted
+  -- twice: both cases ask the picker the same question, and stubbing `vim.ui.select` a
+  -- second time would only assert the stub.
+  local offered
+  do
+    local orig = vim.ui.select
+    vim.ui.select = function(items, _, _)
+      offered = items
+    end
+    annotate.pick_type(config.get().types, function() end)
+    vim.ui.select = orig
+  end
+
+  it("offers the host's own types with their own keys", function()
+    assert.same(#config.get().types + 1, #offered, vim.inspect(offered))
+    for i, t in ipairs(config.get().types) do
+      assert.is_truthy(offered[i]:find(t.name, 1, true), offered[i])
+      assert.is_truthy(offered[i]:find("a" .. t.key, 1, true), offered[i])
+      -- The host's own directive, not a shipped type's. `blocker` is what makes this able
+      -- to fail: it is in no default set, so a label reading `types.defaults` instead of
+      -- the configured list has nothing to print for it.
+      if t.directive then
+        assert.is_truthy(offered[i]:find(t.directive, 1, true), offered[i])
+      end
+    end
+    -- Nothing the host dropped is still on offer, keys included.
+    for _, label in ipairs(offered) do
+      assert.is_nil(label:find("nitpick", 1, true), label)
+    end
+  end)
+
+  -- `question` carries no directive, and then the row stops at its key. A blank column
+  -- would say the type has a directive and that the directive is empty.
+  it("offers a type with no directive without one", function()
+    local label = offered[3]
+    assert.is_truthy(label:find("question", 1, true), label)
+    assert.same("aq", label:match("(%S+)%s*$"), label)
+  end)
+
   it("titles the composer from the type", function()
     local seen
     config.setup({

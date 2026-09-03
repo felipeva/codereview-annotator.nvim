@@ -338,6 +338,41 @@ function M.annotate(type_name)
   M.annotate_target(V, target, type_def.name)
 end
 
+---Pad to a column width, measured in display cells rather than in bytes.
+---
+---`%-8s` cannot do this: Lua pads to a byte count, and a glyph or a name outside ASCII
+---costs more bytes than it draws. A host's vocabulary is theirs, so that is not a case the
+---picker can decline to handle.
+---@param text string
+---@param width integer Display cells
+---@return string
+local function pad(text, width)
+  return text .. (" "):rep(math.max(0, width - vim.fn.strdisplaywidth(text)))
+end
+
+---One row of the type picker, as the reviewer reads it.
+---
+---Glyph, name, key, directive -- in columns, because a reviewer looking for one of these
+---reads down a column rather than along a row. The glyph leads because it is what the diff
+---draws, so choosing here and reading there stay one vocabulary. The key comes next because
+---this menu exists to be outgrown: a reviewer who reads `ab` beside `bug` stops needing it.
+---The directive is last because it is the only part long enough to run off the row.
+---
+---The key printed is the whole keystroke, `ab`, and not the configured suffix `b`, which on
+---its own names nothing anybody can press.
+---@param t CRType
+---@param width { name: integer, key: integer } Display cells per column
+---@return string
+local function picker_row(t, width)
+  local key = types.PREFIX .. t.key
+  local row = ("%s  %s  %s"):format(t.icon, pad(t.name, width.name), pad(key, width.key))
+  -- A type may carry no directive, and then the row stops at the key rather than running on
+  -- into an empty column. A blank column would say the type has a directive and that the
+  -- directive says nothing, which is the same lie the payload's bare `## Questions (n)`
+  -- heading already refuses to tell.
+  return t.directive and (row .. "  " .. t.directive) or vim.trim(row)
+end
+
 ---Offer the configured types, plus an explicit way to decline one.
 ---
 ---Declining is an entry in the menu rather than a second meaning for dismissing it. The
@@ -345,13 +380,28 @@ end
 ---outright, so reusing it would make "no type" indistinguishable from "never mind".
 ---
 ---Shared by the review path and by buffer capture, which offered the same menu twice.
+---
+---Through `vim.ui.select`, which most configurations have already replaced: the picker
+---should look like every other picker in the editor, and a float of the plugin's own would
+---be a new surface with its own keys before it was an improvement.
 ---@param list CRType[]
 ---@param cb fun(type_def: CRType|nil) Untyped when nil; not called at all if dismissed
 function M.pick_type(list, cb)
+  -- Measured over the configured list rather than fixed: a host whose names are longer than
+  -- the shipped five would otherwise have every row's key land in a different column, which
+  -- is the one thing a column buys.
+  local width = { name = 0, key = 0 }
+  for _, t in ipairs(list) do
+    width.name = math.max(width.name, vim.fn.strdisplaywidth(t.name))
+    width.key = math.max(width.key, vim.fn.strdisplaywidth(types.PREFIX .. t.key))
+  end
+
   local labels = vim.tbl_map(function(t)
-    return ("%s  %s"):format(t.icon, t.name)
+    return picker_row(t, width)
   end, list)
   -- Appended, so every configured type keeps the position a reviewer already reaches for.
+  -- Not columned with them either: no key reaches it and it instructs nothing, so aligning
+  -- it would draw two blank columns to say what its absence says better.
   labels[#labels + 1] = ("%s  no type"):format(types.UNTYPED.icon)
 
   vim.ui.select(labels, { prompt = "Annotation type:" }, function(_, index)

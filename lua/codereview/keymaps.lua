@@ -30,19 +30,20 @@ end
 ---@param buf integer
 ---@param view table The review view, whose exported actions these keys run.
 function M.diff(buf, view)
-  -- Annotation keys are prefixed with `a` rather than bound bare. Bare `b`/`f`/`s`/`n`
-  -- would shadow back-word, find-char and next-search inside the buffer; `a` (append) is
-  -- dead in a nomodifiable buffer, so it costs a keystroke and no motion.
+  -- Annotation keys are prefixed rather than bound bare, and `types.PREFIX` is where the
+  -- prefix and the reasoning for it live -- the type picker prints the same keystroke, so
+  -- binding it from a literal here would let the two drift apart silently.
   --
   -- Required here rather than at file scope: `annotate` requires `view`, and `view`
   -- requires this module, so a require up there would route their cycle through it.
   local annotate = require("codereview.annotate")
+  local types = require("codereview.types")
   for _, t in ipairs(config.get().types) do
-    vim.keymap.set({ "n", "x" }, "a" .. t.key, function()
+    vim.keymap.set({ "n", "x" }, types.PREFIX .. t.key, function()
       annotate.annotate(t.name)
     end, { buffer = buf, nowait = true, silent = true, desc = "Annotate: " .. t.name })
   end
-  vim.keymap.set({ "n", "x" }, "aa", annotate.annotate_pick, {
+  vim.keymap.set({ "n", "x" }, types.PREFIX .. types.PREFIX, annotate.annotate_pick, {
     buffer = buf,
     nowait = true,
     silent = true,

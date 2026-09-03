@@ -137,6 +137,32 @@ describe("with no type given", function()
     assert.same(untyped, offered[#offered]:match("^%S+"), offered[#offered])
   end)
 
+  -- The picker is also the one place a reviewer learns the keystroke that makes the picker
+  -- unnecessary, and the one place the whole vocabulary's directives are readable side by
+  -- side. Read as *present, in this order* rather than at fixed offsets: the columns are
+  -- padded from the configured list, so a pinned offset would be a claim about the shipped
+  -- names rather than about the label.
+  it("names each type's key and its directive", function()
+    for i, t in ipairs(require("codereview.config").get().types) do
+      local label = offered[i]
+      local name_at = label:find(t.name, 1, true)
+      local key_at = label:find("a" .. t.key, 1, true)
+      local directive_at = label:find(t.directive, 1, true)
+      assert.is_truthy(name_at, ("%s: no name in %q"):format(t.name, label))
+      assert.is_truthy(key_at, ("%s: no key in %q"):format(t.name, label))
+      assert.is_truthy(directive_at, ("%s: no directive in %q"):format(t.name, label))
+      assert.is_true(name_at < key_at, ("%s: key before name in %q"):format(t.name, label))
+      assert.is_true(key_at < directive_at, ("%s: directive before key in %q"):format(t.name, label))
+    end
+  end)
+
+  -- Declining reaches no key and instructs nothing, so it is offered with neither rather
+  -- than with two blank columns. Stripping the mark has to leave the name and nothing else:
+  -- padding the entry into the type columns would say something belongs in them.
+  it("offers declining with a mark and a name, and nothing after them", function()
+    assert.same("no type", (offered[#offered]:gsub("^%S+%s+", "")))
+  end)
+
   it("queues with the type that was picked", function()
     assert.same(1, queue.count())
     assert.same("fix", queue.all()[1].type)
