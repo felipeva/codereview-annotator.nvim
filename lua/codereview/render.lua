@@ -416,6 +416,61 @@ local function nameable(group)
   return group:match("^[%w_.@-]+$") ~= nil
 end
 
+--- What the adapters answered with ----------------------------------------------
+
+-- Every highlight group an icon adapter has answered with, as a set.
+--
+-- **This is the third source of the set a muted window is built from.**
+-- `hl.groups()` names the groups this plugin defines and `syntax.resolved_groups()` holds the
+-- capture groups the treesitter replay has resolved; a host's icon group is in neither, so
+-- without this a wired glyph stays at full brightness in a pane that has lost focus -- the one
+-- bright thing in a window that is meant to recede. Measured on the cell: the header row's
+-- **band** came back `1a1a1a` in a muted pane and the glyph on it `00ee00`, its full colour.
+--
+-- **Here rather than on the `CRRender` each paint returns, and that is forced.** The set is
+-- per-review and grows with the files a reviewer reaches, exactly as the replay's resolutions
+-- do -- which is why `syntax.lua` holds those in a memo of its own and not on a render.
+-- Three things a per-paint field could not answer for: under **solo** the walk emits one
+-- file, so a paint sees one file's group; the **sticky header** builds its label on a **file
+-- crossing**, outside any paint at all; and `mute_extend` runs on the scroll path, where no
+-- render was built. A field on the last render would answer for the last paint, and the
+-- window rule is asking about the review.
+--
+-- **Written here rather than in `file_label`, which is one of three callers.** This is the one
+-- rule every surface reaches an adapter through, so a group cannot arrive on a screen without
+-- arriving here -- and a fourth surface cannot forget to record. The cost of the wider seam is
+-- the **file tree**'s `dir_icon` groups, which reach a namespace no tree is ever drawn through:
+-- one link apiece, computed once, and nothing per file. Recording in `file_label` would buy
+-- that back and tie the record to the two surfaces that happen to be muted today.
+--
+-- Nothing clears it. A capture's group is what the *theme* resolves, so `clear_hl_cache` drops
+-- those on a colorscheme change; a host's icon group is a name the reviewer's icon plugin
+-- chose, which no theme moves. What bounds it is that plugin's own palette.
+local icon_groups = {}
+
+-- How many distinct groups have ever gone in there. Counted rather than measured, for the
+-- reason `syntax.lua` counts its resolutions: this is read on the scroll path, where walking
+-- the set per keystroke would be work done for the answer "nothing new". Only ever compared
+-- with itself.
+local icon_answers = 0
+
+---Every highlight group an icon adapter has answered with, as the memo holds them.
+---
+---The memo itself rather than a copy, and read-only by contract -- `syntax.resolved_groups()`
+---is handed out on the same terms and for the same reason. A set, so the caller iterates the
+---keys: one file's group is answered once per file per paint, and the muting wants each of
+---them once.
+---@return table<string, true>
+function M.icon_groups()
+  return icon_groups
+end
+
+---How many groups have gone into that set, ever. Only ever compared with itself.
+---@return integer
+function M.icon_answers()
+  return icon_answers
+end
+
 ---A host's own glyph for a path, and the group that colours it -- or nil when it has none.
 ---
 ---**Exported because three surfaces name a file and one rule decides what its glyph is.**
@@ -484,6 +539,20 @@ function M.file_icon(adapter, path)
   end
   if type(group) ~= "string" or not nameable(group) then
     return glyph
+  end
+  -- **Recorded after the checks and never before them**, so the set holds exactly the groups a
+  -- surface is about to draw in. A name this rule refuses colours nothing wherever it is
+  -- handed over, and a muted window built from one would link a namespace entry to a group
+  -- nothing defines -- which draws a hole rather than a blend (`docs/design-notes.md`). The
+  -- window rule therefore does not check the names again, and must not: `nameable` is the one
+  -- place that decides, and a second copy of it out there is a second place to drift.
+  --
+  -- Guarded rather than written every time, so the counter moves only when the set really
+  -- does. A write per file per paint would leave `mute_extend` walking its groups again on
+  -- every keystroke, which is the work the counter exists to avoid.
+  if not icon_groups[group] then
+    icon_groups[group] = true
+    icon_answers = icon_answers + 1
   end
   return glyph, group
 end

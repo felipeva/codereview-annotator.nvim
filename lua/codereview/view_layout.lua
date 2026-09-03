@@ -459,6 +459,16 @@ end
 ---@type integer
 local extended_at = -1
 
+---How many icon groups the namespace was last extended against.
+---
+---A counter of its own beside the one above, because the two sets grow on different events: a
+---capture group is resolved when a reviewer scrolls into an unparsed language, and an icon
+---group arrives when a paint or a **file crossing** names a file whose glyph the host answers
+---for in a colour nothing has met yet. One counter for both would need a source to bump the
+---other's, which is either module reaching into the other for a number it does not own.
+---@type integer
+local icons_at = -1
+
 ---Extend the namespace with every group now in play that it does not link yet.
 ---
 ---Extended rather than built once, because the set grows while a review is open: a file is
@@ -467,20 +477,39 @@ local extended_at = -1
 ---is already showing takes effect on the next redraw -- measured, not assumed -- which is
 ---what keeps a file parsed while its pane was muted muted too.
 ---
+---**Three sources, and they are the same kind of thing.** `hl.groups()` names the groups this
+---plugin defines, `syntax.resolved_groups()` holds what the replay has resolved, and
+---`render.icon_groups()` holds what a host's icon adapters answered with. A group in none of
+---the three draws at full brightness in a pane without focus, which is exactly what a wired
+---glyph did until it was recorded: a colour the reviewer's icon plugin chose, alone at full
+---strength on a **band** that had already receded.
+---
+---**The names are not checked again here.** `render.lua` refuses a name Neovim would reject,
+---and the empty string with it, before a group ever reaches this set -- so a second copy of
+---that rule here would be a second place for it to drift. What this does is hand each name to
+---`ensure_link`, which asks `hl.lua` for a twin and does nothing at all when there is none.
+---
 ---Called by the view wherever it has just run the replay -- a paint, and every keystroke a
----reviewer holds -- so the guard is what keeps it free: with nothing newly resolved this is
----one integer comparison and no allocation at all. Asked for from there rather than said
----from inside the replay, which would have `syntax.lua` reaching up into this one.
+---reviewer holds -- so the guard is what keeps it free: with nothing newly resolved and no
+---new glyph named, this is two integer comparisons and no allocation at all. Asked for from
+---there rather than said from inside the replay, which would have `syntax.lua` reaching up
+---into this one.
 function M.mute_extend()
   local cfg = config.get().muted
-  if not cfg.enabled or syntax.resolutions() == extended_at then
+  if not cfg.enabled or (syntax.resolutions() == extended_at and render.icon_answers() == icons_at) then
     return
   end
   extended_at = syntax.resolutions()
+  icons_at = render.icon_answers()
   for _, group in ipairs(hl.groups()) do
     ensure_link(group)
   end
   for _, group in pairs(syntax.resolved_groups()) do
+    ensure_link(group)
+  end
+  -- The keys, because this one is a set: a host answers for the same group on every file of
+  -- that type, and the muting wants each group once.
+  for group in pairs(render.icon_groups()) do
     ensure_link(group)
   end
 end
