@@ -598,11 +598,21 @@ describe("a header row whose adapter answered with a group", function()
   -- **Absolute, because the three cases above are comparisons and a comparison is blind to
   -- anything that moves both arms.** A mark laid over the glyph in a group the plugin chose
   -- would appear on the glyph-alone row too, and every equality above would go on holding.
-  -- So the head is stated rather than compared: **exactly one range covers any byte of the
-  -- prefix, and it is the whole row's own quiet.** The state mark, the chevron and the glyph
-  -- carry nothing of their own on this surface.
+  -- So the head is stated rather than compared.
   --
-  -- #229 is what adds the second one, and this is the line it has to change on the way.
+  -- **What is counted is a range: a mark with columns, which is the only kind that can aim
+  -- at the glyph.** The claim is that exactly one of those covers any byte of the prefix and
+  -- that it covers the whole row -- so it is a statement about the row rather than about the
+  -- state mark, the chevron or the glyph, none of which carries anything of its own here.
+  --
+  -- The row's **band** is line-wide and is deliberately not in that count, and the second
+  -- assertion is what makes the exclusion visible rather than incidental: it has no columns
+  -- at all, so it cannot single anything out, and what colour it holds is `frame_spec`'s
+  -- question and not this spec's. A band turned into a column range over the head would land
+  -- in the first count and red it.
+  --
+  -- #229 is what puts a second range on this head, and these are the lines it has to change
+  -- on the way.
   it("draws the state mark, the chevron and the glyph in the row's own group and no other", function()
     local after = build(FILES, { file_icon = with_group })
     local row = assert(after.file_rows[1])
@@ -611,13 +621,18 @@ describe("a header row whose adapter answered with a group", function()
     -- The guard under the guard: a prefix of no bytes would make the filter below empty.
     assert.is_true(#prefix > 0 and line:sub(1, #prefix) == prefix, line)
 
-    local over_the_head = {}
+    local over_the_head, line_wide = {}, {}
     for _, m in ipairs(after.marks) do
-      if m.row == row - 1 and m.opts.end_col and m.col < #prefix then
-        over_the_head[#over_the_head + 1] = { m.col, m.opts.end_col, m.opts.hl_group }
+      if m.row == row - 1 then
+        if not m.opts.end_col then
+          line_wide[#line_wide + 1] = m.opts.line_hl_group
+        elseif m.col < #prefix then
+          over_the_head[#over_the_head + 1] = { m.col, m.opts.end_col, m.opts.hl_group }
+        end
       end
     end
     assert.same({ { 0, #line, "CodeReviewFileHeader" } }, over_the_head)
+    assert.same({ "CodeReviewFrameHeader" }, line_wide, "the band is not the line-wide mark this count excludes")
   end)
 
   -- The guard, and the reason the cases above are not vacuous: the two adapters really do
@@ -1485,15 +1500,24 @@ describe("a review whose adapter answered with a group", function()
   -- the glyph in a group the plugin chose would be on both rows and the equality above would
   -- hold. On a real buffer, over a row a reviewer is looking at.
   --
-  -- The group is the *reviewed* file's rather than the plain header's, because the block
-  -- above marked `src/main.lua` reviewed and this act reads the review in the state it is
-  -- actually in. Which of the two it is does not matter to the claim; that there is **one**
-  -- of them, and that it spans the whole row rather than aiming at the glyph, is the claim.
+  -- **A `line_hl_group` is not a range here, and that was established rather than assumed.**
+  -- `nvim_buf_get_extmarks` hands back no `end_col` for a mark that carries only a line-wide
+  -- group, so the row's **band** never reaches the count below -- which is right, because a
+  -- band has no columns and cannot single out a glyph. The second assertion says so out loud,
+  -- so a band that became a column range over the head would red this case rather than slip
+  -- through the filter that was written before there was a band.
+  --
+  -- The two groups are the *reviewed* file's rather than the plain header's, because the
+  -- block above marked `src/main.lua` reviewed and this act reads the review in the state it
+  -- is actually in. Which of the pairs it is does not matter to the claim; that there is
+  -- **one** range, and that it spans the whole row rather than aiming at the glyph, is.
   it("leaves the head one range, which is the row's own quiet", function()
     read_into("src/main.lua")
+    local V = current()
     local line = header("src/main.lua")
     local prefix = line:match("^(%S+ %S+ " .. vim.pesc(LUA) .. " )")
     assert.is_truthy(prefix, line)
+
     local over_the_head = {}
     for _, range in ipairs(header_marks("src/main.lua")) do
       if range[1] < #prefix then
@@ -1501,6 +1525,15 @@ describe("a review whose adapter answered with a group", function()
       end
     end
     assert.same({ { 0, #line, "CodeReviewFileReviewed" } }, over_the_head)
+
+    local row = assert(V.render.file_rows[assert(h.file_index(V, "src/main.lua"))])
+    local line_wide = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(V.buf, h.NS, { row - 1, 0 }, { row - 1, -1 }, { details = true })) do
+      if not m[4].end_col then
+        line_wide[#line_wide + 1] = m[4].line_hl_group
+      end
+    end
+    assert.same({ "CodeReviewFrameReviewed" }, line_wide, "the band is not the line-wide mark this count excludes")
   end)
 
   it("draws the sticky header it draws without one, byte for byte", function()
