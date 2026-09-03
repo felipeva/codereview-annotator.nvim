@@ -58,17 +58,24 @@ spells the prefix itself and hands it over as `prefix`, and the header row paint
 expression, so neither can be updated without the other.
 
 **The prefix is spelled in two pieces because the glyph carries a colour of its own.**
-`file_label` builds `head` — the state mark, the chevron and their separators — and `prefix`
-is `head` with the glyph and its separator appended, so the two are one string cut in one
-place. The header row places the glyph's range at `#label.head`, and the **sticky header**
-draws the same two pieces as two segments rather than the one literal it used to: a segment
-carries one highlight group, so a bar that drew the whole prefix as one literal could not
-colour the glyph without colouring the state mark with it. What reaches either surface is the
-same text either way — 1920 label comparisons against the commit before the split, over every
-glyph shape and every file state, moved no byte of it — which is what leaves every offset
-already asserted against the prefix where it was. Both segments are literals, because a glyph
-is a name the plugin did not choose and a `%f` on a bar that did not escape it expands into
-the window's own file name.
+`file_label` builds `before_glyph` — the state mark, the chevron and their separators — and
+`prefix` is that with the glyph and its own separator appended, so the two are one string cut
+in one place. The header row places the glyph's range at `#label.before_glyph`, and the
+**sticky header** draws the same cut as segments rather than the one literal it used to: a
+segment carries one highlight group, so a bar that drew the whole prefix as one literal could
+not colour the glyph without colouring the state mark with it. What reaches either surface is
+the same text either way — 1920 label comparisons against the commit before the split, over
+every glyph shape and every file state, moved no byte of it — which is what leaves every offset
+already asserted against the prefix where it was.
+
+**It is `before_glyph` and not `head` because the winbar already calls something else its
+head**: the whole run in front of the path, which is these segments together. Two extents
+sharing one word is how one comes to be measured with the other's number, and `panel.lua`
+already spells a tree row's own by the name this one now takes. The segments the glyph sits
+between are literals — a glyph and the configured state mark are names the plugin did not
+choose, and a `%f` on a bar that did not escape it expands into the window's own file name —
+while the separator behind the glyph is chrome, because it is the one character in that run
+the plugin itself wrote.
 
 **The separator behind the glyph is a segment of its own on the bar, because the group has to
 cover the same extent on all three surfaces.** The header row and the tree colour the glyph's
@@ -165,8 +172,8 @@ which would be the plugin having the opinion about color that the adapter exists
 **Every glyph mark is measured off the string its row is built from, not counted from its
 parts.** `panel.lua` spells `before_glyph` — the indent, the state mark and the separator —
 once, builds the row's head from it and places the range at `#before_glyph`; the header row
-does the same with `label.head`. Neither can be updated without the other, and it is needed
-for the same reason on both: that head is **six bytes and four display columns** on a
+does the same with `label.before_glyph`. Neither can be updated without the other, and it is
+needed for the same reason on both: that head is **six bytes and four display columns** on a
 top-level tree row and **eight and four** on a header row, so a range placed at the column
 lands four bytes early and colors the separator and half the glyph. The header row's range
 also stops at the fitted left-hand side, exactly as `paint_path` does, because an `end_col`
