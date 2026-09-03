@@ -1976,3 +1976,71 @@ describe("a review whose adapter answered with a group", function()
     assert.same(LUA, found, "no range on the tree row in the group the adapter answered with")
   end)
 end)
+
+--- A directory's own glyph, on the tree a reviewer is looking at -----------------
+
+-- **The wiring guard, and the one claim `panel.build` cannot make.** Every case in the tree
+-- act hands the adapter to the build itself, so all of them stay green in a session that
+-- never passes the configured `dir_icon` through to it -- the key would be a key a host sets
+-- and nothing reads. What says it reaches the panel at all is a real review with a real tree
+-- in it, read off the panel's own buffer.
+--
+-- `setup` rebuilds the options from the defaults, so this review has no `file_icon` wired:
+-- the file rows are bare here, which is what makes the last case able to fail.
+view.close()
+
+local DIR_GLYPH, DIR_GROUP = "▣", "MiniIconsGrey"
+
+require("codereview").setup({
+  syntax = false,
+  dir_icon = function()
+    return DIR_GLYPH, DIR_GROUP
+  end,
+})
+
+view.open("branch")
+
+describe("a review whose directory adapter answered", function()
+  ---The first directory row the panel drew: which row it is, and the line the buffer holds.
+  ---
+  ---The first rather than a named one, because which directories this fixture's **scope**
+  ---contains is not this act's claim -- that a directory row carries what a host answered is.
+  ---@return integer row, string line
+  local function a_dir_row()
+    local V = current()
+    local rows = {}
+    for row in pairs(V.panel_render.row_dir) do
+      rows[#rows + 1] = row
+    end
+    table.sort(rows)
+    local first = assert(rows[1], "this review's tree has no directory row to read")
+    return first, vim.api.nvim_buf_get_lines(V.panel_buf, first - 1, first, false)[1]
+  end
+
+  it("draws the glyph on a directory row, after the chevron", function()
+    local _, line = a_dir_row()
+    assert.is_truthy(line:find(("%s %s "):format(ICONS.expanded, DIR_GLYPH), 1, true), line)
+  end)
+
+  it("draws it in the group the adapter answered with, over the glyph and nothing else", function()
+    local row = (a_dir_row())
+    local V = current()
+    local found
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(V.panel_buf, PANEL_NS, 0, -1, { details = true })) do
+      if m[2] == row - 1 and m[4].hl_group == DIR_GROUP then
+        found = V.panel_render.lines[row]:sub(m[3] + 1, m[4].end_col)
+      end
+    end
+    assert.same(DIR_GLYPH, found, "no range on the directory row in the group the adapter answered with")
+  end)
+
+  -- The other half of the same guard: an adapter reached from the file branch as well would
+  -- put this glyph on every file row, and no case above would see it.
+  it("leaves every file row without it", function()
+    local V = current()
+    for _, row in ipairs(V.panel_render.file_rows) do
+      local line = vim.api.nvim_buf_get_lines(V.panel_buf, row - 1, row, false)[1]
+      assert.is_nil(line:find(DIR_GLYPH, 1, true), line)
+    end
+  end)
+end)
