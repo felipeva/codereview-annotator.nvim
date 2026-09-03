@@ -497,6 +497,132 @@ describe("the winbar assembly", function()
     end
     assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
   end)
+
+  -- **The group is the other half of a segment, and it is a name too.** Everything above is
+  -- about the *text* a caller did not choose. A group a caller did not choose arrives with
+  -- `file_icon` (#229): a host's icon plugin names it, and it reaches this function checked as
+  -- a string and nothing more. It goes on the bar as `%#<name>#`, so a `#` inside it ends the
+  -- marker early and the rest of the name is parsed as markup.
+  --
+  -- There is no escape for it, because `#` is what ends the marker -- so the name is refused
+  -- and the segment draws in the bar's own colour. `%{...}` in the expectation is the point:
+  -- it is a statusline *expression*, so a case that only compared two strings would not say
+  -- whether it ran.
+  it("refuses a highlight group whose name would break out of its marker", function()
+    local segments = { render.literal("x", "A#%{2+3}#B") }
+    local markup = render.bar(segments)
+    assert.same("x", markup, "the group reached the bar as markup")
+    local drawn = vim.api.nvim_eval_statusline(markup, { winid = 0, use_winbar = true })
+    assert.same("x", drawn.str)
+    assert.same(render.bar_width(segments), drawn.width)
+  end)
+
+  -- The guard, and the reason the case above is not a tautology: put the same name through
+  -- the parser by hand and the expression really does run, and really does put three more
+  -- columns on a bar the ruler measured as one.
+  it("really would have evaluated that name as an expression", function()
+    local drawn = vim.api.nvim_eval_statusline("%#A#%{2+3}#B#x%*", { winid = 0, use_winbar = true })
+    assert.same("5#B#x", drawn.str, "the expression did not run, so this file's premise is wrong")
+  end)
+
+  ---Whether Neovim accepts `name` as a highlight group, with the theme left as it was found.
+  ---
+  ---**The probe defines the name, because there is no read-only way to ask.** `hlexists` cannot
+  ---answer this: it says whether a name is *defined right now*, which is false for every
+  ---undefined name, the legitimate ones included -- so a case resting on it passes whatever the
+  ---rule refuses. `nvim_set_hl` is the authority, and asking it costs a write.
+  ---
+  ---So every name is read first and written back. What cannot be put back is *undefined*: there
+  ---is no API for it, so a name that was undefined comes back defined-and-empty. That state
+  ---holds no colour and `nvim_get_hl` still answers `{}` for it, which is what the acts below
+  ---read -- but it is reported by `nvim_eval_statusline` where an undefined one is dropped, and
+  ---plenary runs this file's `it` bodies top to bottom in one process, so a probe that skipped
+  ---the restore would hand every later case a group it never asked for. It did, once.
+  ---@param name string
+  ---@return boolean
+  local function accepts(name)
+    -- The read is guarded as well as the write. `nvim_get_hl` raises `Highlight id out of
+    -- bounds` for a name that could not be a group, so reading the prior state of an invalid
+    -- name is itself an error -- and the two APIs agree name for name, which is a second
+    -- authority saying the same thing rather than a workaround.
+    local read_ok, before = pcall(vim.api.nvim_get_hl, 0, { name = name })
+    local ok = pcall(vim.api.nvim_set_hl, 0, name, { fg = 0x112233 })
+    if ok and read_ok then
+      vim.api.nvim_set_hl(0, name, before)
+    end
+    return ok
+  end
+
+  -- Every character Neovim itself refuses in a group name is refused here, and every one it
+  -- accepts is spelled. **The authority is asked, not consulted from memory:** each name goes
+  -- through `nvim_set_hl` under a `pcall`, and a name it raises `E5248` for can colour nothing
+  -- anywhere, so dropping it costs a colour that never existed.
+  --
+  -- `hlexists` would not do, and the case said so with it once. It answers whether a name is
+  -- *defined right now*, which every name here is not, in a process that has defined none of
+  -- them -- so it passes whatever the rule refuses, and a legitimate name wrongly on the list
+  -- would sail through it. One was.
+  it("refuses exactly the names Neovim will not accept as a group", function()
+    for _, name in ipairs({ "A#B", "A B", "A%B", "A/B", "A:B", "Ünïcode" }) do
+      assert.same("x", render.bar({ render.literal("x", name) }), ("%q reached the bar"):format(name))
+      assert.is_false(accepts(name), ("%q is a group Neovim accepts after all"):format(name))
+    end
+    -- A leading digit is on this side and not the one above: `nvim_set_hl` takes `1abc`, so a
+    -- rule that refused it would be costing a colour Neovim would have drawn.
+    for _, name in ipairs({ "DiffAdd", "Code.Review", "@keyword.function", "Dev-Icon", "_x9", "1abc" }) do
+      assert.same(
+        ("%%#%s#x%%*"):format(name),
+        render.bar({ render.literal("x", name) }),
+        ("%q was refused"):format(name)
+      )
+      assert.is_true(accepts(name), ("%q is a group Neovim refuses after all"):format(name))
+    end
+  end)
+
+  -- **The empty string is the plugin's own refusal and not Neovim's, and saying otherwise was
+  -- the overreach this case exists to stop repeating.** `nvim_set_hl(0, "", …)` does not raise
+  -- -- it is accepted and silently discarded, so `hlexists("")` stays 0 and the name defines
+  -- nothing. It is refused here because a marker naming it is markup that costs a paint and
+  -- draws nothing, which is what an absence spelled the expensive way is worth; not because
+  -- Neovim would have rejected it.
+  it("refuses the empty string too, which is the plugin's own rule and not Neovim's", function()
+    assert.same("x", render.bar({ render.literal("x", "") }))
+    assert.is_true(accepts(""), "Neovim raises on an empty name")
+    assert.same(0, vim.fn.hlexists(""), "an empty name defined something after all")
+  end)
+
+  -- **The trap every case in this suite that reads a bar's colour walks into.** A `%#Group#`
+  -- naming a group nothing defined is dropped by the parser, and the run underneath comes back
+  -- holding the bar's own group alone -- which is what a segment asking for no group at all
+  -- looks like. The two are indistinguishable from outside, so an assertion that a bar drew
+  -- something in a **host's** group passes for a reason unrelated to its claim unless the
+  -- group is defined first.
+  --
+  -- Three states and not two: defined-with-a-colour and defined-but-*cleared* both report, and
+  -- only never-defined drops. That matters because there is no API to undefine a group -- a
+  -- case that "restores" one by writing an empty table leaves it in the middle state, where it
+  -- reports.
+  it("reports a group the theme defines, and drops one it does not", function()
+    local NEVER, CLEARED, COLOURED = "CodeReviewProbeNever", "CodeReviewProbeCleared", "CodeReviewProbeColoured"
+    vim.api.nvim_set_hl(0, CLEARED, {})
+    vim.api.nvim_set_hl(0, COLOURED, { fg = 0x8cf8f7 })
+
+    ---@param group string
+    ---@return string|nil
+    local function reported(group)
+      local drawn = vim.api.nvim_eval_statusline(
+        render.bar({ render.literal("x", group) }),
+        { winid = 0, use_winbar = true, highlights = true }
+      )
+      local stack = drawn.highlights[1].groups
+      return #stack > 1 and stack[#stack] or nil
+    end
+
+    assert.same(0, vim.fn.hlexists(NEVER), "the never-defined probe group exists after all")
+    assert.is_nil(reported(NEVER), "an undefined group was reported, so this trap is gone")
+    assert.same(CLEARED, reported(CLEARED), "a cleared group is not reported, so the middle state is gone")
+    assert.same(COLOURED, reported(COLOURED))
+  end)
 end)
 
 -- The sticky header: the file the cursor is in, named on the winbar so that reading past

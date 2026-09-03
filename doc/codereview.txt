@@ -242,11 +242,14 @@ and each directory carries a reviewed tally for its subtree.
 
 A file row carries the reviewed, annotated or unreviewed mark first, and then
 the glyph |codereview-opt-file_icon| gave that file -- the same glyph the diff
-and the sticky header draw for it. A directory row carries the glyph
-|codereview-opt-dir_icon| gave it, after the chevron. On **this** surface a
-glyph is drawn in your icon plugin's own colour when your adapter named a
-highlight group beside it; the diff and the bar draw the same glyph in the
-row's own colour.
+and the sticky header draw for it, decided by one rule so the three cannot
+disagree. A directory row carries the glyph |codereview-opt-dir_icon| gave it,
+after the chevron. The mark keeps its column and its own color.
+
+A glyph is drawn in your icon plugin's own color, on every surface that draws
+it, when your adapter named a highlight group beside it: a file's glyph in the
+tree, on its header row in the diff and on the sticky header; a directory's in
+the tree, which is the only surface that names a directory.
 
 Neither adapter is wired by default and the plugin ships no glyph behind
 either, so with none wired every row is exactly what it has always been. A
@@ -568,11 +571,14 @@ file's own header row in the diff does not cost you the file: >
     ○ ▾ src/routes.lua  +12 -3  [2 notes]    branch vs master · ✓2/7 · ●2
 <
 It carries what the in-buffer file header carries -- the icon, the chevron,
-the path, the `+N -M` and the note count -- with the review summary
-right-aligned beside it. A rename follows the same rule the file header
-follows: the unified layout spells `old -> new`, and in the split layout each
-pane names its own side, so the left pane names the pre-image path beside the
-revision it is showing.
+the glyph |codereview-opt-file_icon| gave the file, the path, the `+N -M` and
+the note count -- with the review summary right-aligned beside it. The glyph
+is drawn in the color your icon plugin chose for it, which is the color the
+file's header row and its row in the file tree draw it in.
+
+A rename follows the same rule the file header follows: the unified layout
+spells `old -> new`, and in the split layout each pane names its own side, so
+the left pane names the pre-image path beside the revision it is showing.
 
 The file named is the one under the *cursor*, not the one at the top of the
 window, and it is always shown rather than only once the real header has
@@ -1281,16 +1287,27 @@ file_icon({path})                                   *codereview-opt-file_icon*
         `nvim-web-devicons` and `mini.icons` both answer with that pair
         already, so handing their answer straight through is the whole of it.
         The group is yours and is never translated; one your theme leaves
-        undefined costs the glyph its colour and never its glyph, and a glyph
+        undefined costs the glyph its colour and never its glyph, one Neovim
+        would refuse as a group name is dropped the same way, and a glyph
         alone is a complete answer.
 
-        **The glyph is drawn on three surfaces; the group colours it on one.**
-        The glyph reaches the file's header row in the diff, the sticky header
-        (|codereview-sticky-header|) and the file tree (|codereview-tree|),
-        and one rule decides what your answer becomes, so a file cannot carry
-        one glyph in the tree and another on the diff. The group is read on
-        the **file tree** row. On the header row and on the bar the glyph
-        draws in the row's own colour, as it always has.
+        Neovim's rule is letters, digits, `_`, `.`, `@` and `-`, and nothing
+        else. It matters because the sticky header is a statusline and a
+        group reaches one as markup, so a `#` in the name would end that
+        markup early and put the rest of the name on the bar as statusline
+        items.
+
+        An empty string is dropped as well, and that one is this plugin's own
+        rule rather than Neovim's: Neovim accepts an empty name and discards
+        it, so it defines nothing, and a marker naming nothing costs a paint
+        and draws no colour.
+
+        **The glyph is drawn on three surfaces, and the group colours it on
+        all three.** The glyph reaches the file's header row in the diff, the
+        sticky header (|codereview-sticky-header|) and the file tree
+        (|codereview-tree|), and one rule decides what your answer becomes --
+        so a file cannot carry one glyph in the tree and another on the diff,
+        nor one colour on one surface and a different one on the next.
 
         **A second thing about the file and never a replacement for the
         first.** The reviewed, annotated and unreviewed marks keep their

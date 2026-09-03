@@ -55,9 +55,53 @@ that wires the `file_icon` adapter puts a glyph of its own between the chevron a
 so the prefix is `"○ ▾  "` — however many bytes that host's glyph is. `file_label` therefore
 spells the prefix itself and hands it over as `prefix`, and the header row paints the path at
 `#label.prefix`: the string a row is built from and the offset a mark lands at are the same
-expression, so neither can be updated without the other. The **sticky header** puts that same
-string in one literal, which is what makes one file carry one icon on both surfaces and what
-escapes a glyph the plugin did not choose.
+expression, so neither can be updated without the other.
+
+**The prefix is spelled in two pieces because the glyph carries a colour of its own.**
+`file_label` builds `before_glyph` — the state mark, the chevron and their separators — and
+`prefix` is that with the glyph and its own separator appended, so the two are one string cut
+in one place. The header row places the glyph's range at `#label.before_glyph`, and the
+**sticky header** draws the same cut as segments rather than the one literal it used to: a
+segment carries one highlight group, so a bar that drew the whole prefix as one literal could
+not colour the glyph without colouring the state mark with it. What reaches either surface is
+the same text either way — 1920 label comparisons against the commit before the split, over
+every glyph shape and every file state, moved no byte of it — which is what leaves every offset
+already asserted against the prefix where it was.
+
+**It is `before_glyph` and not `head` because the winbar already calls something else its
+head**: the whole run in front of the path, which is these segments together. Two extents
+sharing one word is how one comes to be measured with the other's number, and `panel.lua`
+already spells a tree row's own by the name this one now takes. The segments the glyph sits
+between are literals — a glyph and the configured state mark are names the plugin did not
+choose, and a `%f` on a bar that did not escape it expands into the window's own file name —
+while the separator behind the glyph is chrome, because it is the one character in that run
+the plugin itself wrote.
+
+**The separator behind the glyph is a segment of its own on the bar, because the group has to
+cover the same extent on all three surfaces.** The header row and the tree colour the glyph's
+bytes and stop, so a bar that let the separator ride inside the host's group would draw one
+column more of it than either of them. That is invisible for a foreground-only group, which
+is what a devicon group is — and a drawn column for one carrying a background, an underline or
+`reverse`, which nothing in this plugin decides. So "one file, one glyph, one colour" is a
+claim about the *width* of the colour too, and each surface asserts the extent rather than the
+group alone. The separator is `render.chrome` there: it is the one character in that run the
+plugin itself wrote, between the configured state mark and a glyph the adapter chose.
+
+**A host's group is a name the plugin did not choose, and it reaches a winbar as markup.** The
+escape at `render.literal` was written when a segment's *text* was the only half a caller did
+not choose; `file_icon` made the *group* the other half. `M.bar` spells one as `%#<name>#`, and
+`#` is what ends that marker — so a name holding one closes the marker early and everything
+after it is parsed as statusline items. Measured: `%#A#%{2+3}#B#x%*` draws `5#B#x`, so the
+expression ran, and `bar_width` had measured that segment as one column. There is no escape for
+it, because the breakout character is the terminator, so the name is refused and the segment
+draws in the bar's own colour — one bad answer costs a colour rather than a bar. It is refused
+in two places for two reasons: at `render.file_icon`, because a name Neovim itself rejects
+(`E5248`, for anything outside letters, digits, `_`, `.`, `@` and `-`) can colour nothing on any
+surface and an extmark handed one reports that on every paint; and at `M.bar`, because that is
+the function that decides what markup is, and "there is no way onto the bar that does not go
+through one of these two functions" is only true of the group if the group is judged there.
+`bar_width` therefore goes on ignoring a segment's `hl` — a marker draws no columns — and that
+is correct only because no name that could break out of one can reach it.
 
 **The file tree is the third surface and it reads none of that.** A tree row is an indent, a
 state mark, a glyph and a basename — it has no chevron of its own on a file row and no path to
@@ -108,11 +152,13 @@ of the group that colors it; reading the first and dropping the second drew ever
 in the surface's own foreground — a Lua file's glyph measured on a tree row as `#e0e2ea`,
 which is the tree's color, where `mini.icons` had chosen `#8cf8f7`. It comes back as a second
 *return value* and not in a table: a table is one allocation per file, and the rule is asked
-601 times on a three-hundred-file paint and 301 more on every file crossing. A caller that
-wants the glyph alone therefore needs no change at all — `file_label`'s reaches it through
-`and`/`or`, which is an expression and truncates the group away on its own. **That truncation
-is also the trap**: a caller that does want the group cannot use that idiom, and would drop
-the color silently, so `panel.lua` reaches the rule with two statements instead.
+601 times on a three-hundred-file paint and 301 more on every file crossing.
+
+**The `and`/`or` idiom is the trap that comes with it**: it is an expression, so it truncates
+the second return value away silently. `file_label` reached the rule that way and therefore
+drew the group nowhere, while the tree beside it drew one — one file in two colours, decided by
+which of the two callers used an expression. Both callers reach the rule with two statements
+now, and a caller that wants the glyph alone still writes one line.
 
 A broken group is dropped on its own and never with the glyph. A group reaches an extmark as a
 name, so a number or a table there raises on the paint that emits it and would take down the
@@ -123,18 +169,24 @@ glyph. The group is the host's own name and is never translated into one of this
 which would be the plugin having the opinion about color that the adapter exists to avoid
 (ADR-0001).
 
-**The tree's glyph mark is measured off the string the row is built from, not counted from its
+**Every glyph mark is measured off the string its row is built from, not counted from its
 parts.** `panel.lua` spells `before_glyph` — the indent, the state mark and the separator —
-once, builds the row's head from it and places the range at `#before_glyph`, so neither can be
-updated without the other. It is `file_label`'s discipline with `prefix`, one surface over, and
-it is needed for the same reason: on a top-level row that head is **six bytes and four display
-columns**, so a range placed at the column lands four bytes early and colors the separator and
-half the glyph. The **fade** needs nothing for any of this — it renames a mark's group to its
-blended twin by name and `hl.lua` computes a twin for any group with a color, a host's icon
-group included. It is also never reached: the fade exempts every header row and the tree is
-never faded at all, so no mark carrying an icon group is handed to it. The before pane's indent is measured off it with
-`strdisplaywidth` for the same reason — counted from the parts, a renamed file's two paths
-would sit apart by the width of the glyph. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
+once, builds the row's head from it and places the range at `#before_glyph`; the header row
+does the same with `label.before_glyph`. Neither can be updated without the other, and it is
+needed for the same reason on both: that head is **six bytes and four display columns** on a
+top-level tree row and **eight and four** on a header row, so a range placed at the column
+lands four bytes early and colors the separator and half the glyph. The header row's range
+also stops at the fitted left-hand side, exactly as `paint_path` does, because an `end_col`
+past the end of a row is a hard error and a narrow pane cuts that row through the head. The
+before pane's indent is measured off the prefix with `strdisplaywidth` for the same reason —
+counted from the parts, a renamed file's two paths would sit apart by the width of the glyph.
+
+**The fade needs nothing for any of this** — it renames a mark's group to its blended twin by
+name and `hl.lua` computes a twin for any group with a color, a host's icon group included. It
+is also never reached: the fade exempts every header row and the tree is never faded at all,
+so no mark carrying an icon group is handed to it.
+
+No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
 `src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone
 proves the prefix and nothing about the path itself; `path_spec` builds a file list with an
 accented path by hand for the other half, which `render.build` allows because it is pure data.
@@ -425,9 +477,11 @@ priority does decide.
 **A file's header row is a band, and a band is a background and nothing else.** A background
 is the one attribute that row does not already own, so it is the one a line-wide group can add
 without taking something away: measured on a painted cell, a cell inside the file name under a
-band reads its own foreground, its own weight and the band's background together, and the
-path's two halves, the stat, the note count and a host's glyph all survive with it. A band
-carrying a foreground would flatten the row exactly as `Title` used to.
+band reads its own foreground, its own weight and the band's background together. The path's
+two halves, the stat, the note count and a host's glyph then survive by the same mechanism --
+inferred from that cell and not read off four more, because `frame_child.lua` spawns a process
+per cell and reads `pad`, `covered`, `name` and `muted`. A band carrying a foreground would
+flatten the row exactly as `Title` used to.
 
 **The band's strength is fixed by the theme's `CursorLine` and not by taste.** It is computed
 from `Normal` -- that background pulled toward `Normal`'s own foreground -- and on Neovim's own

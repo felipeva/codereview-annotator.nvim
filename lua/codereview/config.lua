@@ -244,17 +244,23 @@ M.defaults = {
   ---for a file you have no icon for; nothing is drawn there, and that file's rows read
   ---exactly as they do with no adapter wired.
   ---
-  ---**Answer with the highlight group beside the glyph and the glyph keeps its own colour in
-  ---the file tree.** `nvim-web-devicons.get_icon` and `MiniIcons.get` both answer with that
-  ---pair already, so an adapter that hands their answer straight through gives the group with
-  ---the glyph and nothing has to be written for it. Colour is most of what makes a tree
+  ---**Answer with the highlight group beside the glyph and the glyph keeps its own colour on
+  ---all three surfaces.** `nvim-web-devicons.get_icon` and `MiniIcons.get` both answer with
+  ---that pair already, so an adapter that hands their answer straight through gives the group
+  ---with the glyph and nothing has to be written for it. Colour is most of what makes a tree
   ---readable at a glance: without it every wired glyph draws in the surface's own foreground,
-  ---and `docs/guide.md` and `lib/types.lua` carry different glyphs in one colour. The header
-  ---row and the sticky header draw the glyph in their own head's group for now.
+  ---and `docs/guide.md` and `lib/types.lua` carry different glyphs in one colour. One file
+  ---carries one glyph in one colour wherever it is named, because one rule answers both.
   ---
   ---The group is yours and is never translated. A group your theme gives no colour draws
   ---the glyph in the row's own, so an unknown group costs a colour rather than a glyph, and
-  ---one that is not a non-empty string is dropped the same way. An adapter that answers with
+  ---one that is not a string is dropped the same way -- as is a string Neovim would refuse as
+  ---a group name. Its rule decides that one: letters, digits, `_`, `.`, `@` and `-`, and
+  ---nothing else. It matters because the **sticky header** is a statusline and a group
+  ---reaches one as markup, so a `#` in the name would end the marker early and put the rest
+  ---of your name on the bar as statusline items. The empty string is dropped too, and that
+  ---one is this plugin's own rule rather than Neovim's -- Neovim takes it and discards it,
+  ---and a marker naming nothing costs a paint and draws nothing. An adapter that answers with
   ---a glyph alone is complete: the group is what you may add, never what you must.
   ---
   ---**A second thing about the file, and never a replacement for the first.** The reviewed,

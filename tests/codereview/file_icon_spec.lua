@@ -202,6 +202,34 @@ end)
 -- glyph was there to help read. Every broken group answers the same way, and it is the way
 -- an adapter with no group to give answers: **the glyph survives and the colour is dropped**,
 -- so one bad answer costs a colour rather than a review.
+---Whether Neovim accepts `name` as a highlight group, with the theme left as it was found.
+---
+---**The probe defines the name, because there is no read-only way to ask.** `hlexists` cannot
+---answer this: it says whether a name is *defined right now*, which is false for every
+---undefined name, the legitimate ones included -- so a case resting on it passes whatever the
+---rule refuses. `nvim_set_hl` is the authority, and asking it costs a write.
+---
+---So every name is read first and written back. What cannot be put back is *undefined*: there
+---is no API for it, so a name that was undefined comes back defined-and-empty. That state
+---holds no colour and `nvim_get_hl` still answers `{}` for it, which is what the acts below
+---read -- but it is reported by `nvim_eval_statusline` where an undefined one is dropped, and
+---plenary runs this file's `it` bodies top to bottom in one process, so a probe that skipped
+---the restore would hand every later case a group it never asked for. It did, once.
+---@param name string
+---@return boolean
+local function accepts(name)
+  -- The read is guarded as well as the write. `nvim_get_hl` raises `Highlight id out of
+  -- bounds` for a name that could not be a group, so reading the prior state of an invalid
+  -- name is itself an error -- and the two APIs agree name for name, which is a second
+  -- authority saying the same thing rather than a workaround.
+  local read_ok, before = pcall(vim.api.nvim_get_hl, 0, { name = name })
+  local ok = pcall(vim.api.nvim_set_hl, 0, name, { fg = 0x112233 })
+  if ok and read_ok then
+    vim.api.nvim_set_hl(0, name, before)
+  end
+  return ok
+end
+
 describe("a group the rule cannot use", function()
   ---@param group any
   local function dropped(group)
@@ -232,10 +260,55 @@ describe("a group the rule cannot use", function()
   it("is dropped when it is a boolean", function()
     dropped(true)
   end)
+
+  -- **A string is not enough, because a group name is markup on one of the three surfaces.**
+  -- The **sticky header** is a statusline and a group reaches it as `%#<name>#`, so a `#`
+  -- inside the name ends that marker early and the rest runs as statusline markup -- an
+  -- expression included. `render_spec` proves the bar refuses such a name; this is the rule
+  -- refusing it a surface earlier, so it never reaches an extmark either.
+  --
+  -- The set is Neovim's own and was measured against `nvim_set_hl` rather than guessed: it
+  -- accepts letters, digits, `_`, `.`, `@` and `-`, and raises `E5248` for everything else.
+  it("is dropped when it cannot name a highlight group at all", function()
+    for _, group in ipairs({ "A#B", "MiniIcons Azure", "A%B", "A/B", "Ünïcode", "A:B" }) do
+      dropped(group)
+      -- **The guard, and it asks the authority rather than a proxy for it.** Each of these is
+      -- a name `nvim_set_hl` raises `E5248` for, so dropping it costs a colour that was never
+      -- available. `hlexists` cannot say that: it answers whether a name is *defined now*,
+      -- which is 0 for every undefined name, legitimate ones included.
+      assert.is_false(accepts(group), ("%q is a group Neovim accepts after all"):format(group))
+    end
+  end)
+
+  -- The empty string is on the same side of the rule and gets there by a different argument:
+  -- Neovim accepts it and discards it, so this is the plugin refusing an absence spelled the
+  -- expensive way rather than Neovim refusing a name. Its own case is above with the other
+  -- broken answers; `render_spec` pins the distinction against `nvim_set_hl`.
+  it("is dropped when it is an empty string, which Neovim would have taken", function()
+    dropped("")
+    assert.is_true(accepts(""), "Neovim raises on an empty name")
+  end)
+
+  -- And the names a host will actually hand over are kept. Without this the cases above pass
+  -- on a rule that dropped every group there is. A leading digit is here rather than there:
+  -- `nvim_set_hl` takes `1abc`, so refusing it would cost a colour Neovim would have drawn.
+  it("is kept when it is a name a theme could define", function()
+    for _, group in ipairs({ AZURE, "DevIconLua", "@keyword.function", "Dev-Icon_9", "1abc" }) do
+      local glyph, answered = render.file_icon(function()
+        return LUA, group
+      end, "src/main.lua")
+      assert.same(LUA, glyph)
+      assert.same(group, answered)
+      assert.is_true(accepts(group), ("%q is a group Neovim refuses after all"):format(group))
+    end
+  end)
 end)
 describe("a review with no adapter wired", function()
   it("gives a file no glyph at all", function()
     assert.is_nil(label().file_icon)
+    -- And no group to put on one. The two are one answer, and the label is where both
+    -- surfaces read them -- see the same pairing asserted for every broken answer below.
+    assert.is_nil(label().file_icon_hl)
   end)
 
   -- **Byte for byte the row it has always drawn.** The separator rides with the glyph rather
@@ -259,6 +332,12 @@ describe("an adapter that cannot answer", function()
   local function survived(adapter)
     local answer = label(nil, { file_icon = adapter })
     assert.same(BARE, answer.prefix)
+    -- **The glyph and its group are nil together or neither is**, checked here rather than
+    -- only inside `render.file_icon`, because the label is what both surfaces read. A label
+    -- carrying a group with no glyph under it would put a range of no bytes at
+    -- `#before_glyph` -- or, once the clamp let it through, one over the path's first bytes,
+    -- which is a colour on the wrong text rather than a colour on nothing.
+    assert.is_nil(answer.file_icon_hl, "a group survived a glyph that did not")
     return answer
   end
 
@@ -530,24 +609,224 @@ describe("the before pane's header row", function()
   end)
 end)
 
--- **The trap the rule's own note names, pinned where it can spring.** The rule answers with
--- two values, and `file_label` reaches it through `opts.file_icon and M.file_icon(…) or nil`
--- -- an expression, which truncates the second away. That truncation is why carrying a group
--- out of the adapter cost the diff nothing, and it is exactly the kind of thing an edit to
--- this surface unpicks by accident: capture the group here, put it anywhere near the prefix,
--- and every byte offset on every header row in every review moves.
+-- An adapter answering the way both icon plugins do: the glyph `by_extension` gives, and a
+-- group beside it. Spelled once for the two blocks below, because the second is an equality
+-- against the first's adapter *minus* its group -- and two spellings of one adapter would
+-- make that an equality between two things nobody had compared.
+---@param path string
+---@return string glyph, string|nil group
+local function with_group(path)
+  return by_extension(path), path:match("%.lua$") and AZURE or YELLOW
+end
+
+--- The colour on that row --------------------------------------------------------
+
+-- **The surface #224 left out, and the reason it could not stay out.** That ticket coloured
+-- the **file tree** and left this row drawing the same glyph in its own quiet, so one file
+-- carried one glyph in two colours and a reviewer crossing from the tree to the diff was
+-- told twice about one file. One rule answers what the glyph is; one rule therefore has to
+-- answer what colours it.
 --
--- So the claim is made as an equality between two adapters rather than as a shape: an
--- adapter answering with a glyph **and** a group draws what the same adapter answering with
--- the glyph alone draws, line for line and mark for mark. Nothing here says the header row
--- *should* stay uncoloured for ever -- #229 is what colours it -- and when it does, this
--- block is what it has to argue with rather than something it can pass by accident.
+-- **Stated absolutely and never as an equality against a glyph-alone adapter.** A comparison
+-- between two adapters is blind to anything that lands on both arms, and this range lands on
+-- one of them only -- so a comparison cannot see it at all, in either direction. That is what
+-- the block below is for, and why these are two blocks and not one.
+describe("the colour of a glyph on a header row", function()
+  -- The one file the absolute cases below read, named once so the label they ask and the
+  -- render they read are answering about the same thing.
+  local FILES_ONE = one()
+
+  ---Every range on a file's header row carrying a group a host named.
+  ---
+  ---Selected by the group rather than by the columns: a range found at the offset the case
+  ---already expects would assert the expectation against itself. Both of the adapter's groups
+  ---are looked for, so a file coloured with the wrong one is a red case and not a missing one.
+  ---@param rendered CRRender
+  ---@param fi integer
+  ---@return table[]
+  local function icon_marks(rendered, fi)
+    local out = {}
+    local row = assert(rendered.file_rows[fi])
+    for _, m in ipairs(rendered.marks) do
+      if m.row == row - 1 and (m.opts.hl_group == AZURE or m.opts.hl_group == YELLOW) then
+        out[#out + 1] = { m.col, m.opts.end_col, m.opts.hl_group }
+      end
+    end
+    return out
+  end
+
+  it("is the group the adapter named, over the glyph and nothing else", function()
+    local after = build({ one() }, { file_icon = with_group })
+    local marks = icon_marks(after, 1)
+    assert.same({ { #BARE, #BARE + #LUA, AZURE } }, marks)
+    -- Read back off the row, which is the claim a computed expectation cannot make: those
+    -- bytes are the glyph, and neither the chevron in front of it nor the space behind it.
+    assert.same(LUA, header_of(after, 1):sub(marks[1][1] + 1, marks[1][2]))
+  end)
+
+  -- The trap this row sprang once already, arriving from the path's side: the head is **eight
+  -- bytes and four display columns**, so a range placed at the column lands four bytes early
+  -- and colours the chevron and half the glyph. The tree's own colour is measured off the
+  -- string its row is built from for the same reason.
+  it("is placed by the glyph's bytes and not by its columns", function()
+    assert.same(8, #BARE)
+    assert.same(4, vim.fn.strdisplaywidth(BARE))
+    assert.same(#BARE, icon_marks(build({ one() }, { file_icon = with_group }), 1)[1][1])
+  end)
+
+  -- The colour follows the file, as the glyph does. One group for every file would be a
+  -- colour this plugin chose, which is the opinion the adapter exists to avoid (ADR-0001).
+  it("follows the file, so two files carry two colours", function()
+    local after = build({ one(), one({ path = "docs/guide.md" }) }, { file_icon = with_group })
+    assert.same({ { #BARE, #BARE + #LUA, AZURE } }, icon_marks(after, 1))
+    assert.same({ { #BARE, #BARE + #MD, YELLOW } }, icon_marks(after, 2))
+  end)
+
+  -- **The upgrade rule on this surface.** An adapter answering with a glyph alone draws the
+  -- row it has always drawn, and no range is emitted rather than a range in no group -- which
+  -- is an extmark that costs a paint and draws nothing.
+  it("is not emitted at all when the adapter answered with a glyph alone", function()
+    assert.same({}, icon_marks(build({ one() }, { file_icon = by_extension }), 1))
+  end)
+
+  -- **The prefix is the same bytes either way**, which is what this whole ticket rests on: the
+  -- path's own two ranges are stated here under an adapter that answers with a group, against
+  -- the offsets the second act asserts them at under one that does not.
+  it("leaves the path's two ranges at the offsets a glyph-alone adapter puts them at", function()
+    assert.same({
+      { #PREFIX, #PREFIX + #"src/", DIR },
+      { #PREFIX + #"src/", #PREFIX + #"src/main.lua", NAME },
+    }, path_marks(build({ one() }, { file_icon = with_group }), 1))
+  end)
+
+  -- An `end_col` past the end of a row is a hard error, and this is one more range a narrow
+  -- pane can cut through. The header row above it is `truncate`'s, and this range has to stop
+  -- where that row does.
+  it("keeps its range inside a row the glyph helped fill", function()
+    local after = build({ one({ path = "apps/api/src/routes/users/handlers/create.ts" }) }, {
+      width = 40,
+      file_icon = with_group,
+    })
+    local row = assert(after.file_rows[1])
+    local line = after.lines[row]
+    for _, m in ipairs(after.marks) do
+      if m.row == row - 1 and m.opts.end_col then
+        assert.is_true(
+          m.opts.end_col <= #line,
+          ("%s ends at %d past a row of %d"):format(m.opts.hl_group, m.opts.end_col, #line)
+        )
+      end
+    end
+  end)
+
+  -- **The diff's answer to the one-byte hole the tree had to close.** A directory row in the
+  -- **file tree** colours its own head as a range, so a glyph's group there had to be laid
+  -- *around* it in three abutting ranges -- start the third where `lead` ends rather than
+  -- where the glyph does and the separator is covered by nothing at all. This row is not that
+  -- shape: its own colour is one range over the *whole* row, so the separator and everything
+  -- else stay covered, and the glyph's range sits on top of it rather than beside it.
+  --
+  -- Read at the two bytes that could have been holes -- the separator in front of the glyph
+  -- and the one behind it -- rather than argued from the extents, because "covered by the
+  -- row's own group" is what a hole would disprove and an extent is what a reader has to
+  -- take on trust.
+  it("leaves no byte of the head uncovered, either side of the glyph", function()
+    local after = build({ FILES_ONE }, { file_icon = with_group })
+    local row = assert(after.file_rows[1])
+    local line = after.lines[row]
+    local answer = label(FILES_ONE, { file_icon = with_group })
+    local sep_before, sep_after = #answer.icon, #answer.before_glyph + #LUA
+
+    ---Every range covering one byte, in the order they were emitted.
+    ---@param col integer
+    ---@return string[]
+    local function covering(col)
+      local out = {}
+      for _, m in ipairs(after.marks) do
+        if m.row == row - 1 and m.opts.end_col and m.col <= col and col < m.opts.end_col then
+          out[#out + 1] = m.opts.hl_group
+        end
+      end
+      return out
+    end
+
+    -- The guard: those two offsets really are the separators, so the case is about the bytes
+    -- it thinks it is about.
+    assert.same(" ", line:sub(sep_before + 1, sep_before + 1))
+    assert.same(" ", line:sub(sep_after + 1, sep_after + 1))
+    assert.same({ "CodeReviewFileHeader" }, covering(sep_before))
+    assert.same({ "CodeReviewFileHeader" }, covering(sep_after))
+    -- And the glyph itself is covered twice, which is the shape that makes the above true:
+    -- the row's own range runs under it rather than stopping either side of it.
+    assert.same({ "CodeReviewFileHeader", AZURE }, covering(#answer.before_glyph))
+  end)
+
+  -- **Which of those two draws is decided by priority and never by emission order.** The tree
+  -- had to split its own range around the glyph precisely because a panel mark carries no
+  -- priority, so two ranges over one byte are arbitrated by which extmark was written last.
+  -- Here they are not: the row's own colour is emitted at the diff's priority and the glyph's
+  -- takes the default a range gets, which is higher. Asserted rather than left to the order
+  -- these two happen to be appended in, which is what a reader would otherwise be trusting.
+  it("draws the glyph over the row's own colour by priority, not by order", function()
+    local after = build({ FILES_ONE }, { file_icon = with_group })
+    local row = assert(after.file_rows[1])
+    local base, glyph
+    for _, m in ipairs(after.marks) do
+      if m.row == row - 1 and m.opts.hl_group == "CodeReviewFileHeader" then
+        base = m
+      elseif m.row == row - 1 and m.opts.hl_group == AZURE then
+        glyph = m
+      end
+    end
+    assert.is_truthy(base and glyph, "one of the two ranges is not on this row")
+    assert.is_true(
+      glyph.opts.priority > base.opts.priority,
+      ("the glyph at %s does not outrank the row at %s"):format(glyph.opts.priority, base.opts.priority)
+    )
+  end)
+
+  -- The before **pane**'s header row draws the pre-image path under an indent of spaces and no
+  -- glyph at all, so there is nothing on it for a group to colour -- and a range emitted there
+  -- would sit over the indent, which is the one place on that row nothing is drawn.
+  it("is on the after pane and never on the before one", function()
+    local after, before = build({ one({ path = "src/newname.lua", old_path = "src/oldname.lua", status = "R" }) }, {
+      layout = "split",
+      before_width = 60,
+      file_icon = with_group,
+    })
+    assert.same({ { #BARE, #BARE + #LUA, AZURE } }, icon_marks(after, 1))
+    assert.same({}, icon_marks(assert(before), 1))
+  end)
+end)
+
+-- **The trap the rule's own note names, pinned where it can spring.** The rule answers with
+-- two values, and the group is now captured beside the glyph -- so the prefix is one edit
+-- away from growing by the bytes of a group name, and every byte offset on every header row
+-- in every review would move with it. The row above is what says the range is *there*; this
+-- block is what says nothing else moved to put it there.
+--
+-- So the claim is an equality between two adapters: an adapter answering with a glyph **and**
+-- a group draws what the same adapter answering with the glyph alone draws -- line for line,
+-- label field for label field, and mark for mark **apart from the glyph's own range**. That
+-- one exception is named rather than filtered away silently, and it is counted, so a change
+-- that added a second range would red these cases rather than widen the exemption.
 describe("a header row whose adapter answered with a group", function()
-  ---The same glyph either way; only the second answer differs.
-  ---@param path string
-  ---@return string glyph, string|nil group
-  local function with_group(path)
-    return by_extension(path), path:match("%.lua$") and AZURE or YELLOW
+  ---Every range the adapter's own groups put on a pane's rows, and the rest of them apart.
+  ---
+  ---The exception the equalities below are allowed: what the group buys is a range in the
+  ---host's own group, and nothing this plugin draws may move to pay for it.
+  ---`icon` comes back in the order the render emitted it, which is file order -- the walk
+  ---draws one file at a time -- so the i-th range belongs to the i-th file. `bounded_spec`
+  ---pins that ordering; it is relied on here rather than re-derived.
+  ---@param rendered CRRender
+  ---@return table[] kept, table[] icon
+  local function split_marks(rendered)
+    local kept, icon = {}, {}
+    for _, m in ipairs(rendered.marks) do
+      local into = (m.opts.hl_group == AZURE or m.opts.hl_group == YELLOW) and icon or kept
+      into[#into + 1] = m
+    end
+    return kept, icon
   end
 
   local FILES = {
@@ -556,7 +835,7 @@ describe("a header row whose adapter answered with a group", function()
     one({ path = "src/newname.lua", old_path = "src/oldname.lua", status = "R" }),
   }
 
-  it("draws the rows and the marks a glyph-alone adapter draws", function()
+  it("draws the rows a glyph-alone adapter draws, and every mark but the glyph's own", function()
     for _, layout in ipairs({ "unified", "split" }) do
       for _, width in ipairs({ 40, 60, 100 }) do
         local opts = { width = width, layout = layout, before_width = layout == "split" and width or nil }
@@ -564,7 +843,24 @@ describe("a header row whose adapter answered with a group", function()
         local grouped = build(FILES, vim.tbl_extend("force", { file_icon = with_group }, opts))
         local where = ("%s at %d"):format(layout, width)
         assert.same(plain.lines, grouped.lines, where)
-        assert.same(plain.marks, grouped.marks, where)
+        local kept, icon = split_marks(grouped)
+        assert.same(plain.marks, kept, where)
+        -- **The exemption is read back rather than counted.** A count says how many ranges
+        -- the group bought and nothing about where they landed, so a range that moved --
+        -- under the narrowest width, or on the layout with two panes -- would sit inside the
+        -- same number and stay green. What is asserted is that each one covers its file's own
+        -- glyph and nothing either side of it, off the row the render actually drew.
+        assert.same(#FILES, #icon, where)
+        for fi, m in ipairs(icon) do
+          -- Two statements and not `assert.same(with_group(path), ...)`: an argument list
+          -- truncates a call to one value, which is the very idiom that kept the group off
+          -- this surface in the first place. It reads the glyph here and passes.
+          local glyph, group = with_group(FILES[fi].path)
+          local line = grouped.lines[assert(grouped.file_rows[fi])]
+          assert.same(grouped.file_rows[fi] - 1, m.row, where)
+          assert.same(glyph, line:sub(m.col + 1, m.opts.end_col), where)
+          assert.same(group, m.opts.hl_group, where)
+        end
       end
     end
   end)
@@ -580,44 +876,53 @@ describe("a header row whose adapter answered with a group", function()
   end)
 
   -- **The label, which is the surface the sticky header is built from.** The bar takes its
-  -- head off `prefix` and its path off `name`, so a label that is equal field for field is a
-  -- bar that is equal -- which is what lets the pure seam speak for a surface that needs a
-  -- window. The live half is at the end of this file.
-  it("answers with the label a glyph-alone adapter answers with", function()
+  -- head off `head` and `file_icon`, its colour off `file_icon_hl` and its path off `name`, so
+  -- a label equal field for field but for that one group is a bar equal but for that one
+  -- group -- which is what lets the pure seam speak for a surface that needs a window. The
+  -- live half is at the end of this file.
+  --
+  -- The group is taken off the answer rather than ignored in the comparison: a field dropped
+  -- from both sides is a field nothing asserts, and this is the field the whole ticket adds.
+  it("answers with the label a glyph-alone adapter answers with, and the group beside it", function()
     for _, layout in ipairs({ "unified", "split" }) do
       for _, file in ipairs(FILES) do
-        assert.same(
-          label(file, { file_icon = by_extension, layout = layout }),
-          label(file, { file_icon = with_group, layout = layout }),
-          ("%s %s"):format(file.path, layout)
-        )
+        local where = ("%s %s"):format(file.path, layout)
+        local grouped = label(file, { file_icon = with_group, layout = layout })
+        assert.same(file.path:match("%.lua$") and AZURE or YELLOW, grouped.file_icon_hl, where)
+        grouped.file_icon_hl = nil
+        assert.same(label(file, { file_icon = by_extension, layout = layout }), grouped, where)
       end
     end
   end)
 
   -- **Absolute, because the three cases above are comparisons and a comparison is blind to
-  -- anything that moves both arms.** A mark laid over the glyph in a group the plugin chose
-  -- would appear on the glyph-alone row too, and every equality above would go on holding.
-  -- So the head is stated rather than compared.
+  -- anything that moves both arms.** A second mark laid over the glyph in a group the plugin
+  -- chose would appear on the glyph-alone row too, and every equality above would go on
+  -- holding. So the head is stated rather than compared.
   --
   -- **What is counted is a range: a mark with columns, which is the only kind that can aim
-  -- at the glyph.** The claim is that exactly one of those covers any byte of the prefix and
-  -- that it covers the whole row -- so it is a statement about the row rather than about the
-  -- state mark, the chevron or the glyph, none of which carries anything of its own here.
+  -- at the glyph.** The claim is that exactly two of those cover any byte of the prefix --
+  -- the row's own colour, which covers the whole row and singles nothing out, and the glyph's,
+  -- which covers the glyph's bytes and nothing else. The state mark and the chevron carry
+  -- nothing of their own, which is what keeps the reviewed column reading as one thing down
+  -- the page.
+  --
+  -- **The head was one range until #229 and is two now**, and the line saying so was written
+  -- absolutely for exactly this moment: a surface that *starts* colouring the glyph cannot
+  -- reach it by accident, because no comparison between two adapters can see the range at all.
   --
   -- The row's **band** is line-wide and is deliberately not in that count, and the second
   -- assertion is what makes the exclusion visible rather than incidental: it has no columns
   -- at all, so it cannot single anything out, and what colour it holds is `frame_spec`'s
   -- question and not this spec's. A band turned into a column range over the head would land
-  -- in the first count and red it.
-  --
-  -- #229 is what puts a second range on this head, and these are the lines it has to change
-  -- on the way.
-  it("draws the state mark, the chevron and the glyph in the row's own group and no other", function()
+  -- in the first count and red it. That answer is `nvim_buf_get_extmarks`' and was asked of
+  -- the API rather than reasoned about; adding a range to this head does not re-open it.
+  it("draws the glyph in the adapter's group and the rest of the head in the row's own", function()
     local after = build(FILES, { file_icon = with_group })
     local row = assert(after.file_rows[1])
     local line = after.lines[row]
-    local prefix = label(FILES[1], { file_icon = with_group }).prefix
+    local answer = label(FILES[1], { file_icon = with_group })
+    local prefix = answer.prefix
     -- The guard under the guard: a prefix of no bytes would make the filter below empty.
     assert.is_true(#prefix > 0 and line:sub(1, #prefix) == prefix, line)
 
@@ -631,7 +936,13 @@ describe("a header row whose adapter answered with a group", function()
         end
       end
     end
-    assert.same({ { 0, #line, "CodeReviewFileHeader" } }, over_the_head)
+    table.sort(over_the_head, function(a, b)
+      return a[1] < b[1]
+    end)
+    assert.same({
+      { 0, #line, "CodeReviewFileHeader" },
+      { #answer.before_glyph, #answer.before_glyph + #LUA, AZURE },
+    }, over_the_head)
     assert.same({ "CodeReviewFrameHeader" }, line_wide, "the band is not the line-wide mark this count excludes")
   end)
 
@@ -1298,6 +1609,17 @@ describe("a group a directory row cannot use", function()
   it("is survived when it is a boolean", function()
     survives(true)
   end)
+
+  -- **The fifth kind, and the one that reaches this row through a shared rule rather than
+  -- through this act.** `render.file_icon` refuses a string that could not name a highlight
+  -- group at all -- a `#` in one would end its marker early on the **sticky header** -- and a
+  -- directory row goes through that same rule, so it inherits the refusal without a line of
+  -- its own in `panel.lua`. Inherited is exactly why it is asserted here: nothing on this
+  -- surface would have shown it going missing.
+  it("is survived when it could not name a highlight group at all", function()
+    survives("A#B")
+    assert.is_false(accepts("A#B"), "`A#B` is a group Neovim accepts after all")
+  end)
 end)
 
 -- A host's configuration is a host's, and this one is asked once per directory row on every
@@ -1737,6 +2059,51 @@ local function header_marks(path)
   return out
 end
 
+---What one row draws in a group that is not this plugin's: those bytes, and that group.
+---
+---**Found by the group's name and never by the columns the glyph is expected at.** A range
+---located by the bytes it covers would compare the two surfaces against one expectation
+---rather than against each other, which is the whole of what a live case is here for. Every
+---group this plugin owns is `CodeReview`-prefixed, so what is left on either row belongs to
+---the host -- and with the syntax replay off there is nothing else on a row that could.
+---@param buf integer
+---@param ns integer
+---@param row integer 1-indexed
+---@return { glyph: string, group: string }|nil
+local function host_range(buf, ns, row)
+  local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+  local found = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, { row - 1, 0 }, { row - 1, -1 }, { details = true })) do
+    local group = m[4].hl_group
+    if m[4].end_col and type(group) == "string" and not group:match("^CodeReview") then
+      found[#found + 1] = { glyph = line:sub(m[3] + 1, m[4].end_col), group = group }
+    end
+  end
+  -- **One or none, never "the first of several".** A helper that returned the first match
+  -- would go on answering after a second host group arrived on one of these rows -- a
+  -- `dir_icon`'s, say, or whatever the next adapter is -- and the two surfaces would then be
+  -- compared through a choice nobody made. This is the row the case names, so more than one
+  -- is a case that has stopped asking its question rather than a case that fails.
+  assert(#found <= 1, ("row %d carries %d host groups, not one: %s"):format(row, #found, vim.inspect(found)))
+  return found[1]
+end
+
+---The glyph one file's header row draws in a host's own group, and that group.
+---@param path string
+---@return { glyph: string, group: string }|nil
+local function header_icon(path)
+  local V = current()
+  return host_range(V.buf, h.NS, assert(V.render.file_rows[assert(h.file_index(V, path))]))
+end
+
+---The glyph that file's **file tree** row draws in a host's own group, and that group.
+---@param path string
+---@return { glyph: string, group: string }|nil
+local function tree_icon(path)
+  local V = current()
+  return host_range(V.panel_buf, PANEL_NS, assert(V.panel_render.file_row[assert(h.file_index(V, path))]))
+end
+
 require("codereview").setup({ syntax = false })
 
 describe("a review opened with no adapter wired", function()
@@ -1928,34 +2295,46 @@ describe("a review whose adapter answered with a group", function()
     assert.same(GLYPH_ALONE.header, header("src/main.lua"))
   end)
 
-  it("carries the marks that header row always carried", function()
+  it("carries the marks that header row always carried, and the glyph's own beside them", function()
     read_into("src/main.lua")
     -- A header row that carried no range at all would make the comparison two empty lists.
     assert.is_true(#GLYPH_ALONE.marks > 0, "nothing was read off that header row to compare")
-    assert.same(GLYPH_ALONE.marks, header_marks("src/main.lua"))
+    local kept, icon = {}, {}
+    for _, range in ipairs(header_marks("src/main.lua")) do
+      local into = range[3] == AZURE and icon or kept
+      into[#into + 1] = range
+    end
+    assert.same(GLYPH_ALONE.marks, kept)
+    -- The one thing the group buys, counted rather than merely allowed: a second range in the
+    -- host's group would be a second thing this review draws that the one before it did not.
+    assert.same(1, #icon)
   end)
 
-  -- Absolute beside the comparison, for the reason the pure act states it: a range laid over
-  -- the glyph in a group the plugin chose would be on both rows and the equality above would
-  -- hold. On a real buffer, over a row a reviewer is looking at.
+  -- Absolute beside the comparison, for the reason the pure act states it: the range this
+  -- ticket adds is on one arm of that comparison only, so no equality between two adapters
+  -- can see it in either direction. On a real buffer, over a row a reviewer is looking at.
   --
   -- **A `line_hl_group` is not a range here, and that was established rather than assumed.**
   -- `nvim_buf_get_extmarks` hands back no `end_col` for a mark that carries only a line-wide
   -- group, so the row's **band** never reaches the count below -- which is right, because a
   -- band has no columns and cannot single out a glyph. The second assertion says so out loud,
   -- so a band that became a column range over the head would red this case rather than slip
-  -- through the filter that was written before there was a band.
+  -- through the filter that was written before there was a band. Adding a range to this head
+  -- does not re-open that answer, and it is not re-derived here.
   --
-  -- The two groups are the *reviewed* file's rather than the plain header's, because the
+  -- The row's own group is the *reviewed* file's rather than the plain header's, because the
   -- block above marked `src/main.lua` reviewed and this act reads the review in the state it
-  -- is actually in. Which of the pairs it is does not matter to the claim; that there is
-  -- **one** range, and that it spans the whole row rather than aiming at the glyph, is.
-  it("leaves the head one range, which is the row's own quiet", function()
+  -- is actually in. Which of the pairs it is does not matter to the claim; that the head
+  -- carries **two** ranges -- one spanning the whole row, one aimed at the glyph's own bytes
+  -- and holding the group a host answered with -- is.
+  it("leaves the head two ranges: the row's own quiet, and the glyph's own colour", function()
     read_into("src/main.lua")
     local V = current()
     local line = header("src/main.lua")
-    local prefix = line:match("^(%S+ %S+ " .. vim.pesc(LUA) .. " )")
-    assert.is_truthy(prefix, line)
+    local head = line:match("^(%S+ %S+ )")
+    assert.is_truthy(head, line)
+    local prefix = head .. LUA .. " "
+    assert.same(prefix, line:sub(1, #prefix), line)
 
     local over_the_head = {}
     for _, range in ipairs(header_marks("src/main.lua")) do
@@ -1963,7 +2342,10 @@ describe("a review whose adapter answered with a group", function()
         over_the_head[#over_the_head + 1] = range
       end
     end
-    assert.same({ { 0, #line, "CodeReviewFileReviewed" } }, over_the_head)
+    assert.same({
+      { 0, #line, "CodeReviewFileReviewed" },
+      { #head, #head + #LUA, AZURE },
+    }, over_the_head)
 
     local row = assert(V.render.file_rows[assert(h.file_index(V, "src/main.lua"))])
     local line_wide = {}
@@ -1980,18 +2362,62 @@ describe("a review whose adapter answered with a group", function()
     assert.same(GLYPH_ALONE.bar, h.winbar(current().win))
   end)
 
-  -- The bar's glyph keeps the group the mark and the chevron are drawn in. #229 is what
-  -- changes this line, and it has to argue with it rather than pass it by accident.
-  it("draws the glyph on the bar in the group it always drew it in", function()
+  -- **The bar's glyph carries the adapter's group now, and neither the head in front of it nor
+  -- the separator behind it does.** A bar draws its head as literals and a literal holds one
+  -- group, so the ticket that colours the glyph is the ticket that splits that head -- and the
+  -- case this replaces was written absolutely for exactly this moment, because the
+  -- byte-for-byte equality above is blind to a group: the text of the two bars is the same
+  -- string either way.
+  --
+  -- **The extent is asserted and not only the group.** The header row and the tree colour the
+  -- glyph's own bytes and stop; a bar that coloured the separator too would draw one column
+  -- more of the host's group than either of them, which is invisible for a foreground-only
+  -- devicon group and a drawn column for one carrying a background or an underline. So the
+  -- separator is read as well, at the space in front of the path.
+  --
+  -- **The group has to exist for the bar to report it, and "exist" has three states.**
+  -- `nvim_eval_statusline` drops a `%#Group#` naming a group nothing has *ever* defined, so a
+  -- reading taken then says the glyph is in the bar's own colour whatever the bar asked for --
+  -- a case that cannot fail. A group defined and then emptied is a different state: it is
+  -- reported. `render_spec` proves all three; here the group is given a colour for the reading
+  -- and put back to whatever it was.
+  --
+  -- **And what it is put back to is "defined but empty", not "undefined".** There is no API to
+  -- undefine a group, and the fade act above has already written this one -- so it arrives
+  -- here in the middle state, `before` reads as an empty table, and writing that back restores
+  -- exactly the state this case found. It does not restore an absence, and nothing after it
+  -- should be written as though it did.
+  it("draws the glyph on the bar in the group the adapter named, and nothing else in it", function()
     read_into("src/main.lua")
-    assert.same("CodeReviewBarIcon", h.winbar_group(current().win, LUA))
-    assert.same(GLYPH_ALONE.bar_group, h.winbar_group(current().win, LUA))
+    -- The premise, said out loud rather than assumed: the fade act left this group defined,
+    -- so the restore below is exact and the reading is not resting on an absence.
+    assert.same(1, vim.fn.hlexists(AZURE), "the fade act no longer leaves this group defined")
+    local before = vim.api.nvim_get_hl(0, { name = AZURE })
+    vim.api.nvim_set_hl(0, AZURE, { fg = 0x8cf8f7 })
+    local ok, glyph_group = pcall(h.winbar_group, current().win, LUA)
+    local head_ok, head_group = pcall(h.winbar_group, current().win, ICONS.reviewed)
+    -- The separator behind the glyph, found by the path it runs into rather than by an offset.
+    local sep_ok, sep_group = pcall(h.winbar_group, current().win, " src/main.lua")
+    vim.api.nvim_set_hl(0, AZURE, before)
+
+    assert(ok, tostring(glyph_group))
+    assert(head_ok, tostring(head_group))
+    assert(sep_ok, tostring(sep_group))
+    assert.same(AZURE, glyph_group)
+    -- The state mark in front of it keeps every byte and every group it had, and the space
+    -- behind it takes the bar's own quiet: the host's group covers the glyph and stops, which
+    -- is the extent the other two surfaces colour.
+    assert.same("CodeReviewBarIcon", head_group)
+    assert.same("CodeReviewBarIcon", sep_group)
+    -- The guard: without it this case passes on a bar that never coloured the glyph at all,
+    -- because a group nothing defines reads back the same way an unchanged bar does.
+    assert.is_true(glyph_group ~= GLYPH_ALONE.bar_group, "the bar's glyph is in the group it was in before")
   end)
 
-  -- **The guard, and the whole reason the four cases above are not vacuous.** An injected
-  -- group that reached nothing at all would leave every one of them green. The tree is the
-  -- surface this ticket colours, so the tree is where the same injection is read back --
-  -- from the panel's own buffer, in a review a reviewer would be looking at.
+  -- **The guard, and the whole reason the cases above are not vacuous.** An injected group
+  -- that reached nothing at all would leave every one of them green. The **file tree** is the
+  -- surface #224 coloured, so it is read back here unchanged by this ticket -- from the
+  -- panel's own buffer, in a review a reviewer would be looking at.
   it("really did inject a group, and the tree row carries it", function()
     read_into("src/main.lua")
     assert.same(GLYPH_ALONE.tree, tree_line("src/main.lua"))
@@ -2004,6 +2430,30 @@ describe("a review whose adapter answered with a group", function()
       end
     end
     assert.same(LUA, found, "no range on the tree row in the group the adapter answered with")
+  end)
+
+  -- **The claim no single surface can make, and the one this ticket exists for.** That the
+  -- glyph a tree row draws is the glyph that file's header row draws, *in the colour that
+  -- file's header row draws it in*, is a property of neither surface on its own -- so it is
+  -- asserted with a review open and both of them painted.
+  --
+  -- Both halves are read back off the two buffers rather than spelled again here, and both
+  -- are found by the group's name rather than at the offset each row puts the glyph at: an
+  -- expectation written twice agrees with itself whatever the two surfaces do, and a range
+  -- found where the case already looked for it says nothing about where the surface put it.
+  -- The tree is named first, so two surfaces agreeing is never two absences agreeing.
+  it("is one glyph in one group on the tree row and on the header row", function()
+    read_into("src/main.lua")
+    assert.same({ glyph = LUA, group = AZURE }, tree_icon("src/main.lua"))
+    assert.same(tree_icon("src/main.lua"), header_icon("src/main.lua"))
+  end)
+
+  -- And a second file, with a glyph and a group of its own: what says the two surfaces are
+  -- answering about *this* file rather than carrying a pair they both liked.
+  it("is a different glyph in a different group for a different file", function()
+    read_into("src/nonl.md")
+    assert.same({ glyph = PERCENT, group = YELLOW }, tree_icon("src/nonl.md"))
+    assert.same(tree_icon("src/nonl.md"), header_icon("src/nonl.md"))
   end)
 end)
 

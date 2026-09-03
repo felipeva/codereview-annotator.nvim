@@ -387,6 +387,35 @@ local function path_segments(path, out)
   out[#out + 1] = M.literal(path:sub(cut and cut + 1 or 1), NAME)
 end
 
+---Whether a name can be a highlight group at all.
+---
+---**Neovim's own rule, measured rather than guessed.** `nvim_set_hl` refuses anything outside
+---letters, digits, `_`, `.`, `@` and `-` with `E5248: Invalid character in group name`, and
+---an extmark handed such a name reports the same thing on every paint that emits it. So a
+---name this refuses can colour nothing, whoever hands it over, and dropping it costs a colour
+---that was never available.
+---
+---**And `#` is among the characters it refuses, which is the one that matters.** A winbar is a
+---statusline and a group reaches one as `%#<name>#`, so a `#` inside the name closes that
+---marker early and everything after it is parsed as markup: `%#A#%{2+3}#B#x%*` draws `5#B#x`,
+---measured -- the expression ran. `M.literal` escapes a segment's *text* because a path is a
+---name the reviewer's repository chose; a host's icon group is a name the reviewer's icon
+---plugin chose, and it arrives on the other half of the same segment. There is no escape for
+---a `#` inside `%#...#`, so the only answers are to refuse the name or to refuse the segment,
+---and refusing the name is the one that costs a colour rather than a glyph.
+---
+---**An empty string fails this too, and by the plugin's own argument rather than Neovim's.**
+---`nvim_set_hl(0, "", ...)` does not raise: the name is accepted and silently discarded, so
+---`hlexists("")` stays 0 and nothing is defined. It is refused here because a marker or an
+---extmark naming it costs a paint and draws nothing, which is what an absence spelled the
+---expensive way is worth -- not because Neovim would have rejected it. The distinction is
+---asserted in `render_spec`, so a doc that flattens the two reds a case.
+---@param group string
+---@return boolean
+local function nameable(group)
+  return group:match("^[%w_.@-]+$") ~= nil
+end
+
 ---A host's own glyph for a path, and the group that colours it -- or nil when it has none.
 ---
 ---**Exported because three surfaces name a file and one rule decides what its glyph is.**
@@ -397,8 +426,11 @@ end
 ---
 ---**Written for `file_icon` and handed `dir_icon` as well.** A directory names no file, so
 ---the tree asks about one through a second adapter -- but *what an adapter answered with* is
----the same question either way, and the answer is checked here by the same `pcall` and the
----same two type tests. A directory copy of this rule is a third place for those tests to
+---the same question either way, and the answer is checked here by the same `pcall`, the same
+---type test on each half, and the same refusal of a group that could not name a highlight
+---group. Named rather than counted: the count was two before that refusal arrived, and a
+---number in prose goes stale without anyone editing it. A directory copy of this rule is a
+---third place for those tests to
 ---drift, and a reviewer would meet the drift as a colour their icon plugin chose surviving
 ---on a file row and not on the directory row above it. The name says which adapter the rule
 ---was written for and not which one it may be handed; renaming it would rewrite `file_label`
@@ -436,10 +468,11 @@ end
 ---as a name, and a number or a table there raises on the paint that emits it -- which would
 ---take down the review the glyph was there to help read. So a broken group costs the colour
 ---and never the glyph: the file draws as one whose adapter gave a glyph alone, which is a
----row a reviewer already knows how to read. An empty string is dropped with them, for the
----reason an empty glyph is: it is an absence spelled the expensive way, and no theme defines
----it. `MiniIcons.get` answers with a third value as well, a boolean, and a host handing the
----answer through in the wrong order arrives here -- as a dropped colour rather than an error.
+---row a reviewer already knows how to read. A string that cannot name a highlight group is
+---dropped with them, empty or otherwise -- see `nameable` just above, where the `#` that would
+---otherwise reach a winbar as markup is refused. `MiniIcons.get` answers with a third value
+---as well, a boolean, and a host handing the answer through in the wrong order arrives here
+---- as a dropped colour rather than an error.
 ---@param adapter fun(path: string): string|nil, string|nil
 ---@param path string
 ---@return string|nil glyph
@@ -449,7 +482,7 @@ function M.file_icon(adapter, path)
   if not ok or type(glyph) ~= "string" or glyph == "" then
     return nil
   end
-  if type(group) ~= "string" or group == "" then
+  if type(group) ~= "string" or not nameable(group) then
     return glyph
   end
   return glyph, group
@@ -461,9 +494,13 @@ end
 ---@field notes integer          Queued annotations anywhere in it
 ---@field icon string            The **state** mark: reviewed, annotated or unreviewed
 ---@field file_icon string|nil   A host's own glyph for the file, beside that mark; nil for none
+---@field file_icon_hl string|nil  The group that glyph is drawn in; nil for the row's own
 ---@field chevron string
----@field prefix string          Those three and their separators: what both surfaces draw
----                              in front of the path, and the bytes the path starts at
+---@field before_glyph string    The state mark and the chevron with their separators: what
+---                              the prefix is in front of the glyph, and the bytes the glyph
+---                              starts at. `panel.lua` spells a tree row's own by that name
+---@field prefix string          That and the glyph: what both surfaces draw in front of
+---                              the path, and the bytes the path starts at
 ---@field name CRBarSegment[]    Its path as this layout spells it: `old → new` when unified
 ---@field before CRBarSegment[]|nil  The pre-image path; nil for a file with no pre-image
 ---@field stat string            `+N -M`, or `binary`
@@ -529,9 +566,31 @@ function M.file_label(file, opts)
   -- The **state** mark above keeps its column and its meaning; this is a second thing about
   -- the file rather than a replacement for it, so that a reviewer never loses *this file is
   -- reviewed* in exchange for *this file is TypeScript*. Nothing is wired is the common case
-  -- and costs the comparison in front of the `and`: the adapter is the only implementation
+  -- and costs the comparison in front of the `if`: the adapter is the only implementation
   -- there is, so with none of it there is nothing to call.
-  local file_icon = opts.file_icon and M.file_icon(opts.file_icon, file.path) or nil
+  --
+  -- **Two statements rather than the `and`/`or` expression this used to be.** That idiom
+  -- truncates a second return value away silently, which is what kept the group off the diff
+  -- while the **file tree** was already drawing it -- one file in two colours, decided by
+  -- which of the two callers reached the rule with an expression. A caller that wants the
+  -- group cannot use it, and cannot see that it is not getting one.
+  local file_icon, file_icon_hl
+  if opts.file_icon then
+    file_icon, file_icon_hl = M.file_icon(opts.file_icon, file.path)
+  end
+  -- **What the glyph starts after, spelled once and handed out beside it.** The header row
+  -- places the glyph's own range at `#before_glyph` and the winbar makes its first segment out
+  -- of the same string, so the bytes a row is built from and the offset a mark lands at are one
+  -- expression and neither can be updated without the other. It is the discipline `prefix`
+  -- already imposes on the path, one field earlier: counted from its parts instead, a range
+  -- here would land four bytes early on every header row, because the state mark and the
+  -- chevron are multibyte and the count would be of characters nobody measured.
+  --
+  -- Named for `panel.lua`'s own `before_glyph`, which is this string for a tree row, because
+  -- it is the same rule on the other surface -- and never `head`, which is what the winbar
+  -- calls the whole run in front of the path. Two extents sharing one word is how one of them
+  -- comes to be measured with the other's number.
+  local before_glyph = ("%s %s "):format(icon, chevron)
 
   return {
     reviewed = reviewed,
@@ -539,18 +598,25 @@ function M.file_label(file, opts)
     notes = notes,
     icon = icon,
     file_icon = file_icon,
+    file_icon_hl = file_icon_hl,
     chevron = chevron,
+    before_glyph = before_glyph,
     -- What both surfaces draw in front of the path, spelled once here rather than twice out
-    -- there. The header row paints its path at `#prefix` bytes and the winbar puts the same
-    -- string in one literal, so the offset a mark lands at and the columns a bar spends are
+    -- there. The header row paints its path at `#prefix` bytes and the winbar spends the same
+    -- columns on the same text, so the offset a mark lands at and the columns a bar spends are
     -- the same answer -- and a glyph a host chose cannot reach either surface unescaped or
     -- at the wrong column because one of the two spellings was not updated.
+    --
+    -- **Built from `before_glyph` rather than formatted a second time**, so that the two are
+    -- one string cut in one place and cannot drift by a separator. The bar draws it as
+    -- segments, because a segment carries one group and the glyph needs its own; the text is
+    -- this string either way, which is why every byte offset asserted against it is unmoved.
     --
     -- **With nothing wired this is byte-for-byte the string it always was.** The separator
     -- rides with the glyph rather than standing beside it, so a file with no glyph
     -- contributes nothing here at all rather than a space -- which would shift every path
     -- offset on every header row in every review by one byte, and look right while doing it.
-    prefix = ("%s %s %s"):format(icon, chevron, file_icon and file_icon .. " " or ""),
+    prefix = before_glyph .. (file_icon and file_icon .. " " or ""),
     -- A rename reads as a rename when each pane draws its own path; only the unified
     -- layout, which has one header to say it in, spells the arrow out. Both of its paths
     -- take the rule, because dimming one of them says the wrong thing about which is which.
@@ -637,7 +703,19 @@ function M.bar(segments)
     if kind_of(seg) == "literal" then
       text = (text:gsub("%%", "%%%%"))
     end
-    if seg.hl then
+    -- **The group is the other half of the segment, and it is a name too.** The escape above
+    -- was written when the text was the only half a caller did not choose; a host's icon
+    -- group arrives here now, checked upstream as a non-empty string and nothing more. A `#`
+    -- in one closes the marker early and the rest of the name runs as statusline markup --
+    -- `%#A#%{2+3}#B#x%*` draws `5#B#x`, measured. There is no escape for that, because `#` is
+    -- what ends the marker, so the name is refused instead and the segment draws in the bar's
+    -- own colour: one bad answer costs a colour rather than a bar.
+    --
+    -- Here and not only at the seam that reads the adapter, because this is the function that
+    -- decides what markup is -- "there is no way onto the bar that does not go through one of
+    -- these two functions" is only true of the group if this is where the group is judged, and
+    -- the icon adapter is the first caller to hand over a name it did not choose, not the last.
+    if seg.hl and nameable(seg.hl) then
       text = ("%%#%s#%s%%*"):format(seg.hl, text)
     end
     out[i] = text
@@ -669,6 +747,12 @@ end
 ---characters and no columns at all. A bar padded by the length of a string holding either
 ---one lands short of its pane -- which is the byte-versus-column trap the padding already
 ---walked into once, arriving from the other side.
+---
+---**A segment's `hl` is not measured, and that rests on `M.bar` refusing a name it cannot
+---spell.** A marker draws no columns, so ignoring the group is right -- but a name holding a
+---`#` would break out of its marker and put the rest of itself on the screen, which this
+---would then have failed to count. One rule, judged where the markup is made; a second copy
+---of it here would be two places for the same answer to drift.
 ---@param segments CRBarSegment[]
 ---@return integer
 function M.bar_width(segments)
@@ -1126,6 +1210,32 @@ function M.build(files, opts)
     end
     if note_count > 0 then
       mark(after, row, stat_col + #stat, { end_col = #header, hl_group = "CodeReviewNoteCount" })
+    end
+    -- **The glyph's own colour, over the glyph's own bytes**, which is the range that makes
+    -- one file one colour wherever it is named: the **file tree** has drawn the glyph in this
+    -- group since #224, and a header row still drawing it in the row's own quiet was one file
+    -- told about twice.
+    --
+    -- The group is the host's -- `MiniIconsAzure`, `DevIconLua` -- and is never translated
+    -- into one of this plugin's, which would be the plugin having the opinion about colour
+    -- that the adapter exists to avoid (ADR-0001). A group the theme leaves undefined draws
+    -- nothing extra, so an unknown group costs the glyph its colour rather than its glyph, and
+    -- an adapter that answered with a glyph alone emits no range at all: a range in no group
+    -- is an extmark that costs a paint and draws nothing.
+    --
+    -- Placed at `#label.before_glyph` and never at a count of the parts. That head is **eight bytes
+    -- and four display columns**, so a range placed at the column lands four bytes early and
+    -- colours the chevron and half the glyph -- the same trap the path below it sprang first,
+    -- arriving from the other side of the same prefix.
+    --
+    -- Stopped at `#left` for the reason `paint_path` is stopped there: an `end_col` past the
+    -- end of a row is a hard error, and a narrow pane cuts this row through the head it is
+    -- holding rather than tidily after it.
+    if label.file_icon_hl then
+      local stop = math.min(#label.before_glyph + #label.file_icon, #left)
+      if #label.before_glyph < stop then
+        mark(after, row, #label.before_glyph, { end_col = stop, hl_group = label.file_icon_hl })
+      end
     end
     -- The path, in the two groups the **sticky header** draws it in: one function answers
     -- what a file is called and one pair of groups therefore says it, so the two surfaces
