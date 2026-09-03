@@ -143,6 +143,39 @@ end
 
 --- Rendering -------------------------------------------------------------------
 
+---What a host's answer costs one row: the glyph, the group that colours it, the glyph and
+---its separator as one string, and that string's width in display columns.
+---
+---**One copy, because it is one rule.** A file row and a directory row reach two different
+---adapters, but what an answer *costs a row* is the same thing on both: the separator rides
+---with the glyph, so a row with no glyph contributes nothing rather than a space -- which
+---would move every name in every tree by one column and look right while doing it -- and the
+---width is measured only when there is something to measure. `strdisplaywidth` is a call
+---across the vimscript bridge, once a row, on every paint *and* on every **file crossing**;
+---#217 measured the unguarded form at 0.14 us a row. Two copies of that is one place for the
+---guard to be dropped without anyone noticing.
+---
+---**The name's budget is not in here, and that is deliberate.** Both branches subtract the
+---same expression today and the two are equal by coincidence rather than by rule: on a
+---directory row the fixed 2 is the chevron and its separator, on a file row it is the state
+---mark and its separator. Shared, the expression would assert an equality nothing guarantees,
+---and a chevron two columns wide would silently mis-budget the other branch.
+---
+---**The guard stays outside**, at each caller, which is why this takes an adapter that is
+---never nil. A nil adapter answered in here is a call a row makes for a review that wired
+---nothing, and that guarantee is structural rather than remembered (ADR-0001).
+---@param adapter fun(path: string): string|nil, string|nil
+---@param path string
+---@return string|nil glyph, string|nil group, string lead, integer lead_width
+local function row_icon(adapter, path)
+  local glyph, group = render.file_icon(adapter, path)
+  if not glyph then
+    return nil, nil, "", 0
+  end
+  local lead = glyph .. " "
+  return glyph, group, lead, vim.fn.strdisplaywidth(lead)
+end
+
 ---@param files CRFile[]
 ---@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, dir_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
 ---@return CRPanelRender
@@ -191,19 +224,13 @@ function M.build(files, opts)
       -- deepest of the directories the row spells: `apps/api/src` and never `apps`. The
       -- glyph and the name are then about the same directory, which is the whole of what a
       -- compacted row promises.
-      local glyph, group
+      local glyph, group, lead, lead_width = nil, nil, "", 0
       if opts.dir_icon then
-        glyph, group = render.file_icon(opts.dir_icon, node.path)
+        glyph, group, lead, lead_width = row_icon(opts.dir_icon, node.path)
       end
-      -- The separator rides with the glyph and the name's budget pays for it, exactly as
-      -- they do on a file row -- where both are argued at length. Measured only when there
-      -- is a glyph to measure: `strdisplaywidth` is a call across the vimscript bridge, and
-      -- a width of zero is the one answer that needs no call to reach.
-      local lead, lead_width = "", 0
-      if glyph then
-        lead = glyph .. " "
-        lead_width = vim.fn.strdisplaywidth(lead)
-      end
+      -- The name's budget pays for the glyph, and the name goes on being cut from the left.
+      -- The fixed 2 here is the chevron and its separator, which is why this expression is
+      -- spelled again on the file row rather than shared with it -- see `row_icon`.
       local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - lead_width)
       -- **What the glyph starts after, spelled once**, so the string the row is built from
       -- and the offset the glyph's own mark lands at are one expression and neither can be
@@ -268,30 +295,18 @@ function M.build(files, opts)
     -- alone was reached by: that idiom is an expression, so it truncates a second return
     -- value away silently -- the colour would be dropped here, and nowhere a reader could
     -- see it happen.
-    local glyph, group
+    local glyph, group, lead, lead_width = nil, nil, "", 0
     if opts.file_icon then
-      glyph, group = render.file_icon(opts.file_icon, node.path)
+      glyph, group, lead, lead_width = row_icon(opts.file_icon, node.path)
     end
-    -- The separator rides with the glyph rather than standing beside it, so a file with no
-    -- glyph contributes nothing here at all rather than a space -- which would move every
-    -- name on every row of every tree by one column and look right while doing it.
-    --
     -- **The name's budget pays for the glyph**, and the name goes on being cut from the
     -- left, so what survives a narrow panel is the end of the name -- which is where the
     -- extension is, and the extension is what the glyph is about. In display columns,
     -- because that is what a panel is 34 of: a host's glyph is multibyte, and the ones it is
     -- likeliest to answer with are one column wide while some are two.
     --
-    -- Measured only when there is a glyph to measure. `strdisplaywidth` is a call across the
-    -- vimscript bridge, and one per file row is **0.14 us a file** on this build -- 0.04 ms
-    -- of a 0.47 ms tree at three hundred files, paid on every paint *and* on every file
-    -- crossing by a reviewer who wired nothing. A width of zero is the one answer that needs
-    -- no call to reach.
-    local lead, lead_width = "", 0
-    if glyph then
-      lead = glyph .. " "
-      lead_width = vim.fn.strdisplaywidth(lead)
-    end
+    -- The fixed 2 here is the state mark and its separator, which is a different two from
+    -- the directory row's chevron -- see `row_icon` for why the expression is not shared.
     local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - lead_width)
     -- **What the glyph starts after, spelled once**, so the string the row is built from and
     -- the offset the glyph's own mark lands at are one expression and neither can be updated
