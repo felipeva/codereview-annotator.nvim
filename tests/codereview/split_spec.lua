@@ -219,27 +219,6 @@ describe("per-pane chrome", function()
     assert.same("@@ +1,3 @@", after.lines[hrow])
   end)
 
-  it("keeps git's section heading with the post-image range", function()
-    -- Whichever hunk in this fixture carries one; git only emits a heading when it finds a
-    -- containing declaration, so the assertion is conditional on there being one at all.
-    for fi, file in ipairs(files) do
-      for hi, hunk in ipairs(file.hunks) do
-        if hunk.heading ~= "" then
-          local row
-          for _, r in ipairs(rows_of(after, fi)) do
-            local a = after.anchors[r]
-            if a.kind == "hunk" and a.hunk == hi then
-              row = r
-            end
-          end
-          assert.is_truthy(after.lines[row]:find(hunk.heading, 1, true))
-          assert.is_falsy(before.lines[row]:find(hunk.heading, 1, true))
-          return
-        end
-      end
-    end
-  end)
-
   it("shows a renamed file's old path on the left and its new path on the right", function()
     local row = after.file_rows[index_of("src/newname.lua")]
     assert.is_truthy(before.lines[row]:find("src/oldname.lua", 1, true))
@@ -1257,6 +1236,7 @@ describe("the sticky header in the split layout", function()
   -- pass or a fail for reasons that have nothing to do with which side it names. Widening the
   -- terminal hands every new column to the last window, so the panes are leveled after it,
   -- and the repaint is this test's to drive: `WinResized` never lands in a headless spec.
+  local narrow = vim.api.nvim_win_get_width(V.win)
   vim.o.columns = 200
   vim.cmd("wincmd =")
   view.paint()
@@ -1274,13 +1254,20 @@ describe("the sticky header in the split layout", function()
   -- highlight markers on them would never be found in the option itself.
   local after, before = h.winbar(V.win), h.winbar(V.before_win)
 
-  -- Guards the block: on a pane with no room for both, the before pane's path is dropped
-  -- rather than drawn over its revision, and every case here would be reading that instead.
-  it("really gave each pane room for a revision and a path", function()
-    local width = vim.api.nvim_win_get_width(V.before_win)
-    local drawn = render.rev_label(V.scope.before)
-    local need = vim.fn.strdisplaywidth(drawn) + #" Before ·   src/oldname.lua "
-    assert.is_true(width >= need, ("%d columns, %d needed"):format(width, need))
+  -- Guards the block: every case below reads a bar that had room for everything it names, and
+  -- a bar with less sheds instead -- the summary from its head, the path from its directories.
+  -- What that costs a case is a red for a reason that has nothing to do with what it asserts,
+  -- so what is guarded is that the widening above took effect at all.
+  --
+  -- Asserted as *more columns than before it*, and no longer as arithmetic on the before
+  -- pane's bar. That reading was sized on a 40-character revision; the revision is seven
+  -- characters now, so the before pane fits a revision and a path at every width this spec can
+  -- reach and a budget taken there cannot fail. The after pane is where the room is still
+  -- tight -- it carries the file *and* the whole review summary -- and a comparison against
+  -- the width before the widening can fail whatever either bar happens to need.
+  it("really widened the panes before reading their bars", function()
+    local wide = vim.api.nvim_win_get_width(V.win)
+    assert.is_true(wide > narrow, ("%d columns before the widening, %d after"):format(narrow, wide))
   end)
 
   it("names the post-image path on the after pane, and only that side", function()

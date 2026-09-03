@@ -1576,7 +1576,7 @@ function M.set_scope(spec)
   -- set: a tabline must never go on describing a review the reviewer has cycled away from.
   -- The fallback applies again, because the scope this arrives at may be one another buffer
   -- already holds the name of.
-  view_layout.name_review(V.buf, scope.name)
+  view_layout.name_review(V.buf, scope)
   -- Cached captures are keyed by path and side only, so they are meaningless once the
   -- refs behind those sides change.
   require("codereview.syntax").invalidate(V)
@@ -2313,7 +2313,7 @@ function M.open(spec, checkout)
   -- Over the numbered name `scratch` just wrote, rather than instead of it: `scratch` gives
   -- every review window's buffer one identity, and this is the one buffer that has more to
   -- say than its number. It is written again wherever the scope is set -- see `set_scope`.
-  view_layout.name_review(buf, scope.name)
+  view_layout.name_review(buf, scope)
   view_layout.window_opts(main_win)
 
   local key = scope_key(scope)

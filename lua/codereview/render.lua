@@ -633,8 +633,13 @@ end
 ---names eight is a difference nobody can act on.
 local ABBREV = 7
 
----The length of a full object name, and half of what says a string is one.
-local OBJECT_NAME = 40
+---The lengths a full object name has: sha-1's forty characters, and sha-256's sixty-four.
+---
+---**Both, because which one a repository uses is a question only git can answer.** This
+---function must not ask it -- see below -- and a sha-256 repository drawing its object names
+---whole is exactly the fault this export exists to remove. Accepting both costs a table
+---lookup; accepting one costs the fault coming back in the repositories nobody here runs.
+local OBJECT_NAME = { [40] = true, [64] = true }
 
 ---What a base revision is called on a bar.
 ---
@@ -650,16 +655,25 @@ local OBJECT_NAME = 40
 ---
 ---**Decided from the shape of the name, never by asking git.** The bar is assembled on
 ---every paint and a paint runs on every resize, so a `rev-parse --short` here is a process
----per resize. A 40-character run of hexadecimal is an object name and nothing else, which is
----enough to decide. Length alone was rejected as the test: a 40-character name that is not
----hexadecimal is a name somebody chose, and its first seven characters name nothing.
+---per resize.
+---
+---**And git is what makes deciding by shape safe, rather than luck.** A run of hexadecimal
+---exactly as long as an object name cannot mean anything else, because git will not let it:
+---`git branch <40 hex>` succeeds, and `rev-parse` on that same string then answers the
+---*object* and says why -- "Git normally never creates a ref that ends with 40 hex characters
+---because it will be ignored when you just specify 40-hex". Measured. So a name of this shape
+---reaching here has already been read as an object by the git that resolved the **scope**,
+---and reading it as one here cannot disagree with that.
+---
+---Length alone was rejected as the test: a 40-character name that is *not* hexadecimal is a
+---name somebody chose, and its first seven characters name nothing.
 ---@param rev string The **scope**'s before-revision
 ---@return string
 function M.rev_label(rev)
   if rev == ":0" then
     return "index"
   end
-  if #rev == OBJECT_NAME and rev:match("^%x+$") then
+  if OBJECT_NAME[#rev] and rev:match("^%x+$") then
     return rev:sub(1, ABBREV)
   end
   return rev

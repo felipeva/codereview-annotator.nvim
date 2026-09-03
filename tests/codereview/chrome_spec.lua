@@ -7,7 +7,12 @@
 -- each act asserts at the narrowest seam that can see it.
 local h = require("tests.helpers")
 
-h.ui(110, 40)
+-- The helper's own size, spelled with no argument because this file has no width claim of
+-- its own to make: the two pure acts state the width they build at in the `build` call, and
+-- the live act asserts buffer *names*, which no width reaches. What `h.ui` is for is that a
+-- review renders as it renders interactively rather than in headless Neovim's 80x24, where
+-- the viewport decides which files are parsed at all.
+h.ui()
 h.cd_fixture("mkfixture")
 
 require("codereview").setup({ syntax = false })
@@ -16,6 +21,7 @@ local config = require("codereview.config")
 local diff = require("codereview.diff")
 local render = require("codereview.render")
 local view = require("codereview.view")
+local view_layout = require("codereview.view_layout")
 
 --- The unified hunk header ------------------------------------------------------
 
@@ -138,9 +144,10 @@ end)
 
 -- The split layout never carried the fault: it has no line of git's to draw, because each
 -- pane says what its own image spans, so it rebuilds both headers from the ranges and keeps
--- the heading with the post-image. Asserted here because nothing else in the suite can --
--- `split_spec`'s heading case is conditional on the fixture carrying one, and no fixture
--- does.
+-- the heading with the post-image. Asserted here because nothing else in the suite can. The
+-- case that used to claim it lived in `split_spec` and was conditional on the fixture
+-- carrying a heading; no fixture here does, so it asserted nothing from the day it was
+-- written and has been deleted.
 describe("a split hunk header", function()
   local after, before = build({ layout = "split" })
 
@@ -174,6 +181,15 @@ describe("the name a base revision is drawn under", function()
     assert.same("index", render.rev_label(":0"))
   end)
 
+  -- A sha-256 repository's object names are 64 characters, and drawing one whole is the same
+  -- fault at a different length. Which algorithm a repository uses is a question only git can
+  -- answer, so both lengths are accepted rather than one asked about.
+  it("abbreviates a 64-character object name to seven", function()
+    local sha256 = ("a"):rep(24) .. OBJECT
+    assert.same(64, #sha256)
+    assert.same("aaaaaaa", render.rev_label(sha256))
+  end)
+
   it("leaves a branch name whole", function()
     assert.same("feature", render.rev_label("feature"))
   end)
@@ -193,6 +209,14 @@ describe("the name a base revision is drawn under", function()
     local name = "release/the-fortieth-character-is-here-x"
     assert.same(40, #name)
     assert.same(name, render.rev_label(name))
+  end)
+
+  -- Nothing between the two object-name lengths is one, however hexadecimal it reads.
+  it("leaves a hexadecimal name of any other length whole", function()
+    for _, n in ipairs({ 39, 41, 63, 65 }) do
+      local name = ("b"):rep(n)
+      assert.same(name, render.rev_label(name), ("%d characters"):format(n))
+    end
   end)
 
   -- The bar is assembled on every paint and a paint runs on every resize, so `rev-parse
@@ -277,5 +301,37 @@ describe("a second review of one scope", function()
   it("opens, under the numbered form", function()
     assert.is_true(V.buf ~= first)
     assert.same(("codereview://staged#%d"):format(V.buf), vim.api.nvim_buf_get_name(V.buf))
+  end)
+
+  -- What the naming *answered*, which the buffer afterwards cannot say: a buffer that kept a
+  -- previous scope's name reads exactly like one that was named for it, so the three outcomes
+  -- -- the plain name, the numbered one, and neither -- are only distinguishable here.
+  it("says which name it wrote", function()
+    local spare = vim.api.nvim_create_buf(false, true)
+    assert.same(("codereview://staged#%d"):format(spare), view_layout.name_review(spare, V.scope))
+    vim.api.nvim_buf_delete(spare, { force = true })
+  end)
+end)
+
+-- A **revspec** is the one scope whose name is a category: every one of them resolves to
+-- `revspec`, so a name taken from it would say no more than the buffer number did. The label
+-- is the spec the reviewer typed.
+describe("a review of a revspec", function()
+  view.open("master..HEAD")
+  local V = view.current()
+
+  it("names the spec rather than the category", function()
+    assert.same("revspec", V.scope.name)
+    assert.same("codereview://master..HEAD", vim.api.nvim_buf_get_name(V.buf))
+  end)
+
+  -- The other spelling: a bare revision, whose label is the wording the winbar uses for it,
+  -- so a reviewer reads one phrase on both surfaces.
+  it("follows a change to another revspec", function()
+    view.set_scope("HEAD~1")
+    V = view.current()
+    assert.same("revspec", V.scope.name)
+    assert.same("codereview://" .. V.scope.label, vim.api.nvim_buf_get_name(V.buf))
+    assert.same("codereview://vs HEAD~1", vim.api.nvim_buf_get_name(V.buf))
   end)
 end)

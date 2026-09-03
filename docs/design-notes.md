@@ -1437,11 +1437,29 @@ leaves the float open behind it. It also has to drive its own repaint: the picke
 asynchronous, so anything run after the call returns paints before a target exists.
 
 **Two buffers cannot share a name, and the second `nvim_buf_set_name` raises rather than
-renaming.** Measured: `Vim:E95: Buffer with this name already exists`, with the buffer left
-unnamed. That is why the review buffer, which is named for the **scope** it shows, falls back
-to `codereview://<scope>#<bufnr>` — a naming convenience must never cost anybody a review.
+renaming.** Measured: `Vim:E95: Buffer with this name already exists`, and **the buffer keeps
+the name it already had**:
+
+```
+b before the collision  codereview://branch
+collision raised        true   Vim:E95: Buffer with this name already exists
+b after the collision   codereview://branch
+```
+
+That last line is the one worth having, and the first measurement of this got it wrong by
+taking it on a buffer that had *no* name — which cannot tell "kept its name" from "left
+unnamed", because both read as empty. The consequence is what the fallback to
+`codereview://<scope>#<bufnr>` is for: without it, a review that met a taken name would go on
+carrying the *previous* **scope**'s name, silently describing a review nobody is looking at.
 Setting a buffer to the name it *already holds* returns cleanly, which is what makes renaming
 on every scope change safe rather than a collision with itself.
+
+**A revspec has no name of its own, so it is the one scope named for its label.** Every
+revspec resolves to `name = "revspec"`, so `HEAD~3..HEAD` and `v1.0..v2.0` would draw one
+buffer name and differ only by the number after `#`. The label is the spec the reviewer typed
+and says which one it is. It is not the rule for the other five: `branch`'s label carries the
+branch it is measured against and a **trim**'s count with a `·` between them, and
+`since-batch`'s is a sentence.
 
 **The collision is reachable, and it takes a reviewer doing nothing unusual.** Opening a
 review closes the current one with `tabclose`, and every review buffer is

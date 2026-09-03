@@ -182,32 +182,62 @@ function M.scratch(buf, name)
   vim.api.nvim_buf_set_name(buf, name .. "://" .. tostring(buf))
 end
 
+---What a **scope** is called where the name has to say what the review covers.
+---
+---Five of the six scopes are named for what they cover and take their name. The sixth is
+---not: every revspec resolves to `revspec`, so a review of `HEAD~3..HEAD` and a review of
+---`v1.0..v2.0` would draw one name and differ only by the number after `#` -- the fault this
+---naming exists to remove, restated one word longer. A revspec's **label** is the spec the
+---reviewer typed, and it is the only thing that says which revspec this is.
+---
+---**Not "always the label", and the two that would suffer are why.** `branch`'s label
+---carries the branch it is measured against and a **trim**'s count, separated by a `·`, and
+---`since-batch`'s is a sentence. Both say more than one entry in a bufferline can hold, and
+---both have a name that already answers the question. The label is right for the one scope
+---whose name is a category -- and it is the wording the winbar uses for that scope too, so a
+---reviewer reads one phrase on both surfaces.
+---@param scope CRScope
+---@return string
+local function covered_by(scope)
+  if scope.name ~= "revspec" then
+    return scope.name
+  end
+  return scope.label
+end
+
 ---Name the review buffer for the **scope** it is showing.
 ---
 ---A tabline, a bufferline and `:ls` all read this name, and `codereview://3` says nothing
----about what the review covers. The scope's *name* rather than its label: a label carries
----the branch it is measured against and a **trim**'s count, with spaces and a `·` in it, and
----those read as several entries in the one surface this name exists for.
+---about what the review covers.
 ---
 ---**The numbered form is a rule and not a nicety.** Two buffers cannot share a name:
----`nvim_buf_set_name` raises `E95` rather than renaming, measured directly, and leaves the
----buffer unnamed. A reviewer who has put a review buffer in a tab of its own keeps it alive
----past the review that made it, so the next review of that scope meets a name already taken
------ and a naming convenience must never cost anybody a review. Rejected: renaming or
----wiping whoever holds the name. That buffer may be the reviewer's own, and a review must
----not take a name off something it did not create.
+---`nvim_buf_set_name` raises `E95` rather than renaming, measured directly, and the buffer
+---**keeps the name it already had** -- so without the fallback a review that met a taken name
+---would go on carrying the previous scope's name, or fail to open at all. A reviewer who has
+---put a review buffer in a tab of its own keeps it alive past the review that made it, so the
+---next review of that scope meets a name already taken, and a naming convenience must never
+---cost anybody a review. Rejected: renaming or wiping whoever holds the name. That buffer may
+---be the reviewer's own, and a review must not take a name off something it did not create.
 ---
 ---Both writes are guarded, for the same reason the fallback exists: this runs on the way
 ---into a review and again on every **scope** change, so a name nothing can be found for
----leaves the buffer with the name it already had rather than stopping either one.
+---leaves the buffer with the name it already had rather than stopping either one. What comes
+---back says which of the three happened, because the three are not distinguishable from the
+---buffer afterwards: a buffer that kept a previous scope's name reads exactly like one that
+---was named for it.
 ---@param buf integer
----@param scope string The scope's name, which is what the review is of
+---@param scope CRScope
+---@return string|nil name The name written, or nil when neither write could be made
 function M.name_review(buf, scope)
-  local plain = "codereview://" .. scope
+  local plain = "codereview://" .. covered_by(scope)
   if pcall(vim.api.nvim_buf_set_name, buf, plain) then
-    return
+    return plain
   end
-  pcall(vim.api.nvim_buf_set_name, buf, ("%s#%d"):format(plain, buf))
+  local numbered = ("%s#%d"):format(plain, buf)
+  if pcall(vim.api.nvim_buf_set_name, buf, numbered) then
+    return numbered
+  end
+  return nil
 end
 
 ---Give a review buffer everything it carries: the diff's keys, and the two autocommands
