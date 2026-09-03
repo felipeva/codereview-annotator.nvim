@@ -527,7 +527,11 @@ end
 ---Driven by the view's `ColorScheme` autocommand, which is declared after the one `hl.lua`
 ---writes its twins from. The two fire in that order, so every twin this links to exists.
 function M.recolor()
-  extended_at = -1
+  -- Both counters, not one. The guard is an `and`, so a stale syntax counter already forces
+  -- the whole body today and resetting that one alone happens to work -- but the two are
+  -- reset for the same reason, and leaving them asymmetric is a trap for whoever gates the
+  -- loops per source.
+  extended_at, icons_at = -1, -1
   M.mute_extend()
 end
 

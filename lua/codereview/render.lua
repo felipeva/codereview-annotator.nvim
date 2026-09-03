@@ -1,9 +1,15 @@
 ---Turn a parsed diff into buffer lines, extmarks, and the anchor map.
 ---
----Pure: takes data and returns data. No buffers, no windows, no git. The anchor map it
----produces is the single source of truth that navigation, annotation targeting, collapse
----and the syntax replay all read -- every "which change is row 47?" question is answered
----here and nowhere else.
+---No buffers, no windows, no git. The anchor map it produces is the single source of truth
+---that navigation, annotation targeting, collapse and the syntax replay all read -- every
+---"which change is row 47?" question is answered here and nowhere else.
+---
+---**It is not quite data in, data out, and the exception is deliberate.** `M.file_icon`
+---records every highlight group a host's icon adapter answers with, in a module memo that
+---outlives the call, because a **muted** window has to link those groups and no other place
+---sees all of them. `syntax.lua` keeps its own caches for the same reason and is marked
+---stateful for it. Nothing else here holds state, and nothing reads the memo to decide what
+---to draw: it is written on the way past, and read only by the window rule.
 ---
 ---`build` returns **two** renders from **one** walk: the after-pane render, and the
 ---before-pane render, which is nil in the unified layout. One walk rather than two calls is
@@ -432,8 +438,10 @@ end
 -- do -- which is why `syntax.lua` holds those in a memo of its own and not on a render.
 -- Three things a per-paint field could not answer for: under **solo** the walk emits one
 -- file, so a paint sees one file's group; the **sticky header** builds its label on a **file
--- crossing**, outside any paint at all; and `mute_extend` runs on the scroll path, where no
--- render was built. A field on the last render would answer for the last paint, and the
+-- crossing**, outside any paint at all -- though `persist` runs that crossing *after* the
+-- extend, so a group first met there links on the next one rather than the same keystroke,
+-- and the paint labels every file in the render first, which makes that case hard to reach;
+-- and `mute_extend` runs on the scroll path, where no render was built. A field on the last render would answer for the last paint, and the
 -- window rule is asking about the review.
 --
 -- **Written here rather than in `file_label`, which is one of three callers.** This is the one
@@ -445,7 +453,11 @@ end
 --
 -- Nothing clears it. A capture's group is what the *theme* resolves, so `clear_hl_cache` drops
 -- those on a colorscheme change; a host's icon group is a name the reviewer's icon plugin
--- chose, which no theme moves. What bounds it is that plugin's own palette.
+-- chose, which no theme moves. What bounds it is that plugin's own palette -- an assumption
+-- about the adapter rather than a guarantee this can make. A host answering with a group per
+-- *path* would grow the set for the life of the session, and `mute_extend`'s walk with it. No
+-- cap is imposed, because a cap would silently leave a real group unmuted, which is the defect
+-- this exists to fix.
 local icon_groups = {}
 
 -- How many distinct groups have ever gone in there. Counted rather than measured, for the

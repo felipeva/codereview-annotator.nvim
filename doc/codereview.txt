@@ -253,7 +253,7 @@ the tree, which is the only surface that names a directory.
 
 That color recedes with its window. A glyph on a *muted* pane is pulled toward
 the background with everything else on it, so the pane you are not in has no
-bright thing left in it -- see |codereview-opt-muted|. The file tree is never
+bright thing left in it -- see |codereview-muted|. The file tree is never
 muted, so a glyph there keeps its color under every focus.
 
 Neither adapter is wired by default and the plugin ships no glyph behind

@@ -255,9 +255,10 @@ background showing through, and both halves of that resolve through the window's
 namespace — measured, not assumed: in a **muted** pane the same cell comes back as the
 group's *twin* over the muted `WinBarNC`'s background. So the sticky header mutes with its
 window on two mechanisms at once, and each needs the other to be right. The built-in pair is
-in `EDITOR_GROUPS`; every group the bar asks for is in `LINKS`, which is what `hl.groups()`
-derives the muted set from, so a bar group added anywhere else is one a muted pane leaves
-bright. `split_spec` reads two cells of one bar for exactly this reason: one inside the path,
+in `EDITOR_GROUPS`; every group the bar asks for is in `LINKS`, which is one of the three
+sources the muted set is built from — `hl.groups()`, the replay's resolved captures, and the
+groups a host's icon adapters answered with — so a bar group in none of the three is one a
+muted pane leaves bright. `split_spec` reads two cells of one bar for exactly this reason: one inside the path,
 where both mechanisms are proven at once, and one on the file's added count, which is where a
 group of the plugin's own reaching the screen at all is proven.
 
@@ -551,6 +552,33 @@ emphasis that changes color depending on which languages the reader has installe
 background alone composes with the replay, which is what keeps code readable inside a span.
 It is also why the two groups copy `DiffText`'s background instead of linking to it: a link
 would carry the foreground along.
+
+
+**A host's icon group is the third source of the muted set, and it is recorded at the icon rule
+rather than on a render.** `hl.groups()` and the replay's resolutions were the whole set until a
+glyph could carry a colour the reviewer's icon plugin chose; a group in neither stays at full
+strength in a pane that has receded, which is measurable — the header row's **band** read
+`1a1a1a` in a muted pane with the glyph on it still `00ee00`.
+
+Three constraints hold the shape in place, and none of them is visible from the call site:
+
+- **The record lives at the shared icon rule, not in `file_label`.** Every surface reaches an
+  adapter through that one rule, so a group cannot arrive on a screen without arriving there,
+  and a fourth surface cannot forget to record. The cost is the **file tree**'s `dir_icon`
+  groups, which get a link in a namespace no tree is ever drawn through — one apiece, computed
+  once, nothing per file. It also means `render.lua` is no longer data in, data out: it keeps
+  one memo, and the module map says so.
+- **Two counters, not one.** The replay's resolutions and the icon groups grow on different
+  events — a capture resolves when a reviewer scrolls into an unparsed language, an icon group
+  arrives when a paint or a **file crossing** names a file whose glyph is new. One counter would
+  need each module to bump the other's. `recolor` resets both, because the guard is an `and`
+  and resetting one alone works only by accident.
+- **Nothing clears the set, and its bound is an assumption.** A capture's group is what the
+  theme resolves, so `clear_hl_cache` drops those on a colorscheme change; a host's icon group
+  is a name their icon plugin chose, which no theme moves. What bounds it is that plugin's
+  palette — true of the icon plugins people use, and not a guarantee the plugin can make, since
+  an adapter answering with a group per *path* would grow it for the session. No cap is imposed:
+  a cap would silently leave a real group unmuted, which is the defect this exists to fix.
 
 ## Parsing git's output
 
