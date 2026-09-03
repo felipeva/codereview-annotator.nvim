@@ -744,9 +744,12 @@ The tree follows the diff cursor, and `<Tab>` into it lands on the file you were
 
 A file row carries the reviewed, annotated or unreviewed mark first, then the glyph your
 [`file_icon`](#adapters) adapter gave that file — the same glyph the diff and the sticky
-header draw for it, decided by one rule so the three cannot disagree. The mark keeps its
-column, the glyph comes out of the name's budget, and a narrow panel cuts the name from the
-left, so the end of it survives. A directory row carries none: a directory names no file.
+header draw for it, decided by one rule so the three cannot disagree. **In the colour your
+icon plugin chose for it**, when your adapter answers with a highlight group beside the
+glyph, which `nvim-web-devicons` and `mini.icons` both do already. The mark keeps its
+column and its own colour, the glyph comes out of the name's budget, and a narrow panel cuts
+the name from the left, so the end of it survives. A directory row carries none: a directory
+names no file.
 
 `gp` dismisses and summons the tree. `panel.enabled` decides whether a review *opens* with
 one. Collapsed directories belong to the review rather than to the tree, so they are exactly
@@ -871,7 +874,7 @@ functions inject that. **None are required.**
 | `compose` | Collects note text | The composer the plugin ships |
 | `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
 | `pick_checkout` | Chooses which checkout to switch to | The picker the plugin ships |
-| `file_icon` | Gives a file the icon its filetype has in your config, on the diff, the sticky header and the file tree | No filetype icon. Nothing is called per file |
+| `file_icon` | Gives a file the icon its filetype has in your config, on the diff, the sticky header and the file tree — in your icon plugin's own colour on the tree | No filetype icon. Nothing is called per file |
 
 ```lua
 opts = {
@@ -881,7 +884,7 @@ opts = {
   compose = function(ctx, on_accept, label) on_accept(nil, "text") end,
   open_diff = function(spec) end,  -- spec: { path, before, after, line }
   pick_checkout = function(checkouts, cb) cb(checkouts[1].path) end,
-  file_icon = function(path) return require("nvim-web-devicons").get_icon(path) end,
+  file_icon = function(path) return require("nvim-web-devicons").get_icon(path) end,  -- glyph, group
 }
 ```
 
@@ -970,12 +973,17 @@ opts = {
   -- It is a second thing about the file and never a replacement for the first: the
   -- reviewed, annotated and unreviewed marks keep their column and their meaning.
   --
+  -- Answer with the highlight group beside the glyph and the glyph keeps its own colour;
+  -- both icon plugins hand you that pair already, so passing their answer straight through
+  -- is the whole of it. A group your theme does not define costs the glyph its colour and
+  -- never its glyph, and a glyph alone is a complete answer.
+  --
   -- Called once per file per paint by the diff and by the tree, and the tree is rebuilt on
   -- every file crossing too -- so an adapter that raises, or that answers with anything but
   -- a string, is survived rather than reported: that file draws without a glyph and the
   -- review goes on.
   file_icon = function(path)
-    return (require("nvim-web-devicons").get_icon(path, nil, { default = true }))
+    return require("nvim-web-devicons").get_icon(path, nil, { default = true })
   end,
 }
 ```

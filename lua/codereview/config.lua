@@ -244,6 +244,19 @@ M.defaults = {
   ---for a file you have no icon for; nothing is drawn there, and that file's rows read
   ---exactly as they do with no adapter wired.
   ---
+  ---**Answer with the highlight group beside the glyph and the glyph keeps its own colour in
+  ---the file tree.** `nvim-web-devicons.get_icon` and `MiniIcons.get` both answer with that
+  ---pair already, so an adapter that hands their answer straight through gives the group with
+  ---the glyph and nothing has to be written for it. Colour is most of what makes a tree
+  ---readable at a glance: without it every wired glyph draws in the surface's own foreground,
+  ---and `docs/guide.md` and `lib/types.lua` carry different glyphs in one colour. The header
+  ---row and the sticky header draw the glyph in their own head's group for now.
+  ---
+  ---The group is yours and is never translated. A group your theme gives no colour draws
+  ---the glyph in the row's own, so an unknown group costs a colour rather than a glyph, and
+  ---one that is not a non-empty string is dropped the same way. An adapter that answers with
+  ---a glyph alone is complete: the group is what you may add, never what you must.
+  ---
   ---**A second thing about the file, and never a replacement for the first.** The reviewed,
   ---annotated and unreviewed marks keep their column and their meaning on both the header
   ---row and the tree row, because a reviewer must not lose *this file is reviewed* in
@@ -255,7 +268,7 @@ M.defaults = {
   ---the review goes on. Nothing is wired is not that path at all. There is no shipped glyph
   ---behind this and therefore no default implementation to call, so a review with nothing
   ---wired here calls nothing per file on either surface.
-  ---@type (fun(path: string): string|nil)|nil
+  ---@type (fun(path: string): string|nil, string|nil)|nil
   file_icon = nil,
 }
 

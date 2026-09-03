@@ -371,13 +371,27 @@ local function path_segments(path, out)
   out[#out + 1] = M.literal(path:sub(cut and cut + 1 or 1), NAME)
 end
 
----A host's own glyph for a file, or nil when it has none to give.
+---A host's own glyph for a file, and the group that colours it -- or nil when it has none.
 ---
 ---**Exported because three surfaces name a file and one rule decides what its glyph is.**
 ---The diff's header row and the **sticky header** read it through `file_label`; the **file
 ---tree** reads it here, because a tree row is not a label and needs the glyph alone. Two
 ---copies of this rule is two places for those surfaces to come to disagree about the same
 ---file, which is the whole of *one file, one icon*.
+---
+---**The group is carried out beside the glyph because both icon plugins answer with it.**
+---`nvim-web-devicons.get_icon` answers with a glyph and the name of the group that colours
+---it, and `MiniIcons.get` answers with the same pair. Reading the first and dropping the
+---second is what drew every wired glyph in the surface's own foreground -- a Lua file's
+---glyph measured on a tree row as `#e0e2ea`, the tree's own colour, where `mini.icons` had
+---chosen `#8cf8f7`. Colour is most of what makes a tree readable at a glance, and it was
+---being thrown away here rather than anywhere a reviewer could reach.
+---
+---**Two return values and not a table.** A table would be one allocation per file, and this
+---is asked 601 times on a three-hundred-file paint and 301 more on every **file crossing**
+---(see the performance notes). Two values allocate nothing at all, and they leave a caller
+---that wants the glyph alone -- `file_label`'s does -- unchanged, because Lua truncates the
+---second away on its own.
 ---
 ---**The guard is at the call site and it is the performance rule made structural.** There is
 ---no glyph shipped behind this adapter and therefore no default implementation of it to
@@ -392,15 +406,28 @@ end
 ---number or a table would reach the header row as `123` or as `table: 0x...` and move every
 ---byte offset on the row behind it. Both failures answer the same way, which is the way no
 ---adapter answers: no glyph, and a row that reads exactly as it reads without one.
----@param adapter fun(path: string): string|nil
+---
+---**A group is checked the same way, and dropped on its own.** A group reaches an extmark
+---as a name, and a number or a table there raises on the paint that emits it -- which would
+---take down the review the glyph was there to help read. So a broken group costs the colour
+---and never the glyph: the file draws as one whose adapter gave a glyph alone, which is a
+---row a reviewer already knows how to read. An empty string is dropped with them, for the
+---reason an empty glyph is: it is an absence spelled the expensive way, and no theme defines
+---it. `MiniIcons.get` answers with a third value as well, a boolean, and a host handing the
+---answer through in the wrong order arrives here -- as a dropped colour rather than an error.
+---@param adapter fun(path: string): string|nil, string|nil
 ---@param path string
----@return string|nil
+---@return string|nil glyph
+---@return string|nil group The group the glyph is drawn in; nil for the row's own colour
 function M.file_icon(adapter, path)
-  local ok, glyph = pcall(adapter, path)
+  local ok, glyph, group = pcall(adapter, path)
   if not ok or type(glyph) ~= "string" or glyph == "" then
     return nil
   end
-  return glyph
+  if type(group) ~= "string" or group == "" then
+    return glyph
+  end
+  return glyph, group
 end
 
 ---@class CRFileLabel
@@ -431,7 +458,7 @@ end
 ---segments at byte offsets and the winbar turns the same ones into markup. A string would
 ---have left each surface to split it again, which is two rules the moment either moved.
 ---@param file CRFile
----@param opts { icons: table, file_icon: (fun(path: string): string|nil)|nil, reviewed: table<string, string>|nil, expanded: table<string, boolean>, notes: table<string, table[]>|nil, layout: string|nil }
+---@param opts { icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>|nil, expanded: table<string, boolean>, notes: table<string, table[]>|nil, layout: string|nil }
 ---@return CRFileLabel
 function M.file_label(file, opts)
   local icons = opts.icons
@@ -709,7 +736,7 @@ end
 ---index, and the two would silently disagree about which file is which. One index space is
 ---the decision (ADR-0009), and this option is what buys it.
 ---@param files CRFile[]
----@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, file_icon: (fun(path: string): string|nil)|nil, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, solo: integer|nil, types: CRType[] }
+---@param opts { width: integer, before_width: integer|nil, layout: string|nil, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, expanded: table<string, boolean>, reviewed: table<string, string>, notes: table<string, table[]>, archived: table<string, table[]>|nil, touched: table<integer, boolean>|nil, solo: integer|nil, types: CRType[] }
 ---@return CRRender after, CRRender|nil before
 function M.build(files, opts)
   local icons = opts.icons
