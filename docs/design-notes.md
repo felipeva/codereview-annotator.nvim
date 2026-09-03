@@ -55,9 +55,28 @@ that wires the `file_icon` adapter puts a glyph of its own between the chevron a
 so the prefix is `"○ ▾  "` — however many bytes that host's glyph is. `file_label` therefore
 spells the prefix itself and hands it over as `prefix`, and the header row paints the path at
 `#label.prefix`: the string a row is built from and the offset a mark lands at are the same
-expression, so neither can be updated without the other. The **sticky header** puts that same
-string in one literal, which is what makes one file carry one icon on both surfaces and what
-escapes a glyph the plugin did not choose.
+expression, so neither can be updated without the other.
+
+**The prefix is spelled in two pieces because the glyph carries a colour of its own.**
+`file_label` builds `head` — the state mark, the chevron and their separators — and `prefix`
+is `head` with the glyph and its separator appended, so the two are one string cut in one
+place. The header row places the glyph's range at `#label.head`, and the **sticky header**
+draws the same two pieces as two segments rather than the one literal it used to: a segment
+carries one highlight group, so a bar that drew the whole prefix as one literal could not
+colour the glyph without colouring the state mark with it. What reaches either surface is the
+same text either way — 1920 label comparisons against the commit before the split, over every
+glyph shape and every file state, moved no byte of it — which is what leaves every offset
+already asserted against the prefix where it was. Both segments are literals, because a glyph
+is a name the plugin did not choose and a `%f` on a bar that did not escape it expands into
+the window's own file name.
+
+**The separator rides with the glyph on both surfaces, and that is one decision and not two.**
+`file_label` puts it there so that a file with no glyph contributes nothing rather than a
+space, and the bar's second segment therefore holds `glyph .. " "` rather than the glyph alone.
+A third segment for the separator would spell it apart from the glyph the label spells it with
+— two rules, and one would move the first time the other did. What it costs is one blank
+column drawn in the host's group, which is a foreground an icon plugin chose and paints
+nothing on a space.
 
 **The file tree is the third surface and it reads none of that.** A tree row is an indent, a
 state mark, a glyph and a basename — it has no chevron of its own on a file row and no path to
@@ -76,11 +95,13 @@ of the group that colors it; reading the first and dropping the second drew ever
 in the surface's own foreground — a Lua file's glyph measured on a tree row as `#e0e2ea`,
 which is the tree's color, where `mini.icons` had chosen `#8cf8f7`. It comes back as a second
 *return value* and not in a table: a table is one allocation per file, and the rule is asked
-601 times on a three-hundred-file paint and 301 more on every file crossing. A caller that
-wants the glyph alone therefore needs no change at all — `file_label`'s reaches it through
-`and`/`or`, which is an expression and truncates the group away on its own. **That truncation
-is also the trap**: a caller that does want the group cannot use that idiom, and would drop
-the color silently, so `panel.lua` reaches the rule with two statements instead.
+601 times on a three-hundred-file paint and 301 more on every file crossing.
+
+**The `and`/`or` idiom is the trap that comes with it**: it is an expression, so it truncates
+the second return value away silently. `file_label` reached the rule that way and therefore
+drew the group nowhere, while the tree beside it drew one — one file in two colours, decided by
+which of the two callers used an expression. Both callers reach the rule with two statements
+now, and a caller that wants the glyph alone still writes one line.
 
 A broken group is dropped on its own and never with the glyph. A group reaches an extmark as a
 name, so a number or a table there raises on the paint that emits it and would take down the
@@ -91,18 +112,24 @@ glyph. The group is the host's own name and is never translated into one of this
 which would be the plugin having the opinion about color that the adapter exists to avoid
 (ADR-0001).
 
-**The tree's glyph mark is measured off the string the row is built from, not counted from its
+**Every glyph mark is measured off the string its row is built from, not counted from its
 parts.** `panel.lua` spells `before_glyph` — the indent, the state mark and the separator —
-once, builds the row's head from it and places the range at `#before_glyph`, so neither can be
-updated without the other. It is `file_label`'s discipline with `prefix`, one surface over, and
-it is needed for the same reason: on a top-level row that head is **six bytes and four display
-columns**, so a range placed at the column lands four bytes early and colors the separator and
-half the glyph. The **fade** needs nothing for any of this — it renames a mark's group to its
-blended twin by name and `hl.lua` computes a twin for any group with a color, a host's icon
-group included. It is also never reached: the fade exempts every header row and the tree is
-never faded at all, so no mark carrying an icon group is handed to it. The before pane's indent is measured off it with
-`strdisplaywidth` for the same reason — counted from the parts, a renamed file's two paths
-would sit apart by the width of the glyph. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
+once, builds the row's head from it and places the range at `#before_glyph`; the header row
+does the same with `label.head`. Neither can be updated without the other, and it is needed
+for the same reason on both: that head is **six bytes and four display columns** on a
+top-level tree row and **eight and four** on a header row, so a range placed at the column
+lands four bytes early and colors the separator and half the glyph. The header row's range
+also stops at the fitted left-hand side, exactly as `paint_path` does, because an `end_col`
+past the end of a row is a hard error and a narrow pane cuts that row through the head. The
+before pane's indent is measured off the prefix with `strdisplaywidth` for the same reason —
+counted from the parts, a renamed file's two paths would sit apart by the width of the glyph.
+
+**The fade needs nothing for any of this** — it renames a mark's group to its blended twin by
+name and `hl.lua` computes a twin for any group with a color, a host's icon group included. It
+is also never reached: the fade exempts every header row and the tree is never faded at all,
+so no mark carrying an icon group is handed to it.
+
+No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
 `src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone
 proves the prefix and nothing about the path itself; `path_spec` builds a file list with an
 accented path by hand for the other half, which `render.build` allows because it is pure data.

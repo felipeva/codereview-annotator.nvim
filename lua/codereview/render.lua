@@ -436,9 +436,12 @@ end
 ---@field notes integer          Queued annotations anywhere in it
 ---@field icon string            The **state** mark: reviewed, annotated or unreviewed
 ---@field file_icon string|nil   A host's own glyph for the file, beside that mark; nil for none
+---@field file_icon_hl string|nil  The group that glyph is drawn in; nil for the row's own
 ---@field chevron string
----@field prefix string          Those three and their separators: what both surfaces draw
----                              in front of the path, and the bytes the path starts at
+---@field head string            The state mark and the chevron with their separators: the
+---                              prefix in front of the glyph, and the bytes the glyph starts at
+---@field prefix string          That head and the glyph: what both surfaces draw in front of
+---                              the path, and the bytes the path starts at
 ---@field name CRBarSegment[]    Its path as this layout spells it: `old → new` when unified
 ---@field before CRBarSegment[]|nil  The pre-image path; nil for a file with no pre-image
 ---@field stat string            `+N -M`, or `binary`
@@ -504,9 +507,26 @@ function M.file_label(file, opts)
   -- The **state** mark above keeps its column and its meaning; this is a second thing about
   -- the file rather than a replacement for it, so that a reviewer never loses *this file is
   -- reviewed* in exchange for *this file is TypeScript*. Nothing is wired is the common case
-  -- and costs the comparison in front of the `and`: the adapter is the only implementation
+  -- and costs the comparison in front of the `if`: the adapter is the only implementation
   -- there is, so with none of it there is nothing to call.
-  local file_icon = opts.file_icon and M.file_icon(opts.file_icon, file.path) or nil
+  --
+  -- **Two statements rather than the `and`/`or` expression this used to be.** That idiom
+  -- truncates a second return value away silently, which is what kept the group off the diff
+  -- while the **file tree** was already drawing it -- one file in two colours, decided by
+  -- which of the two callers reached the rule with an expression. A caller that wants the
+  -- group cannot use it, and cannot see that it is not getting one.
+  local file_icon, file_icon_hl
+  if opts.file_icon then
+    file_icon, file_icon_hl = M.file_icon(opts.file_icon, file.path)
+  end
+  -- **The prefix in front of the glyph, spelled once and handed out beside it.** The header
+  -- row places the glyph's own range at `#head` and the winbar makes its first segment out of
+  -- the same string, so the bytes a row is built from and the offset a mark lands at are one
+  -- expression and neither can be updated without the other. It is the discipline `prefix`
+  -- already imposes on the path, one field earlier: counted from its parts instead, a range
+  -- here would land four bytes early on every header row, because the state mark and the
+  -- chevron are multibyte and the count would be of characters nobody measured.
+  local head = ("%s %s "):format(icon, chevron)
 
   return {
     reviewed = reviewed,
@@ -514,18 +534,25 @@ function M.file_label(file, opts)
     notes = notes,
     icon = icon,
     file_icon = file_icon,
+    file_icon_hl = file_icon_hl,
     chevron = chevron,
+    head = head,
     -- What both surfaces draw in front of the path, spelled once here rather than twice out
-    -- there. The header row paints its path at `#prefix` bytes and the winbar puts the same
-    -- string in one literal, so the offset a mark lands at and the columns a bar spends are
+    -- there. The header row paints its path at `#prefix` bytes and the winbar spends the same
+    -- columns on the same text, so the offset a mark lands at and the columns a bar spends are
     -- the same answer -- and a glyph a host chose cannot reach either surface unescaped or
     -- at the wrong column because one of the two spellings was not updated.
+    --
+    -- **Built from `head` rather than formatted a second time**, so that the two are one
+    -- string cut in one place and cannot drift by a separator. The bar draws them as two
+    -- segments, because a segment carries one group and the glyph needs its own; the text is
+    -- this string either way, which is why every byte offset asserted against it is unmoved.
     --
     -- **With nothing wired this is byte-for-byte the string it always was.** The separator
     -- rides with the glyph rather than standing beside it, so a file with no glyph
     -- contributes nothing here at all rather than a space -- which would shift every path
     -- offset on every header row in every review by one byte, and look right while doing it.
-    prefix = ("%s %s %s"):format(icon, chevron, file_icon and file_icon .. " " or ""),
+    prefix = head .. (file_icon and file_icon .. " " or ""),
     -- A rename reads as a rename when each pane draws its own path; only the unified
     -- layout, which has one header to say it in, spells the arrow out. Both of its paths
     -- take the rule, because dimming one of them says the wrong thing about which is which.
@@ -1101,6 +1128,32 @@ function M.build(files, opts)
     end
     if note_count > 0 then
       mark(after, row, stat_col + #stat, { end_col = #header, hl_group = "CodeReviewNoteCount" })
+    end
+    -- **The glyph's own colour, over the glyph's own bytes**, which is the range that makes
+    -- one file one colour wherever it is named: the **file tree** has drawn the glyph in this
+    -- group since #224, and a header row still drawing it in the row's own quiet was one file
+    -- told about twice.
+    --
+    -- The group is the host's -- `MiniIconsAzure`, `DevIconLua` -- and is never translated
+    -- into one of this plugin's, which would be the plugin having the opinion about colour
+    -- that the adapter exists to avoid (ADR-0001). A group the theme leaves undefined draws
+    -- nothing extra, so an unknown group costs the glyph its colour rather than its glyph, and
+    -- an adapter that answered with a glyph alone emits no range at all: a range in no group
+    -- is an extmark that costs a paint and draws nothing.
+    --
+    -- Placed at `#label.head` and never at a count of the parts. That head is **eight bytes
+    -- and four display columns**, so a range placed at the column lands four bytes early and
+    -- colours the chevron and half the glyph -- the same trap the path below it sprang first,
+    -- arriving from the other side of the same prefix.
+    --
+    -- Stopped at `#left` for the reason `paint_path` is stopped there: an `end_col` past the
+    -- end of a row is a hard error, and a narrow pane cuts this row through the head it is
+    -- holding rather than tidily after it.
+    if label.file_icon_hl then
+      local stop = math.min(#label.head + #label.file_icon, #left)
+      if #label.head < stop then
+        mark(after, row, #label.head, { end_col = stop, hl_group = label.file_icon_hl })
+      end
     end
     -- The path, in the two groups the **sticky header** draws it in: one function answers
     -- what a file is called and one pair of groups therefore says it, so the two surfaces

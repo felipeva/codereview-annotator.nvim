@@ -745,8 +745,8 @@ The tree follows the diff cursor, and `<Tab>` into it lands on the file you were
 A file row carries the reviewed, annotated or unreviewed mark first, then the glyph your
 [`file_icon`](#adapters) adapter gave that file — the same glyph the diff and the sticky
 header draw for it, decided by one rule so the three cannot disagree. **In the colour your
-icon plugin chose for it**, when your adapter answers with a highlight group beside the
-glyph, which `nvim-web-devicons` and `mini.icons` both do already. The mark keeps its
+icon plugin chose for it**, on all three surfaces, when your adapter answers with a highlight
+group beside the glyph, which `nvim-web-devicons` and `mini.icons` both do already. The mark keeps its
 column and its own colour, the glyph comes out of the name's budget, and a narrow panel cuts
 the name from the left, so the end of it survives. A directory row carries none: a directory
 names no file.
@@ -812,8 +812,9 @@ A file's header row scrolls off the top as soon as you read past the first scree
 ```
 
 It carries the same icon, chevron, path, `+N -M` and annotation count that the in-buffer
-header carries — the path styled the same way, by the same rule, and the same glyph if you
-wired [`file_icon`](#adapters) — with the review summary right-aligned beside it. It names
+header carries — the path styled the same way, by the same rule, and the same glyph in the
+same colour if you wired [`file_icon`](#adapters) — with the review summary right-aligned
+beside it. It names
 the file the **cursor** is in, which is the file an annotation attaches to.
 
 It works with the tree dismissed, and with a review opened without one.
@@ -874,7 +875,7 @@ functions inject that. **None are required.**
 | `compose` | Collects note text | The composer the plugin ships |
 | `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
 | `pick_checkout` | Chooses which checkout to switch to | The picker the plugin ships |
-| `file_icon` | Gives a file the icon its filetype has in your config, on the diff, the sticky header and the file tree — in your icon plugin's own colour on the tree | No filetype icon. Nothing is called per file |
+| `file_icon` | Gives a file the icon its filetype has in your config, on the diff, the sticky header and the file tree — in your icon plugin's own colour on all three | No filetype icon. Nothing is called per file |
 
 ```lua
 opts = {
