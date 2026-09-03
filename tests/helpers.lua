@@ -170,6 +170,22 @@ end
 ---reds for a reason that has nothing to do with color. What is read is the group stacked *on
 ---top of* the bar's own, which is exactly the question every caller is asking.
 ---
+---**nil also means "the theme has never defined that group", and the two are the same answer
+---here.** `nvim_eval_statusline` resolves each `%#Group#` against the theme and *drops* a
+---marker naming a group nothing defined, so the run underneath comes back holding the bar's
+---own group alone -- which is what a segment asking for no group at all looks like. A case
+---asserting that a bar drew something in a group **this plugin does not own** therefore
+---passes for a reason unrelated to its claim unless the group is defined first: `hl.lua`
+---links every group of the plugin's at `setup`, so this only bites for a group a *host* named
+---- a `file_icon` adapter's `MiniIconsAzure`, a `DevIconLua`. Define it, read, and put it
+---back.
+---
+---Three states and not two, which matters to the putting back: defined-with-a-color and
+---defined-but-*emptied* are both reported, and only never-defined is dropped. There is no API
+---to undefine a group, so a case that "restores" one by writing an empty table leaves it in
+---the middle state -- reported -- for every case after it. `render_spec`'s
+---`reports a group the theme defines, and drops one it does not` pins all three.
+---
 ---Read through the same parser `M.winbar` uses, so a marker that landed one segment out is
 ---visible here. What this cannot say is that the cell on the screen took that group's
 ---color. Only a painted cell can, and `split_spec` reads two.

@@ -977,7 +977,8 @@ opts = {
   -- Answer with the highlight group beside the glyph and the glyph keeps its own colour;
   -- both icon plugins hand you that pair already, so passing their answer straight through
   -- is the whole of it. A group your theme does not define costs the glyph its colour and
-  -- never its glyph, and a glyph alone is a complete answer.
+  -- never its glyph, one that could not be a highlight group at all is dropped the same way,
+  -- and a glyph alone is a complete answer.
   --
   -- Called once per file per paint by the diff and by the tree, and the tree is rebuilt on
   -- every file crossing too -- so an adapter that raises, or that answers with anything but

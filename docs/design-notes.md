@@ -70,13 +70,31 @@ already asserted against the prefix where it was. Both segments are literals, be
 is a name the plugin did not choose and a `%f` on a bar that did not escape it expands into
 the window's own file name.
 
-**The separator rides with the glyph on both surfaces, and that is one decision and not two.**
-`file_label` puts it there so that a file with no glyph contributes nothing rather than a
-space, and the bar's second segment therefore holds `glyph .. " "` rather than the glyph alone.
-A third segment for the separator would spell it apart from the glyph the label spells it with
-— two rules, and one would move the first time the other did. What it costs is one blank
-column drawn in the host's group, which is a foreground an icon plugin chose and paints
-nothing on a space.
+**The separator behind the glyph is a segment of its own on the bar, because the group has to
+cover the same extent on all three surfaces.** The header row and the tree colour the glyph's
+bytes and stop, so a bar that let the separator ride inside the host's group would draw one
+column more of it than either of them. That is invisible for a foreground-only group, which
+is what a devicon group is — and a drawn column for one carrying a background, an underline or
+`reverse`, which nothing in this plugin decides. So "one file, one glyph, one colour" is a
+claim about the *width* of the colour too, and each surface asserts the extent rather than the
+group alone. The separator is `render.chrome` there: it is the one character in that run the
+plugin itself wrote, between the configured state mark and a glyph the adapter chose.
+
+**A host's group is a name the plugin did not choose, and it reaches a winbar as markup.** The
+escape at `render.literal` was written when a segment's *text* was the only half a caller did
+not choose; `file_icon` made the *group* the other half. `M.bar` spells one as `%#<name>#`, and
+`#` is what ends that marker — so a name holding one closes the marker early and everything
+after it is parsed as statusline items. Measured: `%#A#%{2+3}#B#x%*` draws `5#B#x`, so the
+expression ran, and `bar_width` had measured that segment as one column. There is no escape for
+it, because the breakout character is the terminator, so the name is refused and the segment
+draws in the bar's own colour — one bad answer costs a colour rather than a bar. It is refused
+in two places for two reasons: at `render.file_icon`, because a name Neovim itself rejects
+(`E5248`, for anything outside letters, digits, `_`, `.`, `@` and `-`) can colour nothing on any
+surface and an extmark handed one reports that on every paint; and at `M.bar`, because that is
+the function that decides what markup is, and "there is no way onto the bar that does not go
+through one of these two functions" is only true of the group if the group is judged there.
+`bar_width` therefore goes on ignoring a segment's `hl` — a marker draws no columns — and that
+is correct only because no name that could break out of one can reach it.
 
 **The file tree is the third surface and it reads none of that.** A tree row is an indent, a
 state mark, a glyph and a basename — it has no chevron of its own on a file row and no path to

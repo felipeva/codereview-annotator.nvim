@@ -232,10 +232,42 @@ describe("a group the rule cannot use", function()
   it("is dropped when it is a boolean", function()
     dropped(true)
   end)
+
+  -- **A string is not enough, because a group name is markup on one of the three surfaces.**
+  -- The **sticky header** is a statusline and a group reaches it as `%#<name>#`, so a `#`
+  -- inside the name ends that marker early and the rest runs as statusline markup -- an
+  -- expression included. `render_spec` proves the bar refuses such a name; this is the rule
+  -- refusing it a surface earlier, so it never reaches an extmark either.
+  --
+  -- The set is Neovim's own and was measured against `nvim_set_hl` rather than guessed: it
+  -- accepts letters, digits, `_`, `.`, `@` and `-`, and raises `E5248` for everything else.
+  it("is dropped when it cannot name a highlight group at all", function()
+    for _, group in ipairs({ "A#B", "MiniIcons Azure", "A%B", "A/B", "Ünïcode", "A:B" }) do
+      dropped(group)
+      -- The guard the case rests on: each of these really is a name Neovim refuses, so
+      -- dropping it costs a colour that was never available.
+      assert.same(0, vim.fn.hlexists(group), ("%q is a group Neovim accepts after all"):format(group))
+    end
+  end)
+
+  -- And the names a host will actually hand over are kept. Without this the case above passes
+  -- on a rule that dropped every group there is.
+  it("is kept when it is a name a theme could define", function()
+    for _, group in ipairs({ AZURE, "DevIconLua", "@keyword.function", "Dev-Icon_9" }) do
+      local glyph, answered = render.file_icon(function()
+        return LUA, group
+      end, "src/main.lua")
+      assert.same(LUA, glyph)
+      assert.same(group, answered)
+    end
+  end)
 end)
 describe("a review with no adapter wired", function()
   it("gives a file no glyph at all", function()
     assert.is_nil(label().file_icon)
+    -- And no group to put on one. The two are one answer, and the label is where both
+    -- surfaces read them -- see the same pairing asserted for every broken answer below.
+    assert.is_nil(label().file_icon_hl)
   end)
 
   -- **Byte for byte the row it has always drawn.** The separator rides with the glyph rather
@@ -259,6 +291,12 @@ describe("an adapter that cannot answer", function()
   local function survived(adapter)
     local answer = label(nil, { file_icon = adapter })
     assert.same(BARE, answer.prefix)
+    -- **The glyph and its group are nil together or neither is**, checked here rather than
+    -- only inside `render.file_icon`, because the label is what both surfaces read. A label
+    -- carrying a group with no glyph under it would put a range of no bytes at
+    -- `#before_glyph` -- or, once the clamp let it through, one over the path's first bytes,
+    -- which is a colour on the wrong text rather than a colour on nothing.
+    assert.is_nil(answer.file_icon_hl, "a group survived a glyph that did not")
     return answer
   end
 
@@ -666,6 +704,9 @@ describe("a header row whose adapter answered with a group", function()
   ---
   ---The exception the equalities below are allowed: what the group buys is a range in the
   ---host's own group, and nothing this plugin draws may move to pay for it.
+  ---`icon` comes back in the order the render emitted it, which is file order -- the walk
+  ---draws one file at a time -- so the i-th range belongs to the i-th file. `bounded_spec`
+  ---pins that ordering; it is relied on here rather than re-derived.
   ---@param rendered CRRender
   ---@return table[] kept, table[] icon
   local function split_marks(rendered)
@@ -693,9 +734,22 @@ describe("a header row whose adapter answered with a group", function()
         assert.same(plain.lines, grouped.lines, where)
         local kept, icon = split_marks(grouped)
         assert.same(plain.marks, kept, where)
-        -- One range per file drawn, and no more: the exemption above is an exception and not
-        -- a hole for anything else in a host's group to go through.
+        -- **The exemption is read back rather than counted.** A count says how many ranges
+        -- the group bought and nothing about where they landed, so a range that moved --
+        -- under the narrowest width, or on the layout with two panes -- would sit inside the
+        -- same number and stay green. What is asserted is that each one covers its file's own
+        -- glyph and nothing either side of it, off the row the render actually drew.
         assert.same(#FILES, #icon, where)
+        for fi, m in ipairs(icon) do
+          -- Two statements and not `assert.same(with_group(path), ...)`: an argument list
+          -- truncates a call to one value, which is the very idiom that kept the group off
+          -- this surface in the first place. It reads the glyph here and passes.
+          local glyph, group = with_group(FILES[fi].path)
+          local line = grouped.lines[assert(grouped.file_rows[fi])]
+          assert.same(grouped.file_rows[fi] - 1, m.row, where)
+          assert.same(glyph, line:sub(m.col + 1, m.opts.end_col), where)
+          assert.same(group, m.opts.hl_group, where)
+        end
       end
     end
   end)
@@ -776,7 +830,7 @@ describe("a header row whose adapter answered with a group", function()
     end)
     assert.same({
       { 0, #line, "CodeReviewFileHeader" },
-      { #answer.head, #answer.head + #LUA, AZURE },
+      { #answer.before_glyph, #answer.before_glyph + #LUA, AZURE },
     }, over_the_head)
     assert.same({ "CodeReviewFrameHeader" }, line_wide, "the band is not the line-wide mark this count excludes")
   end)
@@ -1739,32 +1793,53 @@ describe("a review whose adapter answered with a group", function()
     assert.same(GLYPH_ALONE.bar, h.winbar(current().win))
   end)
 
-  -- **The bar's glyph carries the adapter's group now, and the head beside it does not.** A
-  -- bar draws its head as a literal and a literal holds one group, so the ticket that colours
-  -- the glyph is the ticket that splits that literal in two -- and the case this replaces was
-  -- written absolutely for exactly this moment, because the byte-for-byte equality above is
-  -- blind to a group: the text of the two bars is the same string either way.
+  -- **The bar's glyph carries the adapter's group now, and neither the head in front of it nor
+  -- the separator behind it does.** A bar draws its head as literals and a literal holds one
+  -- group, so the ticket that colours the glyph is the ticket that splits that head -- and the
+  -- case this replaces was written absolutely for exactly this moment, because the
+  -- byte-for-byte equality above is blind to a group: the text of the two bars is the same
+  -- string either way.
   --
-  -- **The group has to exist for the bar to report it.** `nvim_eval_statusline` resolves
-  -- `%#Group#` against the theme and drops a marker naming a group nothing defined, so a
-  -- reading taken while `MiniIconsAzure` is undefined says the glyph is in the bar's own
-  -- colour whatever the bar asked for -- which is a case that cannot fail. Defined and put
-  -- back around the reading, as the fade case does with the same group and for the same
-  -- reason; the assertions read variables so a red case still restores the theme.
-  it("draws the glyph on the bar in the group the adapter named", function()
+  -- **The extent is asserted and not only the group.** The header row and the tree colour the
+  -- glyph's own bytes and stop; a bar that coloured the separator too would draw one column
+  -- more of the host's group than either of them, which is invisible for a foreground-only
+  -- devicon group and a drawn column for one carrying a background or an underline. So the
+  -- separator is read as well, at the space in front of the path.
+  --
+  -- **The group has to exist for the bar to report it, and "exist" has three states.**
+  -- `nvim_eval_statusline` drops a `%#Group#` naming a group nothing has *ever* defined, so a
+  -- reading taken then says the glyph is in the bar's own colour whatever the bar asked for --
+  -- a case that cannot fail. A group defined and then emptied is a different state: it is
+  -- reported. `render_spec` proves all three; here the group is given a colour for the reading
+  -- and put back to whatever it was.
+  --
+  -- **And what it is put back to is "defined but empty", not "undefined".** There is no API to
+  -- undefine a group, and the fade act above has already written this one -- so it arrives
+  -- here in the middle state, `before` reads as an empty table, and writing that back restores
+  -- exactly the state this case found. It does not restore an absence, and nothing after it
+  -- should be written as though it did.
+  it("draws the glyph on the bar in the group the adapter named, and nothing else in it", function()
     read_into("src/main.lua")
+    -- The premise, said out loud rather than assumed: the fade act left this group defined,
+    -- so the restore below is exact and the reading is not resting on an absence.
+    assert.same(1, vim.fn.hlexists(AZURE), "the fade act no longer leaves this group defined")
     local before = vim.api.nvim_get_hl(0, { name = AZURE })
     vim.api.nvim_set_hl(0, AZURE, { fg = 0x8cf8f7 })
     local ok, glyph_group = pcall(h.winbar_group, current().win, LUA)
     local head_ok, head_group = pcall(h.winbar_group, current().win, ICONS.reviewed)
+    -- The separator behind the glyph, found by the path it runs into rather than by an offset.
+    local sep_ok, sep_group = pcall(h.winbar_group, current().win, " src/main.lua")
     vim.api.nvim_set_hl(0, AZURE, before)
 
     assert(ok, tostring(glyph_group))
     assert(head_ok, tostring(head_group))
+    assert(sep_ok, tostring(sep_group))
     assert.same(AZURE, glyph_group)
-    -- The state mark beside it keeps every byte and every group it had: the split is at the
-    -- glyph, so the first of the two segments is the head the bar always drew.
+    -- The state mark in front of it keeps every byte and every group it had, and the space
+    -- behind it takes the bar's own quiet: the host's group covers the glyph and stops, which
+    -- is the extent the other two surfaces colour.
     assert.same("CodeReviewBarIcon", head_group)
+    assert.same("CodeReviewBarIcon", sep_group)
     -- The guard: without it this case passes on a bar that never coloured the glyph at all,
     -- because a group nothing defines reads back the same way an unchanged bar does.
     assert.is_true(glyph_group ~= GLYPH_ALONE.bar_group, "the bar's glyph is in the group it was in before")

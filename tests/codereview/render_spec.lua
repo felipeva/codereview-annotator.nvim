@@ -497,6 +497,83 @@ describe("the winbar assembly", function()
     end
     assert.is_true(groups.DiffAdd or false, vim.inspect(drawn.highlights))
   end)
+
+  -- **The group is the other half of a segment, and it is a name too.** Everything above is
+  -- about the *text* a caller did not choose. A group a caller did not choose arrives with
+  -- `file_icon` (#229): a host's icon plugin names it, and it reaches this function checked as
+  -- a string and nothing more. It goes on the bar as `%#<name>#`, so a `#` inside it ends the
+  -- marker early and the rest of the name is parsed as markup.
+  --
+  -- There is no escape for it, because `#` is what ends the marker -- so the name is refused
+  -- and the segment draws in the bar's own colour. `%{...}` in the expectation is the point:
+  -- it is a statusline *expression*, so a case that only compared two strings would not say
+  -- whether it ran.
+  it("refuses a highlight group whose name would break out of its marker", function()
+    local segments = { render.literal("x", "A#%{2+3}#B") }
+    local markup = render.bar(segments)
+    assert.same("x", markup, "the group reached the bar as markup")
+    local drawn = vim.api.nvim_eval_statusline(markup, { winid = 0, use_winbar = true })
+    assert.same("x", drawn.str)
+    assert.same(render.bar_width(segments), drawn.width)
+  end)
+
+  -- The guard, and the reason the case above is not a tautology: put the same name through
+  -- the parser by hand and the expression really does run, and really does put three more
+  -- columns on a bar the ruler measured as one.
+  it("really would have evaluated that name as an expression", function()
+    local drawn = vim.api.nvim_eval_statusline("%#A#%{2+3}#B#x%*", { winid = 0, use_winbar = true })
+    assert.same("5#B#x", drawn.str, "the expression did not run, so this file's premise is wrong")
+  end)
+
+  -- Every character Neovim itself refuses in a group name is refused here, and every one it
+  -- accepts is spelled. Measured against `nvim_set_hl`, which is the authority: a name it
+  -- raises `E5248` for can colour nothing, so dropping it costs a colour that never existed.
+  it("refuses exactly the names Neovim will not accept as a group", function()
+    for _, name in ipairs({ "A#B", "A B", "A%B", "A/B", "A:B", "Ünïcode", "" }) do
+      assert.same("x", render.bar({ render.literal("x", name) }), ("%q reached the bar"):format(name))
+      assert.same(0, vim.fn.hlexists(name), ("%q is a group Neovim accepts after all"):format(name))
+    end
+    for _, name in ipairs({ "DiffAdd", "Code.Review", "@keyword.function", "Dev-Icon", "_x9" }) do
+      assert.same(
+        ("%%#%s#x%%*"):format(name),
+        render.bar({ render.literal("x", name) }),
+        ("%q was refused"):format(name)
+      )
+    end
+  end)
+
+  -- **The trap every case in this suite that reads a bar's colour walks into.** A `%#Group#`
+  -- naming a group nothing defined is dropped by the parser, and the run underneath comes back
+  -- holding the bar's own group alone -- which is what a segment asking for no group at all
+  -- looks like. The two are indistinguishable from outside, so an assertion that a bar drew
+  -- something in a **host's** group passes for a reason unrelated to its claim unless the
+  -- group is defined first.
+  --
+  -- Three states and not two: defined-with-a-colour and defined-but-*cleared* both report, and
+  -- only never-defined drops. That matters because there is no API to undefine a group -- a
+  -- case that "restores" one by writing an empty table leaves it in the middle state, where it
+  -- reports.
+  it("reports a group the theme defines, and drops one it does not", function()
+    local NEVER, CLEARED, COLOURED = "CodeReviewProbeNever", "CodeReviewProbeCleared", "CodeReviewProbeColoured"
+    vim.api.nvim_set_hl(0, CLEARED, {})
+    vim.api.nvim_set_hl(0, COLOURED, { fg = 0x8cf8f7 })
+
+    ---@param group string
+    ---@return string|nil
+    local function reported(group)
+      local drawn = vim.api.nvim_eval_statusline(
+        render.bar({ render.literal("x", group) }),
+        { winid = 0, use_winbar = true, highlights = true }
+      )
+      local stack = drawn.highlights[1].groups
+      return #stack > 1 and stack[#stack] or nil
+    end
+
+    assert.same(0, vim.fn.hlexists(NEVER), "the never-defined probe group exists after all")
+    assert.is_nil(reported(NEVER), "an undefined group was reported, so this trap is gone")
+    assert.same(CLEARED, reported(CLEARED), "a cleared group is not reported, so the middle state is gone")
+    assert.same(COLOURED, reported(COLOURED))
+  end)
 end)
 
 -- The sticky header: the file the cursor is in, named on the winbar so that reading past

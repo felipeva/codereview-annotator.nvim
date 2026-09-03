@@ -1281,8 +1281,13 @@ file_icon({path})                                   *codereview-opt-file_icon*
 
         The group is yours and is never translated into one of the plugin's.
         One your colorscheme does not define costs the glyph its color and
-        never its glyph, and one that is not a non-empty string is dropped the
-        same way. See |codereview-highlights| for why the plugin has no
+        never its glyph, and one that is not a string is dropped the same way
+        -- as is a string that could not be a highlight group at all. Neovim's
+        own rule decides that: letters, digits, `_`, `.`, `@` and `-`, and
+        nothing else. It matters because the |codereview-sticky-header| is a
+        statusline and a group reaches one as markup, so a `#` in the name
+        would end that markup early and put the rest of the name on the bar as
+        statusline items. See |codereview-highlights| for why the plugin has no
         opinion about which color a filetype deserves.
 
         One rule decides what your answer becomes, so a file cannot carry one

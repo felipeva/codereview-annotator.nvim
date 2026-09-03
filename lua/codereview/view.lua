@@ -422,13 +422,19 @@ end
 ---a handful of columns each and say what no number of columns of path can, so when a pane
 ---runs out of room the path is what gives them up.
 ---
----Literals, the glyphs included: a host chooses those, so they are not text the plugin
----wrote. The head is the in-buffer header row's own prefix, taken off the label rather than
----spelled a second time here -- the **state** mark, the chevron and whatever glyph the
----`file_icon` adapter gave this file, which is what makes the two surfaces carry one icon for
----one file. The path arrives already in segments, from the one function that answers what a
----file is called -- so the bar and the in-buffer header row style it identically, and the cut
----a narrow pane makes goes through `render.keep_tail_segments` with the styling on it.
+---**`head` here is the whole run in front of the path**, and it is several segments now: the
+---label's `before_glyph`, the glyph, and the separator behind it. The two words are not the
+---same extent, and the label spells the narrower one under its own name -- two extents
+---sharing one word is how one comes to be measured with the other's number.
+---
+---Literals where a host chose the text, chrome where the plugin did: the **state** mark and
+---the chevron come out of the configured `icons`, the glyph comes out of the `file_icon`
+---adapter, and only the separator behind the glyph is the plugin's own. All of it is taken
+---off the label rather than spelled a second time here, which is what makes the two surfaces
+---carry one icon for one file. The path arrives already in segments, from the one function
+---that answers what a file is called -- so the bar and the in-buffer header row style it
+---identically, and the cut a narrow pane makes goes through `render.keep_tail_segments` with
+---the styling on it.
 ---
 ---Colored as the in-buffer file header colors the same facts, and for the same reason one
 ---function names the file for both: the counts apart, the note count in the group the notes
@@ -449,25 +455,31 @@ local function file_segment(label)
   if rest ~= "" then
     tail[#tail + 1] = render.chrome(rest, "CodeReviewNoteCount")
   end
-  -- **The head is two segments and not one literal, because a segment carries one group and
-  -- the glyph needs its own.** The bar drew the whole prefix in `CodeReviewBarIcon` until
-  -- #229, which left one file carrying one glyph in two colours: the host's in the **file
-  -- tree**, the bar's own quiet here. The cut is where `file_label` already spells the prefix
-  -- apart, so concatenated the two are `label.prefix` byte for byte -- the text is unmoved,
+  -- **Segments and not one literal, because a segment carries one group and the glyph needs
+  -- its own.** The bar drew the whole prefix in `CodeReviewBarIcon` until #229, which left one
+  -- file carrying one glyph in two colours: the host's in the **file tree**, the bar's own
+  -- quiet here. Concatenated these are `label.prefix` byte for byte, so the text is unmoved
   -- and so is every column the bar spends on it.
   --
-  -- The separator rides with the glyph rather than taking a third segment of its own, for the
-  -- reason the label puts it there rather than beside it: what is cut has to be the same cut
-  -- on both surfaces, and a third segment would spell the separator apart from the glyph the
-  -- label spells it with -- two rules, and one of them would move the first time either did.
-  -- What it costs is one blank column drawn in the host's group, which is a foreground an icon
-  -- plugin chose and paints nothing on a space.
+  -- **The host's group covers the glyph and stops there**, which is the extent the header row
+  -- and the tree already colour and therefore the extent this has to colour: one file carries
+  -- one glyph in one colour *of one width* wherever it is named. So the separator behind the
+  -- glyph is a third segment in the bar's own quiet, rather than a column of the host's group
+  -- riding along with it. A group that is only a foreground -- which is what a devicon group
+  -- is -- paints nothing on a space and would have hidden the difference; one carrying a
+  -- background, an underline or `reverse` would draw a column here that neither of the other
+  -- two surfaces draws, and nothing in this plugin decides which kind a host wires.
   --
-  -- A glyph whose adapter gave no group falls back to the head's own quiet, so the upgrade
-  -- path draws what it has always drawn; with nothing wired there is no second segment at all.
-  local head = { render.literal(label.head, "CodeReviewBarIcon") }
+  -- That separator is `render.chrome` and not a literal, because it is the one character in
+  -- this run the plugin itself wrote. The two either side of it are names a host chose: the
+  -- configured `icons`, and the adapter's glyph.
+  --
+  -- A glyph whose adapter gave no group falls back to the bar's own quiet, so the upgrade path
+  -- draws what it has always drawn; with nothing wired there is one segment, as there was.
+  local head = { render.literal(label.before_glyph, "CodeReviewBarIcon") }
   if label.file_icon then
-    head[#head + 1] = render.literal(label.file_icon .. " ", label.file_icon_hl or "CodeReviewBarIcon")
+    head[#head + 1] = render.literal(label.file_icon, label.file_icon_hl or "CodeReviewBarIcon")
+    head[#head + 1] = render.chrome(" ", "CodeReviewBarIcon")
   end
   return {
     head = head,

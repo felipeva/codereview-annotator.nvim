@@ -254,8 +254,12 @@ M.defaults = {
   ---
   ---The group is yours and is never translated. A group your theme gives no colour draws
   ---the glyph in the row's own, so an unknown group costs a colour rather than a glyph, and
-  ---one that is not a non-empty string is dropped the same way. An adapter that answers with
-  ---a glyph alone is complete: the group is what you may add, never what you must.
+  ---one that is not a string is dropped the same way -- as is a string that could not be a
+  ---highlight group at all. Neovim's own rule decides that: letters, digits, `_`, `.`, `@`
+  ---and `-`, and nothing else. It matters because the **sticky header** is a statusline and
+  ---a group reaches one as markup, so a `#` in the name would end the marker early and put
+  ---the rest of your name on the bar as statusline items. An adapter that answers with a
+  ---glyph alone is complete: the group is what you may add, never what you must.
   ---
   ---**A second thing about the file, and never a replacement for the first.** The reviewed,
   ---annotated and unreviewed marks keep their column and their meaning on both the header
