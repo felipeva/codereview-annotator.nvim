@@ -866,6 +866,7 @@ opts = {
                                    -- and tally the untouched ones on the winbar. `gA`
                                    -- overrides this for the rest of the session
   muted = { enabled = true,        -- mute the pane without focus, never the tree
+            --                       a host's filetype glyph recedes with it
             strength = 0.5 },      -- how far its colors are pulled toward the background
   faded = { enabled = true,        -- fade every file except the one the cursor is in
             strength = 0.35 },     -- its own number: this covers every file but one

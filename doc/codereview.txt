@@ -251,6 +251,11 @@ it, when your adapter named a highlight group beside it: a file's glyph in the
 tree, on its header row in the diff and on the sticky header; a directory's in
 the tree, which is the only surface that names a directory.
 
+That color recedes with its window. A glyph on a *muted* pane is pulled toward
+the background with everything else on it, so the pane you are not in has no
+bright thing left in it -- see |codereview-opt-muted|. The file tree is never
+muted, so a glyph there keeps its color under every focus.
+
 Neither adapter is wired by default and the plugin ships no glyph behind
 either, so with none wired every row is exactly what it has always been. A
 glyph comes out of the name's budget: a narrow panel cuts the name from the
