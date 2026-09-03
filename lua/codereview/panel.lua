@@ -255,10 +255,18 @@ function M.build(files, opts)
       -- adapter that answered with a glyph alone draws it in the row's own colour, which is
       -- what a broken group costs as well. The group is the host's own and is never
       -- translated into one of this plugin's (ADR-0001).
+      --
+      -- **Three ranges that abut, and not three that nearly do.** The third begins where the
+      -- *glyph* ends and not where `lead` does -- `lead` is the glyph and its separator, so
+      -- starting there would leave that one byte covered by no range at all. It is a space,
+      -- so today the row looks identical either way and nothing on screen could report it;
+      -- the day the row's group grows a background it is a one-column hole, and the comment
+      -- above would be false without ever having been edited. So the head is covered, and
+      -- the spec asserts the cover rather than the three offsets.
       if group then
         mark(row, 0, { end_col = #before_glyph, hl_group = "CodeReviewPanelDir" })
         mark(row, #before_glyph, { end_col = #before_glyph + #glyph, hl_group = group })
-        mark(row, #before_glyph + #lead, { end_col = #head, hl_group = "CodeReviewPanelDir" })
+        mark(row, #before_glyph + #glyph, { end_col = #head, hl_group = "CodeReviewPanelDir" })
       else
         mark(row, 0, { end_col = #head, hl_group = "CodeReviewPanelDir" })
       end

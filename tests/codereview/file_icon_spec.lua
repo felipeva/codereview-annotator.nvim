@@ -1206,8 +1206,38 @@ describe("the colour of a glyph on a directory row", function()
     assert.same({
       { 0, #("%s "):format(ICONS.expanded), "CodeReviewPanelDir" },
       { #("%s "):format(ICONS.expanded), #("%s %s"):format(ICONS.expanded, DOCS), ORANGE },
-      { #("%s %s "):format(ICONS.expanded, DOCS), #head, "CodeReviewPanelDir" },
+      { #("%s %s"):format(ICONS.expanded, DOCS), #head, "CodeReviewPanelDir" },
     }, vim.list_slice(ranges(rendered, row), 1, 3))
+  end)
+
+  -- **"Around" has to mean *covered*, and the three offsets above do not say so.** They
+  -- passed while the third range began one byte late, at the end of the glyph *and its
+  -- separator* -- so the separator was covered by no range at all. That byte is a space and
+  -- the row's group is a foreground, so nothing on screen could report it and no offset
+  -- written from the same arithmetic could either.
+  --
+  -- So the claim is asserted as the property it is: the head's ranges abut, in order, from
+  -- its first byte to its last. A hole anywhere in the head reds this whatever the offsets
+  -- are spelled as, and a row whose colours are rearranged goes on passing as long as every
+  -- byte of the head still has one.
+  it("leaves no byte of the head uncovered", function()
+    for _, dir in ipairs({ "docs", "apps/api/src" }) do
+      local rendered = tree({ dir_icon = coloured_dir })
+      local row, line = dir_row(rendered, dir)
+      -- The head is everything before the padding that pushes the counts right, and the
+      -- counts carry a range of their own that is not part of this claim.
+      local head = line:match("^(.-)%s+%d+/%d+%s*$")
+      assert.is_truthy(head, line)
+
+      local at = 0
+      for _, range in ipairs(ranges(rendered, row)) do
+        if range[1] < #head then
+          assert.same(at, range[1], ("a hole in %s before byte %d"):format(dir, range[1]))
+          at = range[2]
+        end
+      end
+      assert.same(#head, at, ("the head of %s is not covered to its last byte"):format(dir))
+    end
   end)
 end)
 
