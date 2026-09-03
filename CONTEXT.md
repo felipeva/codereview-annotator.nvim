@@ -115,7 +115,8 @@ part of the diff. The header row is a **band** — filled in a background one st
 which is computed from the reviewer's own theme rather than taken from a palette this plugin
 holds, and far enough off it to clear that theme's cursor line. The band carries no foreground,
 so the path's two halves, the `+N -M` stat, the note count and a host's file glyph all keep
-their own colour on it, and a **reviewed** file keeps its dimming from the mark under the band.
+their own colour on it, and a file already **reviewed** goes on taking the colour a comment
+takes, which is the mark under the band and not the band itself.
 The **pad** after the last hunk carries no rule: a band is a beginning nobody can scroll past,
 so the second hairline had nothing left to close, and a header between two rules two rows apart
 read as text in a box rather than as a title. A terminal with no true colour has no background
@@ -127,6 +128,23 @@ do and its header row does not (see **Faded**).
 Not _separator_: a frame says where one file ends *and* where it began, which a thing between
 two files cannot.
 _Avoid_: border, box, card, rule, divider, separator
+
+**Band**:
+The filled row a file's header is drawn as: a background one step off `Normal`, reaching the
+window's edge because a line-wide highlight is painted past the end of the text. Computed from
+the reviewer's own theme — `Normal`'s background pulled toward `Normal`'s own foreground — so it
+belongs to a colorscheme this plugin has never seen, and pulled far enough to clear that theme's
+`CursorLine`, or a header row would read as permanently selected and the cursor would disappear
+on the row a reviewer lands on after a jump. Carries a background and never a foreground: a
+line-wide group replaces every attribute it sets on the marks beneath it, so a foreground would
+flatten the whole row, and a background is the one attribute that row does not already own.
+Blends with its **pane** when the pane loses focus and stays bright on a **faded** file, like
+the header row it fills. Said of the header row alone: no other row in a **review view** is
+banded, and the fill on a changed line is that line's own diff colour.
+Not the *priority band*, which is where a mark sits in the emission's priority order, and not
+the row bands the syntax emission tracks what it has painted in — both are internal to the
+render and neither is a colour.
+_Avoid_: bar, fill, highlight, stripe, background
 
 **Wrap**:
 Said of a **review view** that folds a line too wide for its window onto further rows, rather

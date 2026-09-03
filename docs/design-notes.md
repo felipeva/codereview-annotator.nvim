@@ -337,8 +337,29 @@ dark theme `Normal` is `#14161b` and `CursorLine` is `#2c2e33`. At 10% the band 
 would read as permanently selected and the cursor would disappear on the one row a reviewer
 lands on when they jump to a file. 20% lands on `#3d3f44`, seventeen units per channel away.
 Deriving the band from `CursorLine` instead of from `Normal` would make that collision the
-design, so it is derived from `Normal` and the suite asserts the *inequality* -- a theme that
-moves its cursor line is caught rather than trusted.
+design, so it is derived from `Normal`.
+
+**A bare inequality cannot make that claim, and asserting one was the first mistake.** Four
+units apart is a passing `~=` -- so the case written to reject the 10% band accepted it. What
+the suite asserts is a **minimum distance per channel**, and the floor is calibrated by the
+band that was rejected rather than by the one that shipped:
+
+| | dark | light |
+| --- | --- | --- |
+| `Normal` / `CursorLine` | `#14161b` / `#2c2e33` | `#e0e2ea` / `#c4c6cd` |
+| the rejected 10% band | `#282a30`, 4 4 3 away | `#ccced5`, 8 8 8 away |
+| the shipped 20% band | `#3d3f44`, 17 17 17 away | `#b7b9c1`, 13 13 12 away |
+
+The floor is 10: above the rejected band on *both* themes and below the shipped one on both.
+Eight would let the rejected band through on a light colorscheme.
+
+**The band crosses the cursor line on a light theme**, which is why the light margin is
+narrower and why it is still enough. At about 14% strength the two are the same colour; 10%
+sits on the near side of that crossing and 20% on the far side. A fixed RGB step is also a
+weaker change near white than near black, so 13 units there is worth less than 17 here — three
+times the distance measured as invisible, on the correct side of the crossing, and it is the
+dark value that a reviewer actually looked at. Raising the strength to widen the light margin
+would change a rendering judged by eye to satisfy arithmetic that never chose it.
 
 **The pad row's rule went with the band, and its group did not.** A band is a beginning nobody
 can scroll past without seeing, so the second hairline had nothing left to close: a header
@@ -357,8 +378,10 @@ That is the review as it read before the band existed rather than a worse one, a
 **`overline` is accepted by the highlight API and comes back in the `cterm` table**, so the
 temptation to draw that terminal's bottom edge with one is real. It is the terminal and not
 Neovim that is the risk: many emulators ignore the sequence, so that edge would be invisible
-on some terminals with nothing reporting it. Both edges are underlines, and the pad row's
-draws at the bottom of a blank row, which is visually just above the next file's header.
+on some terminals with nothing reporting it. Both rules are therefore underlines — on the
+terminal that still draws them, which since the band is the only place either one is left. The
+pad row's sits at the bottom of a blank row, which is visually just above the next file's
+header.
 
 **A computed group has to write its `cterm` attributes by hand.** `nvim_set_hl` lets cterm
 follow the true-color attributes only when the `cterm` table is *absent*, and

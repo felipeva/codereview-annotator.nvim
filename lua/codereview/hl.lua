@@ -9,7 +9,7 @@
 ---not just where the links live: `M.groups()` derives the set the **muted** window is built
 ---from by reading them, so a group that exists anywhere else is one a muted window leaves at
 ---full brightness. Adding a group means adding it here -- to `LINKS` if it links to
----something a colorscheme defines, to `SPAN_GROUPS` or `FRAME_SOURCES` if it is computed, to
+---something a colorscheme defines, to `SPAN_GROUPS` or `FRAME_PAIRS` if it is computed, to
 ---`EDITOR_GROUPS` if it is the editor's own and this plugin merely draws through it -- and
 ---then it is muted without a second list learning about it. There is deliberately no register
 ---to remember to update, because the one thing that would go wrong is invisible until someone
@@ -156,22 +156,27 @@ local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 -- whatever a row's line-wide group says, it says in one computed group, and that is what
 -- makes these four definitions rather than a band added beside the rule.
 --
--- **Both pairs hold the same band, and the key is what stays useful about that.** A reviewed
--- file is not told from an unreviewed one by the band -- the dimming is the column mark
--- underneath, so one computation at one strength answers both. What the key still buys is a
--- group per state under `default = true`: a reviewer who wants a finished file's band dimmer
--- can set `CodeReviewFrameReviewed` and leave every other header alone. Collapsed to one
--- group, that override would take the whole review with it.
+-- **Both pairs hold the same band, and there are two pairs anyway.** A reviewed file is not
+-- told from an unreviewed one by the band -- what says the file is done is the column mark
+-- underneath -- so one computation at one strength answers both. The second pair earns itself
+-- under `default = true`: a reviewer who wants a finished file's band quieter can set
+-- `CodeReviewFrameReviewed` and leave every other header alone, and collapsed to one group
+-- that override would take the whole review with it. `render.lua` picks the pair per file.
+--
+-- **A list, because nothing reads a source group any more.** This was keyed by the header
+-- group each pair accompanies, back when the rule's colour was copied out of it. The band is
+-- computed from `Normal` instead, so the key fed nothing and only looked as though it did --
+-- and an array iterates in a fixed order, which a keyed table does not.
 --
 -- **No `overline`, on the cterm rule these still carry.** It is accepted by this API and comes
 -- back in the `cterm` table, so the temptation is real -- but it maps to a terminal sequence
 -- many emulators ignore, and a bottom edge some terminals do not draw is one nothing reports.
--- The pad row's underline sits at the bottom of a blank row, which is visually just above the
--- next file's header, so one attribute draws both edges there.
----@type table<string, { framed: string, pad: string }>
-local FRAME_SOURCES = {
-  CodeReviewFileHeader = { framed = "CodeReviewFrameHeader", pad = "CodeReviewFramePad" },
-  CodeReviewFileReviewed = { framed = "CodeReviewFrameReviewed", pad = "CodeReviewFramePadReviewed" },
+-- Out there the pad row's underline sits at the bottom of a blank row, which is visually just
+-- above the next file's header, so one attribute draws both edges.
+---@type { framed: string, pad: string }[]
+local FRAME_PAIRS = {
+  { framed = "CodeReviewFrameHeader", pad = "CodeReviewFramePad" },
+  { framed = "CodeReviewFrameReviewed", pad = "CodeReviewFramePadReviewed" },
 }
 
 -- What a review window draws in that is not this plugin's to define: the text with no
@@ -221,8 +226,21 @@ end
 ---`#282a30` -- four units per channel from the cursor line, which is invisible. Every header
 ---row would read as permanently selected, and the cursor would disappear on the one row a
 ---reviewer lands on when they jump to a file. 20% lands at `#3d3f44`, seventeen units per
----channel away, and is unmistakably not the cursor line. `frame_spec` asserts the inequality
----rather than the number, so a theme that moves its cursor line is caught rather than trusted.
+---channel away, and is unmistakably not the cursor line.
+---
+---**On the light theme the margin is smaller, and the strength stands anyway.** `Normal`
+---`#e0e2ea`, `CursorLine` `#c4c6cd`, the band `#b7b9c1`: 13, 13, 12 rather than 17, and a
+---fixed step in RGB is a weaker change near white than near black. It stands because the band
+---*crosses* the cursor line there -- at about 14% the two are the same colour, and 10% sits on
+---the near side of that crossing, 8 units out. 20% is on the far side with three times the
+---distance that was measured as invisible, and the dark value is one a reviewer has looked at
+---rather than one arithmetic chose. Raising the strength to widen a light margin would change a
+---rendering that was judged by eye to satisfy a number that never chose it.
+---
+---What `frame_spec` asserts is neither the colour nor a bare inequality -- the rejected band
+---passes `~=` at four units -- but a **minimum distance per channel**, on the dark theme and on
+---the light one. That is what the strength is checked against, so a theme that moves its cursor
+---line, or a strength somebody changes, is caught rather than trusted.
 ---
 ---**Pulled from `Normal` and never from `CursorLine`.** Deriving the band from the cursor line
 ---would make the collision above the design rather than the thing being avoided.
@@ -250,7 +268,7 @@ end
 local function apply_frame()
   local bg, fg = normal_colors()
   local band = blend(bg, fg, BAND_STRENGTH)
-  for _, pair in pairs(FRAME_SOURCES) do
+  for _, pair in ipairs(FRAME_PAIRS) do
     -- **A background and nothing else.** A line-wide group replaces every attribute it sets on
     -- every inline highlight the row carries, at any priority and in either direction, so a
     -- band carrying a foreground would flatten the whole header row to one colour -- the
@@ -283,7 +301,7 @@ function M.groups()
     out[#out + 1] = group
   end
   vim.list_extend(out, SPAN_GROUPS)
-  for _, pair in pairs(FRAME_SOURCES) do
+  for _, pair in ipairs(FRAME_PAIRS) do
     out[#out + 1] = pair.framed
     out[#out + 1] = pair.pad
   end
