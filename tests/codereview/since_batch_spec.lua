@@ -18,6 +18,7 @@ local root = assert(vim.uv.fs_realpath(fixture))
 local annotate = require("codereview.annotate")
 local codereview = require("codereview")
 local queue = require("codereview.queue")
+local render = require("codereview.render")
 local state = require("codereview.state")
 local view = require("codereview.view")
 
@@ -190,8 +191,14 @@ describe("the split layout", function()
     assert.same(#split.render.lines, #split.before_render.lines)
   end)
 
+  -- Abbreviated, because the snapshot is an object name and nothing a reviewer can
+  -- recognise at forty characters. The rule is `render.rev_label`'s and is asserted as data
+  -- in `chrome_spec`; what is proved here is that this scope's own pre-image goes through
+  -- it, which is the whole claim of this file -- nothing about this scope is second class.
   it("names the snapshot as the image the before pane is showing", function()
-    assert.is_truthy(vim.wo[split.before_win].winbar:find(split.scope.before, 1, true))
+    local bar = vim.wo[split.before_win].winbar
+    assert.is_truthy(bar:find(render.rev_label(split.scope.before), 1, true), bar)
+    assert.is_nil(bar:find(split.scope.before, 1, true), bar)
   end)
 
   it("holds the line the agent added in the after pane", function()
