@@ -57,15 +57,21 @@ M.LAYOUTS = { "unified", "split" }
 ---below the syntax replay, so code coloring survives inside an emphasized span.
 M.PRIORITY = { diff = 100, gutter = 110, span = 120, syntax = 150 }
 
----The **frame**'s two edges, keyed by whether the file is reviewed.
+---The **frame**'s two rows, keyed by whether the file is reviewed.
 ---
----`top` goes on the file's header row in place of the group it would carry anyway, and
----`bottom` on the blank **pad** row that closes its body. `hl.lua` computes all four from the
----two file header groups; this table is the only place that decides which pair a file takes,
----which is what stops one file's two edges disagreeing about its state.
+---`top` fills the file's header row with the **band**, in place of the group that row would
+---carry anyway, and `bottom` goes on the blank **pad** row that closes its body. `hl.lua`
+---computes all four; this table is the only place that decides which pair a file takes.
 ---
----A **collapsed** file takes `top` and never `bottom`. It has no body to bound, and two
----rules with nothing between them read as a broken frame rather than as a closed file.
+---**`bottom` draws nothing on a true-colour terminal, and is emitted all the same.** The band
+---is a beginning nobody can scroll past without seeing, so the rule that closed the file above
+---it was retired with the doubled hairline it made. What the group still holds is that rule
+---for the terminal that can compute no band, and the row it holds it on is a row the diff had
+---anyway.
+---
+---A **collapsed** file takes `top` and never `bottom`. It has no body to bound, and out on
+---that terminal two rules with nothing between them read as a broken frame rather than as a
+---closed file.
 ---@type table<boolean, { top: string, bottom: string }>
 local FRAME = {
   [false] = { top = "CodeReviewFrameHeader", bottom = "CodeReviewFramePad" },
@@ -653,6 +659,59 @@ function M.bar_width(segments)
   return width
 end
 
+---How many characters of an object name a person reads it by.
+---
+---git's own default for `--short`, and what a log, a review tool and a commit message all
+---shorten to. Not configurable: a bar naming seven characters while the reviewer's terminal
+---names eight is a difference nobody can act on.
+local ABBREV = 7
+
+---The lengths a full object name has: sha-1's forty characters, and sha-256's sixty-four.
+---
+---**Both, because which one a repository uses is a question only git can answer.** This
+---function must not ask it -- see below -- and a sha-256 repository drawing its object names
+---whole is exactly the fault this export exists to remove. Accepting both costs a table
+---lookup; accepting one costs the fault coming back in the repositories nobody here runs.
+local OBJECT_NAME = { [40] = true, [64] = true }
+
+---What a base revision is called on a bar.
+---
+---**What `file_label` is for a file, this is for a revision.** The before **pane**'s winbar
+---names two things, and both are now a rule returned as data: it reads without a window
+---behind it, and it is asserted without a repository behind it.
+---
+---Everything a reviewer would recognise -- a **branch**, a tag, a name they typed -- comes
+---back unchanged, because the one revision they *can* read must not be abbreviated into one
+---they cannot. `:0` is git's name for the index and a name nobody reads as one; that rule
+---lives here rather than at the winbar, so one function answers the whole question and a
+---second surface naming a revision cannot come to answer it differently.
+---
+---**Decided from the shape of the name, never by asking git.** The bar is assembled on
+---every paint and a paint runs on every resize, so a `rev-parse --short` here is a process
+---per resize.
+---
+---**And git is what makes deciding by shape safe, rather than luck.** A run of hexadecimal
+---exactly as long as an object name cannot mean anything else, because git will not let it:
+---`git branch <40 hex>` succeeds, and `rev-parse` on that same string then answers the
+---*object* and says why -- "Git normally never creates a ref that ends with 40 hex characters
+---because it will be ignored when you just specify 40-hex". Measured. So a name of this shape
+---reaching here has already been read as an object by the git that resolved the **scope**,
+---and reading it as one here cannot disagree with that.
+---
+---Length alone was rejected as the test: a 40-character name that is *not* hexadecimal is a
+---name somebody chose, and its first seven characters name nothing.
+---@param rev string The **scope**'s before-revision
+---@return string
+function M.rev_label(rev)
+  if rev == ":0" then
+    return "index"
+  end
+  if OBJECT_NAME[#rev] and rev:match("^%x+$") then
+    return rev:sub(1, ABBREV)
+  end
+  return rev
+end
+
 ---Build the view.
 ---
 ---Returns the after-pane render first because the after-image is the primary one
@@ -1004,19 +1063,19 @@ function M.build(files, opts)
     if before then
       before.file_rows[fi] = row
     end
-    -- The **frame**'s top edge, and the header row's own colour beside it.
+    -- The **frame**'s band, and the header row's own colour beside it.
     --
     -- **The colour is a column mark and not the line-wide group it used to be.** A line-wide
     -- group replaces every attribute it sets on every inline highlight the row carries, at
     -- any priority and in either direction, so a line group with a foreground flattens the
     -- whole row to one colour -- which is what the header row's `CodeReviewFileHeader` had
-    -- always done to the `+N -M` stat and the note count emitted below. The frame carries no
-    -- foreground at all (its rule's colour is `sp`), and what the row is coloured in now
+    -- always done to the `+N -M` stat and the note count emitted below. The frame's group
+    -- carries a background and no foreground at all, and what the row is coloured in now
     -- composes with the marks under it by priority, which is what priority does arbitrate.
     -- `docs/design-notes.md` has the measurement; the two shapes are not interchangeable.
     --
-    -- Below the band the marks under it use, so a surface that colours a run of this row --
-    -- the stat here, a **path**'s own styling -- wins on the columns it owns.
+    -- Below the priority band the marks under it use, so a surface that colours a run of this
+    -- row -- the stat here, a **path**'s own styling -- wins on the columns it owns.
     local frame = FRAME[reviewed]
     local base = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader"
     mark(after, row, 0, { line_hl_group = frame.top })
@@ -1087,8 +1146,13 @@ function M.build(files, opts)
         )
         mark(before, hrow, 0, { line_hl_group = "CodeReviewHunkHeader" })
       else
-        local head = hunk.heading ~= "" and ("%s %s"):format(hunk.header, hunk.heading) or hunk.header
-        hrow = row2(truncate(head, width), hanchor)
+        -- git's own header, drawn as git wrote it. The section heading is already the tail
+        -- of that line, so appending `hunk.heading` here is the signature read twice -- and
+        -- worst where it matters most, because a long one doubled is what pushes the first
+        -- copy off a narrow pane. Rejected: rebuilding the line from the ranges the way the
+        -- branch above does. That pane has two headers and no line of git's that says what
+        -- either one spans; this layout has exactly one, and git already wrote it.
+        hrow = row2(truncate(hunk.header, width), hanchor)
       end
       after.hunk_rows[#after.hunk_rows + 1] = hrow
       if before then

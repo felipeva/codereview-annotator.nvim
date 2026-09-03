@@ -311,18 +311,30 @@ question for the cursor, and they must be asked in that order.** A review with n
 no cursor in one, so asking the cursor first leaves an empty scope silent where `]F` used to
 say the review was done. Cost one commit to put back.
 
+**The unified hunk header is git's own line, drawn as git wrote it.** git puts the enclosing
+declaration after the second `@@`, so the string the parser keeps in `hunk.header` already
+names the section — and the render appended `hunk.heading` to it as well, which is the same
+signature read twice. It is worst where it matters most: a long one doubled is what pushes
+the first copy off a narrow pane, and `truncate` then removes the very evidence a row
+assertion would look for. The **split** layout never carried the fault and must not be made
+to follow the same rule: it has *two* headers and no line of git's that says what either one
+spans, so it rebuilds both from the ranges and keeps the heading with the post-image, which is
+the image the heading describes.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
 
 **A line-wide highlight is painted across the full window width past the end of the text,
-and it carries an underline out there with it.** On a **blank** row it is uniform from the
-first column to the last, which is what makes the **frame**'s bottom rule possible at all:
-the rule is a `line_hl_group` on the **pad** row, and no row is emitted for it. Measured on
-0.12, and `frame_child.lua` reads the pane's *last* column rather than its first, because a
-reading taken at the first column passes over a rule one cell wide. A row with no mark on it
-is visibly distinct from a marked blank row, so the pad row's rule is something a spec can
-read rather than something a reviewer has to be trusted about.
+and it carries its background and its underline out there with it.** On a **blank** row it is
+uniform from the first column to the last. That is what makes both halves of the **frame**
+possible without a row of its own: a file's header row is a **band** because a background
+reaches the window's edge, and on the terminal that can draw no band the **pad** row's rule is
+a `line_hl_group` on a row the diff had anyway. Measured on 0.12, and `frame_child.lua` reads
+the pane's *last* column rather than its first, because a reading taken at the first column
+passes over a rule one cell wide. A row with no mark on it is visibly distinct from a marked
+blank row, so what the pad row draws -- and, since the band landed, what it no longer draws --
+is something a spec can read rather than something a reviewer has to be trusted about.
 
 **A `line_hl_group` replaces every attribute it sets on every inline highlight the row
 carries, and priority does not arbitrate between the two.** This is the rule the **frame**
@@ -341,28 +353,78 @@ was built wrong against once, and the shape of it is not what either guess said.
   `line_hl_group` marks on one row do not merge: the higher-priority one is used and the
   other's attributes are gone entirely. So "emit the rule beside the header's own group"
   looks like it works and silently costs that row its colour and its bold everywhere the
-  column marks do not reach.
+  column marks do not reach. Measured again when the band was prototyped, from the other
+  direction: a band emitted as a second mark *below* the frame's priority drew **nothing** at
+  all. Whatever a row's line-wide group says, it says in one computed group.
 
 The consequence for this plugin was invisible and predates the frame: the file header row
 carried `CodeReviewFileHeader` as a `line_hl_group`, and `Title`'s foreground flattened every
 column mark on that row -- the `+N -M` stat and the note count were emitted, correct, and
 drawn in the header's colour. Nothing reported it, because every assertion about them was
-about which mark carried which group. So the frame's four groups carry **no foreground and no
-background**: an underline and `sp`, which is the underline's own colour. What the row is
-coloured in is a column mark of its own, below the band the stat and the path use, so the
-marks that own a run of the row win it by priority -- which is the thing priority does decide.
+about which mark carried which group. So the frame's four groups carry **no foreground**. What
+the row is coloured in is a column mark of its own, below the priority band the stat and the
+path use, so the marks that own a run of the row win it by priority -- which is the thing
+priority does decide.
 
-`sp` has no `cterm` counterpart, because a terminal palette has no underline colour. On cterm
-the rule draws in whatever foreground the cell already had, which is that terminal's best
-rendering rather than a wrong one. `hl.lua` blends `sp` beside `fg` and `bg`, and a group
-whose only colour is `sp` gets a twin like any other -- without that, the rule a file is
-framed with is the one bright line in a pane that has lost focus.
+**A file's header row is a band, and a band is a background and nothing else.** A background
+is the one attribute that row does not already own, so it is the one a line-wide group can add
+without taking something away: measured on a painted cell, a cell inside the file name under a
+band reads its own foreground, its own weight and the band's background together, and the
+path's two halves, the stat, the note count and a host's glyph all survive with it. A band
+carrying a foreground would flatten the row exactly as `Title` used to.
+
+**The band's strength is fixed by the theme's `CursorLine` and not by taste.** It is computed
+from `Normal` -- that background pulled toward `Normal`'s own foreground -- and on Neovim's own
+dark theme `Normal` is `#14161b` and `CursorLine` is `#2c2e33`. At 10% the band lands on
+`#282a30`: four units per channel from the cursor line, which is invisible, so every header row
+would read as permanently selected and the cursor would disappear on the one row a reviewer
+lands on when they jump to a file. 20% lands on `#3d3f44`, seventeen units per channel away.
+Deriving the band from `CursorLine` instead of from `Normal` would make that collision the
+design, so it is derived from `Normal`.
+
+**A bare inequality cannot make that claim, and asserting one was the first mistake.** Four
+units apart is a passing `~=` -- so the case written to reject the 10% band accepted it. What
+the suite asserts is a **minimum distance per channel**, and the floor is calibrated by the
+band that was rejected rather than by the one that shipped:
+
+| | dark | light |
+| --- | --- | --- |
+| `Normal` / `CursorLine` | `#14161b` / `#2c2e33` | `#e0e2ea` / `#c4c6cd` |
+| the rejected 10% band | `#282a30`, 4 4 3 away | `#ccced5`, 8 8 8 away |
+| the shipped 20% band | `#3d3f44`, 17 17 17 away | `#b7b9c1`, 13 13 12 away |
+
+The floor is 10: above the rejected band on *both* themes and below the shipped one on both.
+Eight would let the rejected band through on a light colorscheme.
+
+**The band crosses the cursor line on a light theme**, which is why the light margin is
+narrower and why it is still enough. At about 14% strength the two are the same colour; 10%
+sits on the near side of that crossing and 20% on the far side. A fixed RGB step is also a
+weaker change near white than near black, so 13 units there is worth less than 17 here — three
+times the distance measured as invisible, on the correct side of the crossing, and it is the
+dark value that a reviewer actually looked at. Raising the strength to widen the light margin
+would change a rendering judged by eye to satisfy arithmetic that never chose it.
+
+**The pad row's rule went with the band, and its group did not.** A band is a beginning nobody
+can scroll past without seeing, so the second hairline had nothing left to close: a header
+between two rules two rows apart is text in a box rather than a title. The group stays defined
+and carries nothing in gui, so the table that hands out a pair per file state goes on handing
+out one -- and it has a consequence worth knowing: a group with no colour at all gets no
+blended twin, so a **faded** file's pad row is emitted in the group itself. It draws nothing
+either way, which is why that is correct rather than merely harmless.
+
+**A terminal palette has no background to compute at a strength**, so on cterm there is no band
+and the underline stays -- on the header row and on the pad row alike. `sp` has no `cterm`
+counterpart either, so out there the rule draws in whatever foreground the cell already had.
+That is the review as it read before the band existed rather than a worse one, and it is why
+`hl.lua` writes the `cterm` table by hand rather than deleting the underline with the gui one.
 
 **`overline` is accepted by the highlight API and comes back in the `cterm` table**, so the
-temptation to draw the frame's bottom edge with one is real. It is the terminal and not
+temptation to draw that terminal's bottom edge with one is real. It is the terminal and not
 Neovim that is the risk: many emulators ignore the sequence, so that edge would be invisible
-on some terminals with nothing reporting it. Both edges are underlines, and the pad row's
-draws at the bottom of a blank row, which is visually just above the next file's header.
+on some terminals with nothing reporting it. Both rules are therefore underlines — on the
+terminal that still draws them, which since the band is the only place either one is left. The
+pad row's sits at the bottom of a blank row, which is visually just above the next file's
+header.
 
 **A computed group has to write its `cterm` attributes by hand.** `nvim_set_hl` lets cterm
 follow the true-color attributes only when the `cterm` table is *absent*, and
@@ -657,6 +719,14 @@ count reading the working directory passes every case written from in there; one
 does not. `count_spec`'s last block asks from the tab the reviewer never left, and guards
 that the two checkouts have different numbers to report, or a working-directory read would
 pass while being about the wrong queue.
+
+**Nothing on a winbar may spawn a process.** The before **pane**'s bar names its base
+revision, and abbreviating a 40-character object name is the obvious job for `rev-parse
+--short`. That bar is assembled on every paint and a paint runs on every resize, so it would
+be a git process per resize — and a resize is the operation that has to feel immediate. The
+shape of the name is enough to decide instead: a 40-character run of hexadecimal is an object
+name and nothing else. Length alone was rejected, because a 40-character name that is *not*
+hexadecimal is a name somebody chose and its first seven characters name nothing.
 
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
@@ -1450,6 +1520,40 @@ back to the diff window, so choosing an agent from the queue float dumped the cu
 the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
 leaves the float open behind it. It also has to drive its own repaint: the picker is
 asynchronous, so anything run after the call returns paints before a target exists.
+
+**Two buffers cannot share a name, and the second `nvim_buf_set_name` raises rather than
+renaming.** Measured: `Vim:E95: Buffer with this name already exists`, and **the buffer keeps
+the name it already had**:
+
+```
+b before the collision  codereview://branch
+collision raised        true   Vim:E95: Buffer with this name already exists
+b after the collision   codereview://branch
+```
+
+That last line is the one worth having, and the first measurement of this got it wrong by
+taking it on a buffer that had *no* name — which cannot tell "kept its name" from "left
+unnamed", because both read as empty. The consequence is what the fallback to
+`codereview://<scope>#<bufnr>` is for: without it, a review that met a taken name would go on
+carrying the *previous* **scope**'s name, silently describing a review nobody is looking at.
+Setting a buffer to the name it *already holds* returns cleanly, which is what makes renaming
+on every scope change safe rather than a collision with itself.
+
+**A revspec has no name of its own, so it is the one scope named for its label.** Every
+revspec resolves to `name = "revspec"`, so `HEAD~3..HEAD` and `v1.0..v2.0` would draw one
+buffer name and differ only by the number after `#`. The label is the spec the reviewer typed
+and says which one it is. It is not the rule for the other five: `branch`'s label carries the
+branch it is measured against and a **trim**'s count with a `·` between them, and
+`since-batch`'s is a sentence.
+
+**The collision is reachable, and it takes a reviewer doing nothing unusual.** Opening a
+review closes the current one with `tabclose`, and every review buffer is
+`bufhidden = "wipe"`, so ordinarily nothing survives to collide. A review buffer the reviewer
+has *also* put in a tab of their own does survive that close, holding its name, and the next
+review of that scope meets it. Only the diff claims the scope's name for the mirror-image
+reason: the **file tree**'s buffer and a before **pane**'s buffer are opened beside a diff of
+the same scope, so a scope name on either of them would collide with the diff's on the very
+first review.
 
 ## A checkout deleted underneath a review
 

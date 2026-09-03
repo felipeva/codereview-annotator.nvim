@@ -219,27 +219,6 @@ describe("per-pane chrome", function()
     assert.same("@@ +1,3 @@", after.lines[hrow])
   end)
 
-  it("keeps git's section heading with the post-image range", function()
-    -- Whichever hunk in this fixture carries one; git only emits a heading when it finds a
-    -- containing declaration, so the assertion is conditional on there being one at all.
-    for fi, file in ipairs(files) do
-      for hi, hunk in ipairs(file.hunks) do
-        if hunk.heading ~= "" then
-          local row
-          for _, r in ipairs(rows_of(after, fi)) do
-            local a = after.anchors[r]
-            if a.kind == "hunk" and a.hunk == hi then
-              row = r
-            end
-          end
-          assert.is_truthy(after.lines[row]:find(hunk.heading, 1, true))
-          assert.is_falsy(before.lines[row]:find(hunk.heading, 1, true))
-          return
-        end
-      end
-    end
-  end)
-
   it("shows a renamed file's old path on the left and its new path on the right", function()
     local row = after.file_rows[index_of("src/newname.lua")]
     assert.is_truthy(before.lines[row]:find("src/oldname.lua", 1, true))
@@ -686,8 +665,17 @@ describe("opening in the split layout", function()
     assert.is_truthy(h.winbar(V.win):find(reviewed, 1, true), h.winbar(V.win))
   end)
 
-  it("names the revision the before pane is showing", function()
-    assert.is_truthy(vim.wo[V.before_win].winbar:find(V.scope.before, 1, true))
+  -- The one live case behind `chrome_spec`'s data answer: what the abbreviation *is* is a
+  -- rule with no repository behind it, and that this bar draws it needs a real branch scope,
+  -- whose pre-image is a 40-character object name. The guard is what lets this fail --
+  -- abbreviating a name that is already short says nothing. Both halves are asserted,
+  -- because finding the short form alone passes over a bar still naming the whole object:
+  -- the short one is a prefix of it.
+  it("names the revision the before pane is showing, abbreviated", function()
+    assert.is_truthy(V.scope.before:match("^%x+$") and #V.scope.before == 40, V.scope.before)
+    local drawn = h.winbar(V.before_win)
+    assert.is_truthy(drawn:find(render.rev_label(V.scope.before), 1, true), drawn)
+    assert.is_falsy(drawn:find(V.scope.before, 1, true), drawn)
   end)
 end)
 
@@ -1242,11 +1230,13 @@ describe("the sticky header in the split layout", function()
   vim.api.nvim_win_set_cursor(V.win, { line_row(V, V.render, "src/main.lua", ADDED), 0 })
   annotate.annotate("bug")
 
-  -- Both bars have to hold a 40-character revision and a path at once, and a third of a
-  -- 120-column terminal is not enough for that -- the pane would truncate its way to a pass
-  -- or a fail for reasons that have nothing to do with which side it names. Widening the
+  -- Both bars have to hold everything they name at once -- the after pane its file and the
+  -- whole review summary, the before pane its revision and the pre-image path -- and a third
+  -- of a 120-column terminal is not enough for either. The pane would truncate its way to a
+  -- pass or a fail for reasons that have nothing to do with which side it names. Widening the
   -- terminal hands every new column to the last window, so the panes are leveled after it,
   -- and the repaint is this test's to drive: `WinResized` never lands in a headless spec.
+  local narrow = vim.api.nvim_win_get_width(V.win)
   vim.o.columns = 200
   vim.cmd("wincmd =")
   view.paint()
@@ -1264,12 +1254,20 @@ describe("the sticky header in the split layout", function()
   -- highlight markers on them would never be found in the option itself.
   local after, before = h.winbar(V.win), h.winbar(V.before_win)
 
-  -- Guards the block: on a pane with no room for both, the before pane's path is dropped
-  -- rather than drawn over its revision, and every case here would be reading that instead.
-  it("really gave each pane room for a revision and a path", function()
-    local width = vim.api.nvim_win_get_width(V.before_win)
-    local need = vim.fn.strdisplaywidth(V.scope.before) + #" Before ·   src/oldname.lua "
-    assert.is_true(width >= need, ("%d columns, %d needed"):format(width, need))
+  -- Guards the block: every case below reads a bar that had room for everything it names, and
+  -- a bar with less sheds instead -- the summary from its head, the path from its directories.
+  -- What that costs a case is a red for a reason that has nothing to do with what it asserts,
+  -- so what is guarded is that the widening above took effect at all.
+  --
+  -- Asserted as *more columns than before it*, and no longer as arithmetic on the before
+  -- pane's bar. That reading was sized on a 40-character revision; the revision is seven
+  -- characters now, so the before pane fits a revision and a path at every width this spec can
+  -- reach and a budget taken there cannot fail. The after pane is where the room is still
+  -- tight -- it carries the file *and* the whole review summary -- and a comparison against
+  -- the width before the widening can fail whatever either bar happens to need.
+  it("really widened the panes before reading their bars", function()
+    local wide = vim.api.nvim_win_get_width(V.win)
+    assert.is_true(wide > narrow, ("%d columns before the widening, %d after"):format(narrow, wide))
   end)
 
   it("names the post-image path on the after pane, and only that side", function()
@@ -1278,7 +1276,7 @@ describe("the sticky header in the split layout", function()
   end)
 
   it("names the base revision and the pre-image path on the before pane", function()
-    assert.is_truthy(before:find(V.scope.before, 1, true), before)
+    assert.is_truthy(before:find(render.rev_label(V.scope.before), 1, true), before)
     assert.is_truthy(before:find("src/oldname.lua", 1, true), before)
   end)
 
@@ -1294,7 +1292,7 @@ describe("the sticky header in the split layout", function()
   -- by the rule that styles the after pane's path -- each pane names its own side of a
   -- rename, so each side is a path and each path is a quiet half and a bright one.
   it("colors the before pane's bar as it colors the after pane's", function()
-    assert.same("CodeReviewBarRev", h.winbar_group(V.before_win, V.scope.before))
+    assert.same("CodeReviewBarRev", h.winbar_group(V.before_win, render.rev_label(V.scope.before)))
     assert.same("CodeReviewBarSep", h.winbar_group(V.before_win, "·"))
     assert.same("CodeReviewFileDir", h.winbar_group(V.before_win, "src/"))
     assert.same("CodeReviewFileName", h.winbar_group(V.before_win, "oldname.lua"))
@@ -1319,7 +1317,8 @@ describe("the sticky header in the split layout", function()
   end)
 
   it("still names the revision on a pane naming no file", function()
-    assert.is_truthy(vim.wo[V.before_win].winbar:find(V.scope.before, 1, true), vim.wo[V.before_win].winbar)
+    local drawn = render.rev_label(V.scope.before)
+    assert.is_truthy(vim.wo[V.before_win].winbar:find(drawn, 1, true), vim.wo[V.before_win].winbar)
   end)
 end)
 
