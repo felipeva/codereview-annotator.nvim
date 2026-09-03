@@ -57,15 +57,21 @@ M.LAYOUTS = { "unified", "split" }
 ---below the syntax replay, so code coloring survives inside an emphasized span.
 M.PRIORITY = { diff = 100, gutter = 110, span = 120, syntax = 150 }
 
----The **frame**'s two edges, keyed by whether the file is reviewed.
+---The **frame**'s two rows, keyed by whether the file is reviewed.
 ---
----`top` goes on the file's header row in place of the group it would carry anyway, and
----`bottom` on the blank **pad** row that closes its body. `hl.lua` computes all four from the
----two file header groups; this table is the only place that decides which pair a file takes,
----which is what stops one file's two edges disagreeing about its state.
+---`top` fills the file's header row with the **band**, in place of the group that row would
+---carry anyway, and `bottom` goes on the blank **pad** row that closes its body. `hl.lua`
+---computes all four; this table is the only place that decides which pair a file takes.
 ---
----A **collapsed** file takes `top` and never `bottom`. It has no body to bound, and two
----rules with nothing between them read as a broken frame rather than as a closed file.
+---**`bottom` draws nothing on a true-colour terminal, and is emitted all the same.** The band
+---is a beginning nobody can scroll past without seeing, so the rule that closed the file above
+---it was retired with the doubled hairline it made. What the group still holds is that rule
+---for the terminal that can compute no band, and the row it holds it on is a row the diff had
+---anyway.
+---
+---A **collapsed** file takes `top` and never `bottom`. It has no body to bound, and out on
+---that terminal two rules with nothing between them read as a broken frame rather than as a
+---closed file.
 ---@type table<boolean, { top: string, bottom: string }>
 local FRAME = {
   [false] = { top = "CodeReviewFrameHeader", bottom = "CodeReviewFramePad" },
@@ -1030,19 +1036,19 @@ function M.build(files, opts)
     if before then
       before.file_rows[fi] = row
     end
-    -- The **frame**'s top edge, and the header row's own colour beside it.
+    -- The **frame**'s band, and the header row's own colour beside it.
     --
     -- **The colour is a column mark and not the line-wide group it used to be.** A line-wide
     -- group replaces every attribute it sets on every inline highlight the row carries, at
     -- any priority and in either direction, so a line group with a foreground flattens the
     -- whole row to one colour -- which is what the header row's `CodeReviewFileHeader` had
-    -- always done to the `+N -M` stat and the note count emitted below. The frame carries no
-    -- foreground at all (its rule's colour is `sp`), and what the row is coloured in now
+    -- always done to the `+N -M` stat and the note count emitted below. The frame's group
+    -- carries a background and no foreground at all, and what the row is coloured in now
     -- composes with the marks under it by priority, which is what priority does arbitrate.
     -- `docs/design-notes.md` has the measurement; the two shapes are not interchangeable.
     --
-    -- Below the band the marks under it use, so a surface that colours a run of this row --
-    -- the stat here, a **path**'s own styling -- wins on the columns it owns.
+    -- Below the priority band the marks under it use, so a surface that colours a run of this
+    -- row -- the stat here, a **path**'s own styling -- wins on the columns it owns.
     local frame = FRAME[reviewed]
     local base = reviewed and "CodeReviewFileReviewed" or "CodeReviewFileHeader"
     mark(after, row, 0, { line_hl_group = frame.top })

@@ -68,6 +68,14 @@ local function drawn(buf, first, last)
 end
 
 ---Those of `groups` that this plugin defines, split by whether the fade renamed them.
+---
+---A group of this plugin's own with **nothing to blend** is left out of both lists, for the
+---same reason a colourless treesitter capture is: the fade hands back nothing for it and the
+---row is emitted in the group as it stands, so counting that as "left bright" would count the
+---nil contract as a defect. The **pad** row's group is the one in this fixture. Since a file's
+---header row became a **band**, that group carries no gui colour at all -- it holds the rule
+---the terminal without true colour still draws, and there is nothing on that row for a fade to
+---pull.
 ---@param groups table<string, boolean>
 ---@return string[] faded, string[] bright
 local function own(groups)
@@ -75,7 +83,7 @@ local function own(groups)
   for group in pairs(groups) do
     if is_faded(group) then
       faded[#faded + 1] = group
-    elseif group:sub(1, #"CodeReview") == "CodeReview" then
+    elseif group:sub(1, #"CodeReview") == "CodeReview" and hl.blended("faded", group) then
       bright[#bright + 1] = group
     end
   end
