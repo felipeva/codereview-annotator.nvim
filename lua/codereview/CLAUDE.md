@@ -18,7 +18,7 @@ change there is felt through.
 | `capture.lua` | The capture path: the same entry from an ordinary buffer, no review view involved | stateful (queue, buffer) |
 | `checkout.lua` | Moving the review to another **checkout**: the listing behind the choice, the picker the plugin ships as the default `pick_checkout` adapter, and the open a **switch** ends in | stateful (view) |
 | `composer.lua` | The shipped composer and its `@` reference picker — the default `compose` adapter, not a lesser one | stateful (float) |
-| `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff`, `pick_checkout`, `file_icon` | stateful (options) |
+| `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff`, `pick_checkout`, `file_icon`, `dir_icon` | stateful (options) |
 | `delivery.lua` | Where a batch is going, how that is chosen, the **preamble** composed at submit time, and the submit that empties the queue only on dispatch | stateful (target, queue) |
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
@@ -27,7 +27,7 @@ change there is felt through.
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
-| `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies; a file row's glyph is `render`'s answer, never a second copy of the rule | pure |
+| `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies; a file row's glyph and a directory row's are both `render`'s answer — two adapters, one rule, never a second copy of it | pure |
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that drop, jump, copy and submit | stateful (float) |

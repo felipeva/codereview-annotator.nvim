@@ -338,6 +338,47 @@ function M.annotate(type_name)
   M.annotate_target(V, target, type_def.name)
 end
 
+---@class CRPickerColumns Display columns each of the picker's columns is drawn to
+---@field icon integer
+---@field name integer
+---@field key integer
+
+---One row of the type picker, as the reviewer reads it.
+---
+---Glyph, name, key, directive -- in columns, because a reviewer looking for one of these
+---reads down a column rather than along a row. The glyph leads because it is what the diff
+---draws, so choosing here and reading there stay one vocabulary. The key comes next because
+---this menu exists to be outgrown: a reviewer who reads `ab` beside `bug` stops needing it.
+---The directive is last because it is the only part long enough to run off the row.
+---
+---The glyph is padded like everything else. It is the column most easily mistaken for a
+---fixed one, and it is the least fixed of the three: `normalize` takes whatever glyph a host
+---gives a type, so one two-cell glyph on one type moves every name in the menu.
+---
+---The key printed is the whole keystroke, `ab`, and not the configured suffix `b`, which on
+---its own names nothing anybody can press.
+---@param t CRType
+---@param cols CRPickerColumns
+---@return string
+local function picker_row(t, cols)
+  local key = types.PREFIX .. t.key
+  local row = ("%s  %s  %s"):format(
+    render.pad(t.icon, cols.icon),
+    render.pad(t.name, cols.name),
+    render.pad(key, cols.key)
+  )
+  -- A type may carry no directive, and then the row stops at the key rather than running on
+  -- into an empty column. A blank column would say the type has a directive and that the
+  -- directive says nothing, which is the same lie the payload's bare `## Questions (n)`
+  -- heading already refuses to tell.
+  --
+  -- Trailing blanks only. `vim.trim` would take the *leading* ones too, which are the glyph
+  -- column on a row whose glyph is empty -- `icons.annotated = ""` is a host asking for
+  -- exactly that -- and a row that gives up its leading columns is out of line with every
+  -- row that kept them, which is the alignment this whole function is for.
+  return t.directive and (row .. "  " .. t.directive) or (row:gsub("%s+$", ""))
+end
+
 ---Offer the configured types, plus an explicit way to decline one.
 ---
 ---Declining is an entry in the menu rather than a second meaning for dismissing it. The
@@ -345,14 +386,33 @@ end
 ---outright, so reusing it would make "no type" indistinguishable from "never mind".
 ---
 ---Shared by the review path and by buffer capture, which offered the same menu twice.
+---
+---Through `vim.ui.select`, which most configurations have already replaced: the picker
+---should look like every other picker in the editor, and a float of the plugin's own would
+---be a new surface with its own keys before it was an improvement.
 ---@param list CRType[]
 ---@param cb fun(type_def: CRType|nil) Untyped when nil; not called at all if dismissed
 function M.pick_type(list, cb)
+  -- Measured over the configured list rather than fixed: a host whose names are longer than
+  -- the shipped five would otherwise have every row's key land in a different column, which
+  -- is the one thing a column buys. The untyped mark is measured with them because it shares
+  -- the glyph column below.
+  ---@type CRPickerColumns
+  local cols = { icon = vim.fn.strdisplaywidth(types.UNTYPED.icon), name = 0, key = 0 }
+  for _, t in ipairs(list) do
+    cols.icon = math.max(cols.icon, vim.fn.strdisplaywidth(t.icon))
+    cols.name = math.max(cols.name, vim.fn.strdisplaywidth(t.name))
+    cols.key = math.max(cols.key, vim.fn.strdisplaywidth(types.PREFIX .. t.key))
+  end
+
   local labels = vim.tbl_map(function(t)
-    return ("%s  %s"):format(t.icon, t.name)
+    return picker_row(t, cols)
   end, list)
   -- Appended, so every configured type keeps the position a reviewer already reaches for.
-  labels[#labels + 1] = ("%s  no type"):format(types.UNTYPED.icon)
+  -- It shares the glyph column, because it has a mark and a mark is a glyph, and declines
+  -- every column after it: no key reaches it and it instructs nothing, so drawing those two
+  -- would be two blank columns saying what their absence says better.
+  labels[#labels + 1] = ("%s  no type"):format(render.pad(types.UNTYPED.icon, cols.icon))
 
   vim.ui.select(labels, { prompt = "Annotation type:" }, function(_, index)
     if not index then

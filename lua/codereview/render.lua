@@ -180,6 +180,22 @@ end
 ---a second copy would be a second set of rules about what "too wide" means.
 M.truncate = truncate
 
+---`text`, followed by blanks until it has spent `width` display columns.
+---
+---By display width rather than by byte count, which is what `("%-8s"):format` does: a glyph
+---or a name outside ASCII costs more bytes than it draws, and the column it is meant to hold
+---collapses by the difference. `truncate`'s neighbour, and here for its reason -- fitting
+---text into a column count is this module's job wherever the text goes.
+---
+---Right-padding only. `trim_float` pads the other way, to right-align a date under a date,
+---and that is a different operation rather than this one with a flag.
+---@param text string
+---@param width integer Display columns
+---@return string
+function M.pad(text, width)
+  return text .. (" "):rep(math.max(0, width - vim.fn.strdisplaywidth(text)))
+end
+
 ---The last `width` display columns of `text`, with `…` where the head was cut.
 ---
 ---`truncate`'s mirror, and the **sticky header**'s: a path that has to give up columns
@@ -396,13 +412,22 @@ local function nameable(group)
   return group:match("^[%w_.@-]+$") ~= nil
 end
 
----A host's own glyph for a file, and the group that colours it -- or nil when it has none.
+---A host's own glyph for a path, and the group that colours it -- or nil when it has none.
 ---
 ---**Exported because three surfaces name a file and one rule decides what its glyph is.**
 ---The diff's header row and the **sticky header** read it through `file_label`; the **file
 ---tree** reads it here, because a tree row is not a label and needs the glyph alone. Two
 ---copies of this rule is two places for those surfaces to come to disagree about the same
 ---file, which is the whole of *one file, one icon*.
+---
+---**Written for `file_icon` and handed `dir_icon` as well.** A directory names no file, so
+---the tree asks about one through a second adapter -- but *what an adapter answered with* is
+---the same question either way, and the answer is checked here by the same `pcall` and the
+---same two type tests. A directory copy of this rule is a third place for those tests to
+---drift, and a reviewer would meet the drift as a colour their icon plugin chose surviving
+---on a file row and not on the directory row above it. The name says which adapter the rule
+---was written for and not which one it may be handed; renaming it would rewrite `file_label`
+---below, the tree, and the spec's own watch on this function, for a word.
 ---
 ---**The group is carried out beside the glyph because both icon plugins answer with it.**
 ---`nvim-web-devicons.get_icon` answers with a glyph and the name of the group that colours

@@ -107,6 +107,38 @@ glyph a reviewer chose. The tree's own offsets are unaffected either way, becaus
 goes *after* the state mark: the mark keeps its column, so the range that colors it keeps its
 bytes.
 
+**A directory row reaches the same rule with a different adapter, and that is what makes the
+name misleading.** `render.file_icon` decides what an *adapter* answered with, not what a file
+is; `dir_icon` is handed to it from the directory branch of the same walk. The alternative
+was a directory copy of it, which is a third place for the same two type tests to drift apart
+— and a reviewer would meet the drift as a group their icon plugin named surviving on a file
+row and not on the directory row above it. Renaming the rule reads better at that one call
+site and rewrites `file_label`, the tree and the spec's watch on the function for a word, so
+the name records which adapter it was written for and the docblock records what it may be
+handed.
+
+**The directory row's own trap is the reverse of the file row's, and it is about which extmark
+was emitted last.** A file row colors the state mark and leaves the name to the row's own
+foreground, so a glyph's group lands on bytes nothing else covers. A directory row colors its
+*whole head* in `CodeReviewPanelDir`, so a group laid over the glyph is a second range over
+bytes the first already has — and which one draws then rests on Neovim's tie-break between two
+extmarks of equal priority. That is deterministic and it is findable nowhere in `panel.lua`,
+which is the part that costs debugging time later. So the head is emitted as two ranges with
+the host's between them when there is a group, and stays the single range it has always been
+when there is not — a glyph alone, or a group the rule dropped, draws in the row's own color
+because the row's own range still covers it. The chevron and its separator are **four bytes and
+two display columns**, so the glyph's range is placed at `#before_glyph`, the expression the
+head itself is built from; placed at the column it lands two bytes early and colors the
+chevron.
+
+**Nothing wired had to stay byte-identical, and a diff of the source cannot say that.**
+`master`'s `panel.lua` and the branch's were loaded into one process and duelled over 37 builds
+— nine widths, a deep chain, non-ASCII names, collapsed chains, reviewed and annotated trees, a
+wired `file_icon`, an empty scope — comparing `lines`, `marks` and all five row maps: 85
+directory rows, no difference. The zero means *not different* rather than *not compared*
+because the same comparison was then run with `dir_icon` wired and required to differ on every
+one of the 35 cases that draws a directory row at all.
+
 **That rule carries a highlight group out beside the glyph, because both icon plugins answer
 with one.** `nvim-web-devicons.get_icon` and `MiniIcons.get` each return a glyph and the name
 of the group that colors it; reading the first and dropping the second drew every wired glyph
@@ -180,6 +212,18 @@ to the widest the listing carries, which is also what leaves every row the same 
 columns wide. Dropping the date's padding alone reds one case in `trim_float_spec`, and it
 reds on the row *widths* rather than on the size's own offset: the size is pinned on its left
 by the subject's own fixed width either way.
+
+**The type picker's columns break in two ways the shipped five cannot show, and both are a
+host's to cause.** The glyph, the name and the key are each padded to the widest the
+*configured* list carries, and every part of that sentence is load-bearing. Measuring the
+name and the key but not the glyph looks safe while the shipped glyphs are all one cell wide,
+and `normalize` accepts whatever a host gives a type: one two-cell glyph then moves every name
+in the menu. And a row with no directive has to give up its trailing blanks without giving up
+its leading ones, which rules out `vim.trim` — that strips both ends, and the leading end is
+the glyph column on a row whose glyph is empty. `icons = { annotated = "" }` is a host asking
+for exactly that, and it reaches a row because the empty-string rule covers a *type's* own
+`icon` field, not the table it falls back to. Neither case is visible with the defaults, so
+both are pinned against a replaced vocabulary in `types_spec`.
 
 **That float's counts arrive after it is drawn, and the float can be gone by then.** The
 listing is a metadata query and near-instant; the sizes are a diff of every commit on the
@@ -547,6 +591,15 @@ matters more than the render's. Counted rather than argued, and with nothing wir
 of those counts is **0**: there is no shipped glyph behind that adapter and therefore no
 default implementation of it to call, which is the whole of the guarantee. It is a rule a
 later edit cannot break by accident, where "we remembered not to call it" is one that can.
+
+**`dir_icon` is the same call on a much smaller count, and it is not measured on its own.** A
+**drawn** directory row asks it once, on the same two events a file row asks `file_icon` on —
+a paint and a **file crossing** — and a collapsed directory's children are not drawn and not
+asked about. There are far fewer directory rows than files, because compaction puts a whole
+single-child chain on one row. The per-call figure is the rule's own and is resolved above at
+0.16 to 0.21 µs; the count it multiplies is bounded below the file count, so no campaign was
+run for it. With nothing wired it is the same nil test at the same kind of call site, for the
+same structural reason.
 
 **The tree's build resolves what a paint cannot, and it is where #217's numbers were taken.**
 `panel.build` at three hundred files is 0.48 to 0.51 ms and it is pure, so two arms duel inside

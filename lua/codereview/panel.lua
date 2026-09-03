@@ -4,12 +4,17 @@
 ---left", which a single scrolling document cannot show. A flat list of basenames could not
 ---either: in any real repository half the entries are called `index.ts`.
 ---
----Pure, and one edge: `render` decides what a **host**'s `file_icon` adapter answers with,
----for the tree as for the two surfaces the diff draws. The rule is one `pcall` and a type
----test on each half of the answer -- the glyph, and the highlight group that colours it --
----and a second copy of it here is two places for the tree and the diff to come to disagree
----about the same file, which is the whole of *one file, one icon*. It lives in `render`
----because `render` already owns what a file is called wherever it is named.
+---Pure, and one edge: `render` decides what a **host**'s icon adapters answer with, for the
+---tree as for the two surfaces the diff draws. The rule is one `pcall` and a type test on
+---each half of the answer -- the glyph, and the highlight group that colours it -- and a
+---second copy of it here is two places for the tree and the diff to come to disagree about
+---the same file, which is the whole of *one file, one icon*. It lives in `render` because
+---`render` already owns what a file is called wherever it is named.
+---
+---This surface asks it twice, with two adapters: `file_icon` for a file row and `dir_icon`
+---for a directory one. Two adapters and one rule -- a host wires one function per kind of
+---thing so that neither has to guess what it was handed, and both answers are then checked
+---in the one place.
 local M = {}
 
 local render = require("codereview.render")
@@ -138,8 +143,41 @@ end
 
 --- Rendering -------------------------------------------------------------------
 
+---What a host's answer costs one row: the glyph, the group that colours it, the glyph and
+---its separator as one string, and that string's width in display columns.
+---
+---**One copy, because it is one rule.** A file row and a directory row reach two different
+---adapters, but what an answer *costs a row* is the same thing on both: the separator rides
+---with the glyph, so a row with no glyph contributes nothing rather than a space -- which
+---would move every name in every tree by one column and look right while doing it -- and the
+---width is measured only when there is something to measure. `strdisplaywidth` is a call
+---across the vimscript bridge, once a row, on every paint *and* on every **file crossing**;
+---#217 measured the unguarded form at 0.14 us a row. Two copies of that is one place for the
+---guard to be dropped without anyone noticing.
+---
+---**The name's budget is not in here, and that is deliberate.** Both branches subtract the
+---same expression today and the two are equal by coincidence rather than by rule: on a
+---directory row the fixed 2 is the chevron and its separator, on a file row it is the state
+---mark and its separator. Shared, the expression would assert an equality nothing guarantees,
+---and a chevron two columns wide would silently mis-budget the other branch.
+---
+---**The guard stays outside**, at each caller, which is why this takes an adapter that is
+---never nil. A nil adapter answered in here is a call a row makes for a review that wired
+---nothing, and that guarantee is structural rather than remembered (ADR-0001).
+---@param adapter fun(path: string): string|nil, string|nil
+---@param path string
+---@return string|nil glyph, string|nil group, string lead, integer lead_width
+local function row_icon(adapter, path)
+  local glyph, group = render.file_icon(adapter, path)
+  if not glyph then
+    return nil, nil, "", 0
+  end
+  local lead = glyph .. " "
+  return glyph, group, lead, vim.fn.strdisplaywidth(lead)
+end
+
 ---@param files CRFile[]
----@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
+---@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, dir_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
 ---@return CRPanelRender
 function M.build(files, opts)
   local icons = opts.icons
@@ -163,16 +201,44 @@ function M.build(files, opts)
     local indent = ("  "):rep(depth)
 
     if node.kind == "dir" then
-      -- **A directory row draws no glyph, and that is a decision rather than an omission.**
-      -- A directory names no file, so there is nothing to ask the adapter about, and asking
-      -- about an invented path would be the plugin having the opinion the adapter exists to
-      -- avoid (ADR-0001). The adapter is reached from the file branch below and from nowhere
-      -- else, so a tree of directories asks it nothing at all.
+      -- **A directory row carries a glyph through an adapter of its own, and never through
+      -- the file one.** A directory names no file, so there is nothing to ask `file_icon`
+      -- about it and asking about an invented path would be the plugin having the opinion
+      -- the adapter exists to avoid (ADR-0001). That reasoning stood while there was one
+      -- adapter and it stands now: the answer is a second adapter rather than a wider first
+      -- one, and neither is ever handed the other's kind of thing. `file_icon` is reached
+      -- from the file branch below and from nowhere else.
+      --
+      -- The rule that reads the answer is the file one, handed this adapter. One rule and
+      -- not two: a second copy is a second place for a glyph and a group to be checked
+      -- differently, and a reviewer would meet the difference as a colour their icon plugin
+      -- chose surviving on one row of one tree and not on the next.
+      --
+      -- Nothing wired is the common case and costs the test in front of the call, for the
+      -- reason the file branch spells out below: there is no glyph shipped behind this key,
+      -- so with none of it there is nothing to call.
       local shut = collapsed[node.path]
       local chevron = shut and icons.collapsed or icons.expanded
       local right = ("%d/%d"):format(node.reviewed, node.total)
-      local name = truncate_left(node.name, width - #indent - 2 - #right - 2)
-      local head = ("%s%s %s"):format(indent, chevron, name)
+      -- `node.path` is the directory this row **names**, which for a compacted chain is the
+      -- deepest of the directories the row spells: `apps/api/src` and never `apps`. The
+      -- glyph and the name are then about the same directory, which is the whole of what a
+      -- compacted row promises.
+      local glyph, group, lead, lead_width = nil, nil, "", 0
+      if opts.dir_icon then
+        glyph, group, lead, lead_width = row_icon(opts.dir_icon, node.path)
+      end
+      -- The name's budget pays for the glyph, and the name goes on being cut from the left.
+      -- The fixed 2 here is the chevron and its separator, which is why this expression is
+      -- spelled again on the file row rather than shared with it -- see `row_icon`.
+      local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - lead_width)
+      -- **What the glyph starts after, spelled once**, so the string the row is built from
+      -- and the offset the glyph's own mark lands at are one expression and neither can be
+      -- updated without the other. A chevron and its separator are four bytes and two
+      -- columns, so a range placed at the display column lands two bytes early and colours
+      -- the chevron -- which is the trap the header row sprang first.
+      local before_glyph = ("%s%s "):format(indent, chevron)
+      local head = before_glyph .. lead .. name
       local pad = math.max(1, width - vim.fn.strdisplaywidth(head) - #right - 1)
       local text = head .. (" "):rep(pad) .. right
 
@@ -180,7 +246,30 @@ function M.build(files, opts)
       local row = #lines
       row_dir[row] = node.path
       row_depth[row] = depth
-      mark(row, 0, { end_col = #head, hl_group = "CodeReviewPanelDir" })
+      -- **The row's own colour is laid around the host's and never under it.** A directory
+      -- row colours its whole head, so a glyph's group would be a second range over bytes
+      -- the first already covers, and which of the two drew would rest on which extmark was
+      -- emitted last -- true today, and findable nowhere in this file by anyone wondering
+      -- later why a colour changed. So the head is split at the glyph when there is a group
+      -- to put there, and stays the single range it has always been when there is not: an
+      -- adapter that answered with a glyph alone draws it in the row's own colour, which is
+      -- what a broken group costs as well. The group is the host's own and is never
+      -- translated into one of this plugin's (ADR-0001).
+      --
+      -- **Three ranges that abut, and not three that nearly do.** The third begins where the
+      -- *glyph* ends and not where `lead` does -- `lead` is the glyph and its separator, so
+      -- starting there would leave that one byte covered by no range at all. It is a space,
+      -- so today the row looks identical either way and nothing on screen could report it;
+      -- the day the row's group grows a background it is a one-column hole, and the comment
+      -- above would be false without ever having been edited. So the head is covered, and
+      -- the spec asserts the cover rather than the three offsets.
+      if group then
+        mark(row, 0, { end_col = #before_glyph, hl_group = "CodeReviewPanelDir" })
+        mark(row, #before_glyph, { end_col = #before_glyph + #glyph, hl_group = group })
+        mark(row, #before_glyph + #glyph, { end_col = #head, hl_group = "CodeReviewPanelDir" })
+      else
+        mark(row, 0, { end_col = #head, hl_group = "CodeReviewPanelDir" })
+      end
       mark(row, #text - #right, {
         end_col = #text,
         -- A fully-reviewed directory reads as done at a glance, without counting.
@@ -214,30 +303,18 @@ function M.build(files, opts)
     -- alone was reached by: that idiom is an expression, so it truncates a second return
     -- value away silently -- the colour would be dropped here, and nowhere a reader could
     -- see it happen.
-    local glyph, group
+    local glyph, group, lead, lead_width = nil, nil, "", 0
     if opts.file_icon then
-      glyph, group = render.file_icon(opts.file_icon, node.path)
+      glyph, group, lead, lead_width = row_icon(opts.file_icon, node.path)
     end
-    -- The separator rides with the glyph rather than standing beside it, so a file with no
-    -- glyph contributes nothing here at all rather than a space -- which would move every
-    -- name on every row of every tree by one column and look right while doing it.
-    --
     -- **The name's budget pays for the glyph**, and the name goes on being cut from the
     -- left, so what survives a narrow panel is the end of the name -- which is where the
     -- extension is, and the extension is what the glyph is about. In display columns,
     -- because that is what a panel is 34 of: a host's glyph is multibyte, and the ones it is
     -- likeliest to answer with are one column wide while some are two.
     --
-    -- Measured only when there is a glyph to measure. `strdisplaywidth` is a call across the
-    -- vimscript bridge, and one per file row is **0.14 us a file** on this build -- 0.04 ms
-    -- of a 0.47 ms tree at three hundred files, paid on every paint *and* on every file
-    -- crossing by a reviewer who wired nothing. A width of zero is the one answer that needs
-    -- no call to reach.
-    local lead, lead_width = "", 0
-    if glyph then
-      lead = glyph .. " "
-      lead_width = vim.fn.strdisplaywidth(lead)
-    end
+    -- The fixed 2 here is the state mark and its separator, which is a different two from
+    -- the directory row's chevron -- see `row_icon` for why the expression is not shared.
     local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - lead_width)
     -- **What the glyph starts after, spelled once**, so the string the row is built from and
     -- the offset the glyph's own mark lands at are one expression and neither can be updated

@@ -155,7 +155,8 @@ takes commits off the start of the branch included, works on any git.
 Buffer-local, inside the review view:
 
     ab af as an ai   Annotate as bug / fix / suggestion / nitpick / issue
-    aa               Annotate, picking the type from a menu
+    aa               Annotate, picking the type from a menu that names each
+                     type's key and directive
     x                Drop the annotation under the cursor
     R                Toggle reviewed on this file (collapses it); under
                      |codereview-solo|, go on to the next unreviewed file
@@ -239,15 +240,21 @@ The tree collapses single-child directory chains, so a monorepo shows
 indent on segments that carry no information. Directories sort before files,
 and each directory carries a reviewed tally for its subtree.
 
-A file row carries the reviewed, annotated or unreviewed mark first, then the
-glyph |codereview-opt-file_icon| gave that file, then the name. It is the same
-glyph the file's header row and the sticky header draw, decided by one rule so
-the three cannot disagree -- and it is drawn in the color your icon plugin
-chose for it, on all three, when your adapter answers with a highlight group
-beside the glyph. The mark keeps its column and its own color, the glyph comes
-out of the name's budget, and a narrow panel cuts the name from the left so
-the end of it survives. A directory row carries no glyph: a directory names no
-file.
+A file row carries the reviewed, annotated or unreviewed mark first, and then
+the glyph |codereview-opt-file_icon| gave that file -- the same glyph the diff
+and the sticky header draw for it, decided by one rule so the three cannot
+disagree. A directory row carries the glyph |codereview-opt-dir_icon| gave it,
+after the chevron. The mark keeps its column and its own color.
+
+A glyph is drawn in your icon plugin's own color, on every surface that draws
+it, when your adapter named a highlight group beside it: a file's glyph in the
+tree, on its header row in the diff and on the sticky header; a directory's in
+the tree, which is the only surface that names a directory.
+
+Neither adapter is wired by default and the plugin ships no glyph behind
+either, so with none wired every row is exactly what it has always been. A
+glyph comes out of the name's budget: a narrow panel cuts the name from the
+left and keeps the mark, the chevron and the glyph.
 
 `panel.enabled` decides whether a review opens with a tree; `gp` decides it
 from there on, for the rest of that review. Dismissing it from inside the tree
@@ -769,14 +776,26 @@ and says so. Anything touching a deleted line is inlined as a diff block
 rather than referenced, because an `@ref` shows the file as it is now -- the
 line it names no longer exists. A hunk is always inlined for the same reason.
 
-Each type carries a `directive`, which becomes the instruction attached to
-that group in the submitted payload:
+Each type carries a glyph, a key and a `directive`. The directive becomes the
+instruction attached to that group in the submitted payload:
 
-    bug         diagnose and fix these
-    fix         apply these changes
-    suggestion  evaluate; apply if sound
-    nitpick     low priority -- batch these together
-    issue       do NOT fix -- summarize these for tracking
+    ✗  bug         ab  diagnose and fix these
+    ✎  fix         af  apply these changes
+    ✦  suggestion  as  evaluate; apply if sound
+    ▫  nitpick     an  low priority -- batch these together
+    ⚑  issue       ai  do NOT fix -- summarize these for tracking
+
+The glyph is what the picker offers each type with, what a queued note
+carries in front of its prose, and all an archived entry keeps -- see
+|codereview-archived|. Plain Unicode, one column wide, so no patched font is
+needed here or anywhere else the plugin draws.
+
+`aa` opens the picker, which offers those same four columns and `no type`
+last, under the untyped mark. The rows are built from your own types, so a
+replaced set is offered with its own names and its own keys, and a type with
+no directive is offered without one. None of that reaches the agent: the
+directive is what instructs a group, and the key and the glyph stay in the
+picker.
 
 `opts.types` replaces the whole set. Only `name` and `key` are required: >lua
     types = {
@@ -789,7 +808,8 @@ that group in the submitted payload:
     label       defaults to the name, title-cased and pluralized
     icon        defaults to `icons.annotated`
     hl          defaults to CodeReview<Name>, linked so it has color
-    directive   optional -- the heading is then just "## Questions (3)"
+    directive   optional -- the heading is then just "## Questions (3)",
+                and the picker's row for that type stops at its key
 
 Order is the order groups appear in the payload, most actionable first.
 Pluralization is naive, so an irregular name wants an explicit `label`.
@@ -1060,12 +1080,12 @@ any other note you walked away from.
 8. ADAPTERS                                            *codereview-adapters*
 
 The plugin has no opinion about where a review goes, about which pickers you
-use, about which diff tool you read a rewrite in, or about which icon a
-filetype has. Seven optional functions inject that. With none of them wired
-everything still works: the payload reaches the `+` register instead of an
-agent and the batch stays queued, `@` in the composer stays a literal `@`,
-`gd` is not bound to anything, a switch offers its checkouts through
-`vim.ui.select`, and no file carries a filetype glyph.
+use, about which diff tool you read a rewrite in, or about which glyph a file
+or a directory deserves. Eight optional functions inject that. With none of
+them wired everything still works: the payload reaches the `+` register
+instead of an agent and the batch stays queued, `@` in the composer stays a
+literal `@`, `gd` is not bound to anything, a switch offers its checkouts
+through `vim.ui.select`, and no file and no directory carries a glyph.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
@@ -1257,59 +1277,74 @@ pick_checkout({checkouts}, {cb})               *codereview-opt-pick_checkout*
         -- and how a list is put in front of you is yours.
 
 file_icon({path})                                   *codereview-opt-file_icon*
-        Give a file the icon its filetype has in your configuration. It is
-        drawn on every surface that names the file: the file's header row in
-        the diff, the |codereview-sticky-header|, and the file's row in the
-        |codereview-tree|. >
+        The glyph a file carries, and the highlight group that colours it.
+        {path} is repository-relative. Answer with a glyph, or with a glyph
+        and a group: >
             file_icon = function(path)
-              return require("nvim-web-devicons").get_icon(path, nil,
-                                                           { default = true })
+              return require("nvim-web-devicons").get_icon(path)
             end,
 <
-        Handed the repository-relative path -- the post-image one, which is
-        the name all three surfaces draw -- and answering with a glyph and,
-        beside it, the highlight group that colors the glyph: >
-            return glyph, group    the glyph, in your icon plugin's color
-            return glyph           the glyph, in the row's own color
-            return nil             no glyph; the row reads exactly as it
-                                   does with nothing wired
+        `nvim-web-devicons` and `mini.icons` both answer with that pair
+        already, so handing their answer straight through is the whole of it.
+        The group is yours and is never translated; one your theme leaves
+        undefined costs the glyph its colour and never its glyph, one that
+        could not be a highlight group at all is dropped the same way, and a
+        glyph alone is a complete answer.
+
+        Neovim's own rule decides what could be a group: letters, digits,
+        `_`, `.`, `@` and `-`, and nothing else. It matters because the
+        sticky header is a statusline and a group reaches one as markup, so a
+        `#` in the name would end that markup early and put the rest of the
+        name on the bar as statusline items.
+
+        **The glyph is drawn on three surfaces, and the group colours it on
+        all three.** The glyph reaches the file's header row in the diff, the
+        sticky header (|codereview-sticky-header|) and the file tree
+        (|codereview-tree|), and one rule decides what your answer becomes --
+        so a file cannot carry one glyph in the tree and another on the diff,
+        nor one colour on one surface and a different one on the next.
+
+        **A second thing about the file and never a replacement for the
+        first.** The reviewed, annotated and unreviewed marks keep their
+        column and their meaning on every one of those surfaces: you must not
+        lose *I have read this* in exchange for *this is Lua*.
+
+        Called once per file per paint, and the tree is rebuilt on every file
+        crossing as well -- so an adapter that raises, or that answers with
+        anything but a string, is survived rather than reported: that file
+        draws without a glyph and the review goes on. The plugin ships no
+        glyph behind this key and depends on no icon plugin, so with it
+        unwired nothing at all is called per file.
+
+dir_icon({path})                                     *codereview-opt-dir_icon*
+        The glyph a **directory** carries on its row in the file tree
+        (|codereview-tree|), and the group that colours it. The same contract
+        as |codereview-opt-file_icon|, and the same rule reads your answer: >
+            dir_icon = function(path)
+              return MiniIcons.get("directory", vim.fs.basename(path))
+            end,
 <
-        `nvim-web-devicons.get_icon` and `MiniIcons.get` both answer with that
-        pair already, so handing their answer straight through is the whole of
-        it. **A glyph alone is a complete answer** and always was: the group
-        is what you may add, never what you must.
+        **The file tree and nothing else.** The diff's header row and the
+        sticky header name files, and neither has a directory row for a glyph
+        to go on, so neither calls this.
 
-        The group is yours and is never translated into one of the plugin's.
-        One your colorscheme does not define costs the glyph its color and
-        never its glyph, and one that is not a string is dropped the same way
-        -- as is a string that could not be a highlight group at all. Neovim's
-        own rule decides that: letters, digits, `_`, `.`, `@` and `-`, and
-        nothing else. It matters because the |codereview-sticky-header| is a
-        statusline and a group reaches one as markup, so a `#` in the name
-        would end that markup early and put the rest of the name on the bar as
-        statusline items. See |codereview-highlights| for why the plugin has no
-        opinion about which color a filetype deserves.
+        **A second adapter rather than a wider first one.** A directory names
+        no file, so there is nothing `file_icon` could be asked about it. You
+        wire one function per kind of thing and neither has to guess which
+        kind it was handed: this one is never asked about a file, and
+        `file_icon` is never asked about a directory.
 
-        One rule decides what your answer becomes, so a file cannot carry one
-        glyph on the diff and another in the tree, or one color on one surface
-        and a different one on the next.
+        {path} is the row's **own** path. The tree compacts a chain of
+        single-child directories onto one row, so a row reading
+        `apps/api/src` hands you `apps/api/src` and never `apps` -- the glyph
+        and the name a row draws are about the same directory.
 
-        The glyph is a second thing about the file and never a replacement for
-        the first: the reviewed, annotated and unreviewed marks keep their
-        column and their meaning, so you never lose *I have read this* in
-        exchange for *this is Lua*. A directory row carries no glyph at all --
-        a directory names no file, so there is nothing to ask about.
-
-        Called once per file per paint by the diff and by the tree, and the
-        tree is rebuilt on every file crossing as well -- so an adapter that
-        raises, or that answers with something that is not a string, is
-        survived rather than reported: that file draws without a glyph and the
-        review goes on.
-
-        The plugin ships no glyph behind this and depends on no icon plugin,
-        so with nothing wired nothing is called per file at all, on any
-        surface, and all three draw exactly what they drew before this
-        existed.
+        The chevron keeps its column and the reviewed tally keeps the right
+        margin. Called once per *drawn* directory row per paint -- a
+        collapsed directory hides its children, so they are not drawn and not
+        asked about -- and every way of failing is survived exactly as
+        |codereview-opt-file_icon| survives it. Nothing is shipped behind
+        this key either.
 
 ==============================================================================
 9. CONFIGURATION                                  *codereview-configuration*
@@ -1336,7 +1371,8 @@ Defaults: >
       },
       types = nil,
       send = nil, pick_target = nil, pick_file = nil,
-      compose = nil, open_diff = nil,
+      compose = nil, open_diff = nil, pick_checkout = nil,
+      file_icon = nil, dir_icon = nil,
     })
 <
 `max_syntax_bytes` bounds the one operation with a real performance cliff.

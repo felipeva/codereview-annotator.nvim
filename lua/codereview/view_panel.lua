@@ -57,6 +57,7 @@ function M.paint_panel(V, view)
     width = vim.api.nvim_win_get_width(V.panel_win),
     icons = cfg.icons,
     file_icon = cfg.file_icon,
+    dir_icon = cfg.dir_icon,
     reviewed = V.reviewed,
     notes = V.notes,
     collapsed = V.collapsed,

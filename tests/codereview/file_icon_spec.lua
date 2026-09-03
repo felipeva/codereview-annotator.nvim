@@ -591,6 +591,10 @@ end
 -- one of them only -- so a comparison cannot see it at all, in either direction. That is what
 -- the block below is for, and why these are two blocks and not one.
 describe("the colour of a glyph on a header row", function()
+  -- The one file the absolute cases below read, named once so the label they ask and the
+  -- render they read are answering about the same thing.
+  local FILES_ONE = one()
+
   ---Every range on a file's header row carrying a group a host named.
   ---
   ---Selected by the group rather than by the columns: a range found at the offset the case
@@ -672,6 +676,72 @@ describe("the colour of a glyph on a header row", function()
         )
       end
     end
+  end)
+
+  -- **The diff's answer to the one-byte hole the tree had to close.** A directory row in the
+  -- **file tree** colours its own head as a range, so a glyph's group there had to be laid
+  -- *around* it in three abutting ranges -- start the third where `lead` ends rather than
+  -- where the glyph does and the separator is covered by nothing at all. This row is not that
+  -- shape: its own colour is one range over the *whole* row, so the separator and everything
+  -- else stay covered, and the glyph's range sits on top of it rather than beside it.
+  --
+  -- Read at the two bytes that could have been holes -- the separator in front of the glyph
+  -- and the one behind it -- rather than argued from the extents, because "covered by the
+  -- row's own group" is what a hole would disprove and an extent is what a reader has to
+  -- take on trust.
+  it("leaves no byte of the head uncovered, either side of the glyph", function()
+    local after = build({ FILES_ONE }, { file_icon = with_group })
+    local row = assert(after.file_rows[1])
+    local line = after.lines[row]
+    local answer = label(FILES_ONE, { file_icon = with_group })
+    local sep_before, sep_after = #answer.icon, #answer.before_glyph + #LUA
+
+    ---Every range covering one byte, in the order they were emitted.
+    ---@param col integer
+    ---@return string[]
+    local function covering(col)
+      local out = {}
+      for _, m in ipairs(after.marks) do
+        if m.row == row - 1 and m.opts.end_col and m.col <= col and col < m.opts.end_col then
+          out[#out + 1] = m.opts.hl_group
+        end
+      end
+      return out
+    end
+
+    -- The guard: those two offsets really are the separators, so the case is about the bytes
+    -- it thinks it is about.
+    assert.same(" ", line:sub(sep_before + 1, sep_before + 1))
+    assert.same(" ", line:sub(sep_after + 1, sep_after + 1))
+    assert.same({ "CodeReviewFileHeader" }, covering(sep_before))
+    assert.same({ "CodeReviewFileHeader" }, covering(sep_after))
+    -- And the glyph itself is covered twice, which is the shape that makes the above true:
+    -- the row's own range runs under it rather than stopping either side of it.
+    assert.same({ "CodeReviewFileHeader", AZURE }, covering(#answer.before_glyph))
+  end)
+
+  -- **Which of those two draws is decided by priority and never by emission order.** The tree
+  -- had to split its own range around the glyph precisely because a panel mark carries no
+  -- priority, so two ranges over one byte are arbitrated by which extmark was written last.
+  -- Here they are not: the row's own colour is emitted at the diff's priority and the glyph's
+  -- takes the default a range gets, which is higher. Asserted rather than left to the order
+  -- these two happen to be appended in, which is what a reader would otherwise be trusting.
+  it("draws the glyph over the row's own colour by priority, not by order", function()
+    local after = build({ FILES_ONE }, { file_icon = with_group })
+    local row = assert(after.file_rows[1])
+    local base, glyph
+    for _, m in ipairs(after.marks) do
+      if m.row == row - 1 and m.opts.hl_group == "CodeReviewFileHeader" then
+        base = m
+      elseif m.row == row - 1 and m.opts.hl_group == AZURE then
+        glyph = m
+      end
+    end
+    assert.is_truthy(base and glyph, "one of the two ranges is not on this row")
+    assert.is_true(
+      glyph.opts.priority > base.opts.priority,
+      ("the glyph at %s does not outrank the row at %s"):format(glyph.opts.priority, base.opts.priority)
+    )
   end)
 
   -- The before **pane**'s header row draws the pre-image path under an indent of spaces and no
@@ -899,13 +969,14 @@ local function file_row(rendered, path, files)
   return row, rendered.lines[row]
 end
 
+---A directory's row in a built tree: which row it is, and the line drawn on it.
 ---@param rendered CRPanelRender
 ---@param dir string
----@return string
+---@return integer row, string line
 local function dir_row(rendered, dir)
   for row, path in pairs(rendered.row_dir) do
     if path == dir then
-      return rendered.lines[row]
+      return row, rendered.lines[row]
     end
   end
   error(dir .. " has no row")
@@ -1211,14 +1282,452 @@ describe("a directory row", function()
   it("draws no glyph, whatever the adapter would answer for its path", function()
     local none, wired = tree(), tree({ file_icon = by_extension })
     for _, dir in ipairs({ "apps/api/src", "apps/api/src/routes", "docs" }) do
-      assert.same(dir_row(none, dir), dir_row(wired, dir))
+      assert.same(select(2, dir_row(none, dir)), select(2, dir_row(wired, dir)))
     end
   end)
 
   it("keeps its chevron, its compacted chain and its N/M count", function()
-    local line = dir_row(tree({ file_icon = by_extension }), "apps/api/src")
+    local _, line = dir_row(tree({ file_icon = by_extension }), "apps/api/src")
     begins(line, ("%s apps/api/src"):format(ICONS.expanded))
     assert.same("0/2", line:match("(%d+/%d+)%s*$"))
+  end)
+end)
+
+--- A glyph on a directory row ---------------------------------------------------
+
+-- The second adapter, on the one surface that draws a directory at all. A directory names no
+-- file, so `file_icon` has nothing to be asked about it -- the block above is that decision
+-- asserted as the absence it is -- and the answer is an adapter of its own rather than a
+-- wider first one.
+--
+-- The contract is `file_icon`'s, and so is the rule that reads it: one `pcall`, a type test
+-- on each half of the answer, a broken group dropped without the glyph. Nothing here re-asks
+-- what the first act already asked of that rule. What is asked is what the **file tree** does
+-- with it on a row that has a chevron instead of a state mark: where the glyph lands, which
+-- bytes carry the host's colour, which path the adapter was handed, and how many times.
+
+-- One column wide and more than one byte long, as the file glyphs above are, so that a range
+-- placed at a display column and one placed at a byte offset cannot land on the same
+-- character.
+local FOLDER, DOCS, SRC = "▣", "▤", "▥"
+local GREY, ORANGE = "MiniIconsGrey", "MiniIconsOrange"
+
+---A host's `dir_icon` adapter, keyed on the directory's **own last segment** as a real one
+---is: `mini.icons` answers `docs` and `src` with glyphs of their own and every other
+---directory with a plain one.
+---
+---Keyed on the last segment and not on the whole path, because that is what makes a
+---compacted chain able to fail: `apps/api/src` and `apps` are two different answers, so a
+---row handed the head of its chain draws a glyph the assertion can see.
+---@param path string
+---@return string
+local function by_directory(path)
+  local leaf = path:match("[^/]+$")
+  return leaf == "docs" and DOCS or leaf == "src" and SRC or FOLDER
+end
+
+---The same adapter answering the way both icon plugins do: a glyph, and the group that
+---colours it. `routes` is deliberately answered with a glyph alone, so one tree carries both
+---kinds of answer and the upgrade rule is asserted on the same rows as the new one.
+---@param path string
+---@return string glyph, string|nil group
+local function coloured_dir(path)
+  local leaf = path:match("[^/]+$")
+  if leaf == "docs" then
+    return DOCS, ORANGE
+  elseif leaf == "routes" then
+    return FOLDER
+  end
+  return SRC, GREY
+end
+
+describe("the glyph on a directory row", function()
+  -- After the chevron, for the reason the file row's glyph goes after the state mark: the
+  -- chevron is the leftmost column of a directory row and a reviewer reads it down the page
+  -- for what is open. A glyph of a width this plugin does not control put in front of it
+  -- would break the one thing that column is for.
+  it("is drawn between the chevron and the name", function()
+    local _, line = dir_row(tree({ dir_icon = by_directory }), "docs")
+    begins(line, ("%s %s docs"):format(ICONS.expanded, DOCS))
+  end)
+
+  -- **The compacted chain, and the reason the adapter is keyed on a last segment.** The row
+  -- names `apps/api/src` and the tree drew `apps` and `apps/api` on no row at all, so the
+  -- glyph has to be `src`'s. A row handed the head of its chain draws `FOLDER` here.
+  it("is the glyph of the directory its row names, on a compacted chain", function()
+    local _, line = dir_row(tree({ dir_icon = by_directory }), "apps/api/src")
+    begins(line, ("%s %s apps/api/src"):format(ICONS.expanded, SRC))
+  end)
+
+  -- A collapsed directory is a directory: it is drawn, so it is asked about. Its chevron is
+  -- the only thing that changes.
+  it("is drawn on a collapsed directory as it is on an expanded one", function()
+    local _, line = dir_row(tree({ dir_icon = by_directory, collapsed = { ["docs"] = true } }), "docs")
+    begins(line, ("%s %s docs"):format(ICONS.collapsed, DOCS))
+  end)
+
+  -- The column a reviewer reads down the page for how much of a package is left. The glyph
+  -- comes out of the name's budget, as it does on a file row, and never out of this.
+  it("leaves the directory's own counts where they are", function()
+    local _, line = dir_row(tree({ dir_icon = by_directory }), "apps/api/src")
+    assert.same("0/2", line:match("(%d+/%d+)%s*$"))
+    assert.is_true(vim.fn.strdisplaywidth(line) <= WIDTH, line)
+  end)
+end)
+
+describe("the adapter a directory row asks", function()
+  -- The row's own path, which for a compacted chain is the directory the row names and not
+  -- the head of the chain it swallowed. `apps` and `apps/api` are on no row, so they are in
+  -- no call.
+  it("is handed that row's own path and nothing else", function()
+    local rec = recording(FOLDER)
+    tree({ dir_icon = rec.fn })
+    local asked = {}
+    for _, call in ipairs(rec.calls) do
+      asked[#asked + 1] = call[1]
+    end
+    table.sort(asked)
+    assert.same({ "apps/api/src", "apps/api/src/routes", "docs" }, asked)
+    for _, call in ipairs(rec.calls) do
+      assert.same(1, #call, "the adapter was handed more than a path")
+    end
+  end)
+
+  -- Once per **drawn** row, which is what a collapsed directory makes testable: `routes` is
+  -- under `apps/api/src` and is not drawn when it is shut, so it is not asked about either.
+  it("is asked about no directory the tree did not draw", function()
+    local rec = recording(FOLDER)
+    tree({ dir_icon = rec.fn, collapsed = { ["apps/api/src"] = true } })
+    local asked = {}
+    for _, call in ipairs(rec.calls) do
+      asked[#asked + 1] = call[1]
+    end
+    table.sort(asked)
+    assert.same({ "apps/api/src", "docs" }, asked)
+  end)
+
+  -- **Neither adapter is ever handed the other's kind of thing**, which is the whole reason
+  -- there are two of them: a host wires one function per kind and neither has to guess what
+  -- it was given. Asserted in one build, so the two lists cannot be read from two trees that
+  -- happened to be built differently.
+  it("is never handed a file, and the file adapter is never handed a directory", function()
+    local dirs, files = recording(FOLDER), recording(LUA)
+    tree({ dir_icon = dirs.fn, file_icon = files.fn })
+    local asked_dirs, asked_files = {}, {}
+    for _, call in ipairs(dirs.calls) do
+      asked_dirs[#asked_dirs + 1] = call[1]
+    end
+    for _, call in ipairs(files.calls) do
+      asked_files[#asked_files + 1] = call[1]
+    end
+    table.sort(asked_dirs)
+    table.sort(asked_files)
+    assert.same({ "apps/api/src", "apps/api/src/routes", "docs" }, asked_dirs)
+    assert.same({
+      "README.md",
+      "apps/api/src/main.lua",
+      "apps/api/src/routes/users.ts",
+      "docs/guide.md",
+    }, asked_files)
+  end)
+end)
+
+describe("the colour of a glyph on a directory row", function()
+  it("is the group the adapter named, over the glyph and nothing else", function()
+    local rendered = tree({ dir_icon = coloured_dir })
+    assert.same(DOCS, drawn_in(rendered, (dir_row(rendered, "docs")), ORANGE))
+  end)
+
+  it("follows the directory, so two rows in one tree carry two colours", function()
+    local rendered = tree({ dir_icon = coloured_dir })
+    assert.same(DOCS, drawn_in(rendered, (dir_row(rendered, "docs")), ORANGE))
+    assert.same(SRC, drawn_in(rendered, (dir_row(rendered, "apps/api/src")), GREY))
+  end)
+
+  -- **The guard the block rests on**, as the file row's has one: over a head whose bytes and
+  -- columns agree, a range placed at the display column and one placed at the byte offset
+  -- cover the same character and every case here passes either way. The chevron and its
+  -- separator are four bytes and two columns, and the glyph is three bytes and one column.
+  it("is placed by the glyph's bytes and not by its columns", function()
+    local head = ("%s "):format(ICONS.expanded)
+    assert.is_true(#head > vim.fn.strdisplaywidth(head), "the head is not multibyte")
+    assert.is_true(#DOCS > vim.fn.strdisplaywidth(DOCS), "the glyph is not multibyte")
+
+    local rendered = tree({ dir_icon = coloured_dir })
+    local row = (dir_row(rendered, "docs"))
+    local range
+    for _, r in ipairs(ranges(rendered, row)) do
+      if r[3] == ORANGE then
+        range = r
+      end
+    end
+    assert.same({ #head, #head + #DOCS, ORANGE }, range)
+  end)
+
+  -- **The row's own group is laid around the glyph and never under it.** A directory row
+  -- colours its whole head, so the glyph's bytes are the one stretch of it that belongs to
+  -- the host -- and two ranges over one byte would leave which colour wins to whichever
+  -- extmark was emitted last, which is not a rule anyone reading this file could find.
+  it("is the only group over the glyph, with the row's own laid around it", function()
+    local rendered = tree({ dir_icon = coloured_dir })
+    local row, line = dir_row(rendered, "docs")
+    local head = ("%s %s docs"):format(ICONS.expanded, DOCS)
+    begins(line, head)
+    assert.same({
+      { 0, #("%s "):format(ICONS.expanded), "CodeReviewPanelDir" },
+      { #("%s "):format(ICONS.expanded), #("%s %s"):format(ICONS.expanded, DOCS), ORANGE },
+      { #("%s %s"):format(ICONS.expanded, DOCS), #head, "CodeReviewPanelDir" },
+    }, vim.list_slice(ranges(rendered, row), 1, 3))
+  end)
+
+  -- **"Around" has to mean *covered*, and the three offsets above do not say so.** They
+  -- passed while the third range began one byte late, at the end of the glyph *and its
+  -- separator* -- so the separator was covered by no range at all. That byte is a space and
+  -- the row's group is a foreground, so nothing on screen could report it and no offset
+  -- written from the same arithmetic could either.
+  --
+  -- So the claim is asserted as the property it is: the head's ranges abut, in order, from
+  -- its first byte to its last. A hole anywhere in the head reds this whatever the offsets
+  -- are spelled as, and a row whose colours are rearranged goes on passing as long as every
+  -- byte of the head still has one.
+  it("leaves no byte of the head uncovered", function()
+    for _, dir in ipairs({ "docs", "apps/api/src" }) do
+      local rendered = tree({ dir_icon = coloured_dir })
+      local row, line = dir_row(rendered, dir)
+      -- The head is everything before the padding that pushes the counts right, and the
+      -- counts carry a range of their own that is not part of this claim.
+      local head = line:match("^(.-)%s+%d+/%d+%s*$")
+      assert.is_truthy(head, line)
+
+      local at = 0
+      for _, range in ipairs(ranges(rendered, row)) do
+        if range[1] < #head then
+          assert.same(at, range[1], ("a hole in %s before byte %d"):format(dir, range[1]))
+          at = range[2]
+        end
+      end
+      assert.same(#head, at, ("the head of %s is not covered to its last byte"):format(dir))
+    end
+  end)
+end)
+
+-- The upgrade rule on the directory row, in its strongest form: an adapter that answers with
+-- a glyph alone draws the row it drew before a group could be answered at all, mark for mark.
+describe("a directory row whose glyph has no colour", function()
+  it("draws what a glyph-alone adapter has always drawn", function()
+    local plain, both = tree({ dir_icon = by_directory }), tree({ dir_icon = coloured_dir })
+    -- `routes` is the directory `coloured_dir` answers about with a glyph and no group, so
+    -- its row is the one both trees have to agree on.
+    local prow, pline = dir_row(plain, "apps/api/src/routes")
+    local row, line = dir_row(both, "apps/api/src/routes")
+    assert.same(pline, line)
+    assert.same(ranges(plain, prow), ranges(both, row))
+  end)
+
+  -- One range over the whole head, which is the row a directory has always drawn: the glyph
+  -- draws in the row's own colour, and a range in no group is an extmark that costs a paint
+  -- and draws nothing.
+  it("carries one range over its whole head, in the row's own group", function()
+    local rendered = tree({ dir_icon = coloured_dir })
+    local row, line = dir_row(rendered, "apps/api/src/routes")
+    local head = ("  %s %s routes"):format(ICONS.expanded, FOLDER)
+    begins(line, head)
+    assert.same({ 0, #head, "CodeReviewPanelDir" }, ranges(rendered, row)[1])
+  end)
+end)
+
+-- Every way a group can be broken answers the way an adapter with no group answers: the glyph
+-- draws, in the row's own colour. A group reaches an extmark as a name, so a number or a
+-- table there raises on the paint that emits it -- and would take down the review the glyph
+-- was there to help read.
+describe("a group a directory row cannot use", function()
+  ---@param group any
+  local function survives(group)
+    local plain = tree({ dir_icon = by_directory })
+    local broken = tree({
+      dir_icon = function(path)
+        return by_directory(path), group
+      end,
+    })
+    assert.same(plain.lines, broken.lines)
+    assert.same(plain.marks, broken.marks)
+  end
+
+  it("is survived when it is a number", function()
+    survives(42)
+  end)
+
+  it("is survived when it is a table", function()
+    survives({ GREY })
+  end)
+
+  it("is survived when it is an empty string", function()
+    survives("")
+  end)
+
+  it("is survived when it is a boolean", function()
+    survives(true)
+  end)
+end)
+
+-- A host's configuration is a host's, and this one is asked once per directory row on every
+-- paint and on every **file crossing**. Every way of being broken answers the same way, and it
+-- is the way no adapter answers: no glyph, and a row that reads exactly as it reads with
+-- nothing wired.
+describe("a directory adapter the tree cannot use", function()
+  local BARE_DIR = ("%s apps/api/src"):format(ICONS.expanded)
+
+  ---@param adapter any
+  local function survives(adapter)
+    begins(select(2, dir_row(tree({ dir_icon = adapter }), "apps/api/src")), BARE_DIR)
+  end
+
+  it("is survived when it raises", function()
+    survives(function()
+      error("this host's icon plugin is not loaded")
+    end)
+  end)
+
+  it("is survived when it answers with nothing", function()
+    survives(function() end)
+  end)
+
+  it("is survived when it answers with an empty string", function()
+    survives(function()
+      return ""
+    end)
+  end)
+
+  it("is survived when it answers with something that is not a glyph", function()
+    survives(function()
+      return 42
+    end)
+    survives(function()
+      return { FOLDER }
+    end)
+  end)
+
+  it("is survived when what was wired is not a function at all", function()
+    survives(FOLDER)
+  end)
+
+  -- The strongest form, and the one a row that merely looks right cannot satisfy: an adapter
+  -- that raises on every directory leaves every line and every mark exactly as no adapter
+  -- does.
+  it("leaves every line and every mark as no adapter wired leaves them", function()
+    local broken = tree({
+      dir_icon = function()
+        error("no icon plugin here")
+      end,
+    })
+    assert.same(tree().lines, broken.lines)
+    assert.same(tree().marks, broken.marks)
+  end)
+end)
+
+describe("a directory row with no directory adapter wired", function()
+  -- **Byte for byte the row it has always drawn.** The separator rides with the glyph rather
+  -- than standing beside it, so a directory with no glyph contributes nothing here rather
+  -- than a space -- which would move every directory name in every tree by one column and
+  -- look right while doing it.
+  it("draws its chevron, its compacted chain and its counts and nothing between them", function()
+    local _, line = dir_row(tree(), "apps/api/src")
+    begins(line, ("%s apps/api/src"):format(ICONS.expanded))
+    assert.same("0/2", line:match("(%d+/%d+)%s*$"))
+  end)
+
+  -- **Mark for mark as well**, which the line alone cannot say: a range in no group, or a
+  -- head split into two ranges that happen to abut, draws a row that reads exactly right and
+  -- costs a paint per directory on every repaint and every **file crossing**.
+  it("carries one range over its whole head and one over its counts, and no other", function()
+    local rendered = tree()
+    local row, line = dir_row(rendered, "apps/api/src")
+    local head = ("%s apps/api/src"):format(ICONS.expanded)
+    assert.same({
+      { 0, #head, "CodeReviewPanelDir" },
+      { #line - #"0/2", #line, "CodeReviewNoteCount" },
+    }, ranges(rendered, row))
+  end)
+end)
+
+-- The performance rule on the second adapter, and the one claim a row cannot make: with
+-- nothing wired the tree draws the same row whether it guards the call or not, because a
+-- `pcall` over a nil adapter answers with no glyph exactly as no adapter does.
+describe("the rule a directory row reaches for", function()
+  ---Run a build with `render.file_icon` counted, and put it back afterwards.
+  ---@param opts table|nil
+  ---@return integer
+  local function calls_during(opts)
+    local real = render.file_icon
+    local calls = 0
+    render.file_icon = function(...)
+      calls = calls + 1
+      return real(...)
+    end
+    local ok, err = pcall(tree, opts)
+    render.file_icon = real
+    assert.is_true(ok, tostring(err))
+    return calls
+  end
+
+  -- The shared rule and not a second copy of it: two rules would be two places for a
+  -- directory and a file to be answered about differently, and the answer they disagreed on
+  -- would be a `pcall` a reviewer's icon plugin needed.
+  it("is the one a file row reaches for, once for each directory drawn", function()
+    assert.same(3, calls_during({ dir_icon = by_directory }))
+  end)
+
+  -- The count that says the file branch reaches it for files and for nothing else. Three
+  -- directories are drawn in this tree and none of them is in this number.
+  it("is not reached for a directory when only a file adapter is wired", function()
+    assert.same(#TREE, calls_during({ file_icon = by_extension }))
+  end)
+
+  it("is not reached at all, for any directory, with nothing wired", function()
+    assert.same(0, calls_during())
+  end)
+end)
+
+describe("a panel too narrow for a directory's name", function()
+  local NARROW = 20
+  local DEEP = { one({ path = "src/very-long-directory-name/handler.ts" }) }
+
+  ---@param opts table|nil
+  ---@return CRPanelRender
+  local function narrow(opts)
+    return panel.build(
+      DEEP,
+      vim.tbl_extend(
+        "force",
+        { width = NARROW, icons = ICONS, reviewed = {}, notes = {}, collapsed = {}, dir_icon = by_directory },
+        opts or {}
+      )
+    )
+  end
+
+  -- What the cut spends is the name, from the left, so what survives is the end of it. The
+  -- chevron, the glyph and the counts are not what is spent.
+  it("cuts the name, and never the chevron, the glyph or the counts", function()
+    local rendered = narrow()
+    local _, line = dir_row(rendered, "src/very-long-directory-name")
+    begins(line, ("%s %s …"):format(ICONS.expanded, FOLDER))
+    assert.same("0/1", line:match("(%d+/%d+)%s*$"))
+    assert.is_true(vim.fn.strdisplaywidth(line) <= NARROW, line)
+  end)
+
+  -- An `end_col` past the end of a row is a hard error rather than a badly-coloured glyph,
+  -- and a glyph is one more thing pushing a long name over the edge of a panel this narrow.
+  it("keeps the glyph's colour, over the glyph and inside the row", function()
+    local rendered = narrow({
+      dir_icon = function()
+        return FOLDER, GREY
+      end,
+    })
+    local row, line = dir_row(rendered, "src/very-long-directory-name")
+    assert.same(FOLDER, drawn_in(rendered, row, GREY), "the glyph lost its colour to the cut")
+    for _, range in ipairs(ranges(rendered, row)) do
+      assert.is_true(range[2] <= #line, ("%s ends at %d past a row of %d"):format(range[3], range[2], #line))
+    end
   end)
 end)
 
@@ -1511,12 +2020,20 @@ end
 ---@return { glyph: string, group: string }|nil
 local function host_range(buf, ns, row)
   local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1]
+  local found = {}
   for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, { row - 1, 0 }, { row - 1, -1 }, { details = true })) do
     local group = m[4].hl_group
     if m[4].end_col and type(group) == "string" and not group:match("^CodeReview") then
-      return { glyph = line:sub(m[3] + 1, m[4].end_col), group = group }
+      found[#found + 1] = { glyph = line:sub(m[3] + 1, m[4].end_col), group = group }
     end
   end
+  -- **One or none, never "the first of several".** A helper that returned the first match
+  -- would go on answering after a second host group arrived on one of these rows -- a
+  -- `dir_icon`'s, say, or whatever the next adapter is -- and the two surfaces would then be
+  -- compared through a choice nobody made. This is the row the case names, so more than one
+  -- is a case that has stopped asking its question rather than a case that fails.
+  assert(#found <= 1, ("row %d carries %d host groups, not one: %s"):format(row, #found, vim.inspect(found)))
+  return found[1]
 end
 
 ---The glyph one file's header row draws in a host's own group, and that group.
@@ -1885,5 +2402,73 @@ describe("a review whose adapter answered with a group", function()
     read_into("src/nonl.md")
     assert.same({ glyph = PERCENT, group = YELLOW }, tree_icon("src/nonl.md"))
     assert.same(tree_icon("src/nonl.md"), header_icon("src/nonl.md"))
+  end)
+end)
+
+--- A directory's own glyph, on the tree a reviewer is looking at -----------------
+
+-- **The wiring guard, and the one claim `panel.build` cannot make.** Every case in the tree
+-- act hands the adapter to the build itself, so all of them stay green in a session that
+-- never passes the configured `dir_icon` through to it -- the key would be a key a host sets
+-- and nothing reads. What says it reaches the panel at all is a real review with a real tree
+-- in it, read off the panel's own buffer.
+--
+-- `setup` rebuilds the options from the defaults, so this review has no `file_icon` wired:
+-- the file rows are bare here, which is what makes the last case able to fail.
+view.close()
+
+local DIR_GLYPH, DIR_GROUP = "▣", "MiniIconsGrey"
+
+require("codereview").setup({
+  syntax = false,
+  dir_icon = function()
+    return DIR_GLYPH, DIR_GROUP
+  end,
+})
+
+view.open("branch")
+
+describe("a review whose directory adapter answered", function()
+  ---The first directory row the panel drew: which row it is, and the line the buffer holds.
+  ---
+  ---The first rather than a named one, because which directories this fixture's **scope**
+  ---contains is not this act's claim -- that a directory row carries what a host answered is.
+  ---@return integer row, string line
+  local function a_dir_row()
+    local V = current()
+    local rows = {}
+    for row in pairs(V.panel_render.row_dir) do
+      rows[#rows + 1] = row
+    end
+    table.sort(rows)
+    local first = assert(rows[1], "this review's tree has no directory row to read")
+    return first, vim.api.nvim_buf_get_lines(V.panel_buf, first - 1, first, false)[1]
+  end
+
+  it("draws the glyph on a directory row, after the chevron", function()
+    local _, line = a_dir_row()
+    assert.is_truthy(line:find(("%s %s "):format(ICONS.expanded, DIR_GLYPH), 1, true), line)
+  end)
+
+  it("draws it in the group the adapter answered with, over the glyph and nothing else", function()
+    local row = (a_dir_row())
+    local V = current()
+    local found
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(V.panel_buf, PANEL_NS, 0, -1, { details = true })) do
+      if m[2] == row - 1 and m[4].hl_group == DIR_GROUP then
+        found = V.panel_render.lines[row]:sub(m[3] + 1, m[4].end_col)
+      end
+    end
+    assert.same(DIR_GLYPH, found, "no range on the directory row in the group the adapter answered with")
+  end)
+
+  -- The other half of the same guard: an adapter reached from the file branch as well would
+  -- put this glyph on every file row, and no case above would see it.
+  it("leaves every file row without it", function()
+    local V = current()
+    for _, row in ipairs(V.panel_render.file_rows) do
+      local line = vim.api.nvim_buf_get_lines(V.panel_buf, row - 1, row, false)[1]
+      assert.is_nil(line:find(DIR_GLYPH, 1, true), line)
+    end
   end)
 end)
