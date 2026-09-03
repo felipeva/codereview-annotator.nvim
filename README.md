@@ -768,8 +768,14 @@ header draw for it, decided by one rule so the three cannot disagree. **In the c
 icon plugin chose for it**, when your adapter answers with a highlight group beside the
 glyph, which `nvim-web-devicons` and `mini.icons` both do already. The mark keeps its
 column and its own colour, the glyph comes out of the name's budget, and a narrow panel cuts
-the name from the left, so the end of it survives. A directory row carries none: a directory
-names no file.
+the name from the left, so the end of it survives.
+
+A directory row carries a glyph of its own, from the [`dir_icon`](#adapters) adapter — a
+second one, because a directory names no file and there is nothing `file_icon` could be asked
+about it. It goes after the chevron, in your icon plugin's colour when your adapter names a
+group, and a compacted row like `apps/api/src` is asked about `apps/api/src` and never about
+`apps`, so the glyph and the name agree. The chevron keeps its column and the reviewed tally
+keeps the right margin.
 
 `gp` dismisses and summons the tree. `panel.enabled` decides whether a review *opens* with
 one. Collapsed directories belong to the review rather than to the tree, so they are exactly
@@ -870,7 +876,8 @@ opts = {
             untouched = "↺", continuation = "↳" },
                                    -- plain Unicode throughout: no Nerd Font anywhere.
                                    -- For a per-filetype icon beside these, wire the
-                                   -- `file_icon` adapter -- see Adapters
+                                   -- `file_icon` adapter, and `dir_icon` for a
+                                   -- directory's own -- see Adapters
   types = nil,                     -- defaults to the five above. See Annotation types
 }
 ```
@@ -883,8 +890,8 @@ linked, and none is yours to set.
 ## Adapters
 
 The plugin has no opinion about where a review goes, about which pickers you use, about
-which diff tool you read a rewrite in, or about which icon a file deserves. Seven optional
-functions inject that. **None are required.**
+which diff tool you read a rewrite in, or about which icon a file or a directory deserves.
+Eight optional functions inject that. **None are required.**
 
 | Adapter | What it supplies | Without it |
 | --- | --- | --- |
@@ -895,6 +902,7 @@ functions inject that. **None are required.**
 | `open_diff` | Reads one file in your own diff tool | `gd` is not bound at all |
 | `pick_checkout` | Chooses which checkout to switch to | The picker the plugin ships |
 | `file_icon` | Gives a file the icon its filetype has in your config, on the diff, the sticky header and the file tree — in your icon plugin's own colour on the tree | No filetype icon. Nothing is called per file |
+| `dir_icon` | Gives a directory its own icon, in its own colour, on its row in the file tree | No directory icon. Nothing is called per directory |
 
 ```lua
 opts = {
@@ -905,6 +913,7 @@ opts = {
   open_diff = function(spec) end,  -- spec: { path, before, after, line }
   pick_checkout = function(checkouts, cb) cb(checkouts[1].path) end,
   file_icon = function(path) return require("nvim-web-devicons").get_icon(path) end,  -- glyph, group
+  dir_icon = function(path) return MiniIcons.get("directory", vim.fs.basename(path)) end,
 }
 ```
 
@@ -1004,6 +1013,27 @@ opts = {
   -- review goes on.
   file_icon = function(path)
     return require("nvim-web-devicons").get_icon(path, nil, { default = true })
+  end,
+
+  -- The glyph a **directory** carries on its row in the file tree, and the group that
+  -- colours it. The same contract as `file_icon` and the same rule reads your answer, so a
+  -- glyph alone is complete and a group your theme does not define costs a colour rather
+  -- than a glyph.
+  --
+  -- A second adapter rather than a wider first one: a directory names no file, so there is
+  -- nothing `file_icon` could be asked about it. You wire one function per kind of thing and
+  -- neither has to guess which kind it was handed -- this one is never asked about a file,
+  -- and `file_icon` is never asked about a directory.
+  --
+  -- You are handed the row's own path. The tree compacts a chain of single-child
+  -- directories onto one row, so a row reading `apps/api/src` hands you `apps/api/src` and
+  -- never `apps`.
+  --
+  -- Called once per *drawn* directory row per paint -- a collapsed directory hides its
+  -- children, so they are not asked about -- and the tree is rebuilt on every file crossing
+  -- too, so an adapter that raises is survived rather than reported.
+  dir_icon = function(path)
+    return MiniIcons.get("directory", vim.fs.basename(path))
   end,
 }
 ```
