@@ -51,11 +51,44 @@ escapes a glyph the plugin did not choose.
 state mark, a glyph and a basename — it has no chevron of its own on a file row and no path to
 paint in two ranges — so it takes the glyph and not the prefix, through `render.file_icon`,
 which is the rule `file_label` reaches for as well. That is the whole of what the two share:
-one `pcall`, one type test, and an empty string that is not a glyph. A second copy of it in
-`panel.lua` would be two places for the tree and the diff to answer differently about the same
-file, and the answer they disagreed on would be a glyph a reviewer chose. The tree's own
-offsets are unaffected either way, because the glyph goes *after* the state mark: the mark
-keeps its column, so the range that colors it keeps its bytes. The before pane's indent is measured off it with
+one `pcall`, a type test on each half of the answer, and an empty string that is neither a
+glyph nor a group. A second copy of it in `panel.lua` would be two places for the tree and the
+diff to answer differently about the same file, and the answer they disagreed on would be a
+glyph a reviewer chose. The tree's own offsets are unaffected either way, because the glyph
+goes *after* the state mark: the mark keeps its column, so the range that colors it keeps its
+bytes.
+
+**That rule carries a highlight group out beside the glyph, because both icon plugins answer
+with one.** `nvim-web-devicons.get_icon` and `MiniIcons.get` each return a glyph and the name
+of the group that colors it; reading the first and dropping the second drew every wired glyph
+in the surface's own foreground — a Lua file's glyph measured on a tree row as `#e0e2ea`,
+which is the tree's color, where `mini.icons` had chosen `#8cf8f7`. It comes back as a second
+*return value* and not in a table: a table is one allocation per file, and the rule is asked
+601 times on a three-hundred-file paint and 301 more on every file crossing. A caller that
+wants the glyph alone therefore needs no change at all — `file_label`'s reaches it through
+`and`/`or`, which is an expression and truncates the group away on its own. **That truncation
+is also the trap**: a caller that does want the group cannot use that idiom, and would drop
+the color silently, so `panel.lua` reaches the rule with two statements instead.
+
+A broken group is dropped on its own and never with the glyph. A group reaches an extmark as a
+name, so a number or a table there raises on the paint that emits it and would take down the
+review the glyph was there to help read; the file then draws as one whose adapter gave a glyph
+alone, which is a row a reviewer already knows. A group the theme leaves undefined needs no
+handling — the extmark draws nothing extra, so an unknown group costs a color rather than a
+glyph. The group is the host's own name and is never translated into one of this plugin's,
+which would be the plugin having the opinion about color that the adapter exists to avoid
+(ADR-0001).
+
+**The tree's glyph mark is measured off the string the row is built from, not counted from its
+parts.** `panel.lua` spells `before_glyph` — the indent, the state mark and the separator —
+once, builds the row's head from it and places the range at `#before_glyph`, so neither can be
+updated without the other. It is `file_label`'s discipline with `prefix`, one surface over, and
+it is needed for the same reason: on a top-level row that head is **six bytes and four display
+columns**, so a range placed at the column lands four bytes early and colors the separator and
+half the glyph. The **fade** needs nothing for any of this — it renames a mark's group to its
+blended twin by name and `hl.lua` computes a twin for any group with a color, a host's icon
+group included. It is also never reached: the fade exempts every header row and the tree is
+never faded at all, so no mark carrying an icon group is handed to it. The before pane's indent is measured off it with
 `strdisplaywidth` for the same reason — counted from the parts, a renamed file's two paths
 would sit apart by the width of the glyph. No fixture in this suite has a non-ASCII *path* — `mkfixture.sh`'s
 `src/nonl.md` is non-ASCII content on an ASCII path — so a case built on the fixture alone

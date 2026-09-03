@@ -5,10 +5,11 @@
 ---either: in any real repository half the entries are called `index.ts`.
 ---
 ---Pure, and one edge: `render` decides what a **host**'s `file_icon` adapter answers with,
----for the tree as for the two surfaces the diff draws. The rule is one `pcall` and one type
----test, and a second copy of it here is two places for the tree and the diff to come to
----disagree about the same file -- which is the whole of *one file, one icon*. It lives in
----`render` because `render` already owns what a file is called wherever it is named.
+---for the tree as for the two surfaces the diff draws. The rule is one `pcall` and a type
+---test on each half of the answer -- the glyph, and the highlight group that colours it --
+---and a second copy of it here is two places for the tree and the diff to come to disagree
+---about the same file, which is the whole of *one file, one icon*. It lives in `render`
+---because `render` already owns what a file is called wherever it is named.
 local M = {}
 
 local render = require("codereview.render")
@@ -138,7 +139,7 @@ end
 --- Rendering -------------------------------------------------------------------
 
 ---@param files CRFile[]
----@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
+---@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
 ---@return CRPanelRender
 function M.build(files, opts)
   local icons = opts.icons
@@ -202,11 +203,21 @@ function M.build(files, opts)
     -- plugin does not control put in front of it would break the one thing it is for. So the
     -- glyph is a second thing about the file, between the mark and the name.
     --
-    -- Nothing wired is the common case and costs the comparison in front of the `and`: the
-    -- adapter is the only implementation there is, so with none of it there is nothing to
-    -- call. The tree is rebuilt on every file crossing as well as on every paint, so that
-    -- matters more here than it does on the diff.
-    local glyph = opts.file_icon and render.file_icon(opts.file_icon, node.path) or nil
+    -- Nothing wired is the common case and costs the test in front of the call: the adapter
+    -- is the only implementation there is, so with none of it there is nothing to call. The
+    -- tree is rebuilt on every file crossing as well as on every paint, so that matters more
+    -- here than it does on the diff.
+    --
+    -- **The group comes back beside the glyph**, because both icon plugins a host would wire
+    -- answer with the pair, and reading only the first is what drew every wired glyph in
+    -- this panel's own foreground. Two statements rather than the `and`/`or` one the glyph
+    -- alone was reached by: that idiom is an expression, so it truncates a second return
+    -- value away silently -- the colour would be dropped here, and nowhere a reader could
+    -- see it happen.
+    local glyph, group
+    if opts.file_icon then
+      glyph, group = render.file_icon(opts.file_icon, node.path)
+    end
     -- The separator rides with the glyph rather than standing beside it, so a file with no
     -- glyph contributes nothing here at all rather than a space -- which would move every
     -- name on every row of every tree by one column and look right while doing it.
@@ -228,7 +239,14 @@ function M.build(files, opts)
       lead_width = vim.fn.strdisplaywidth(lead)
     end
     local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - lead_width)
-    local head = ("%s%s %s%s"):format(indent, icon, lead, name)
+    -- **What the glyph starts after, spelled once**, so the string the row is built from and
+    -- the offset the glyph's own mark lands at are one expression and neither can be updated
+    -- without the other. That is `file_label`'s discipline with its `prefix`, one surface
+    -- over, and it is here for the reason it is there: a range placed at a display column
+    -- lands four bytes early on a top-level row, where the indent, the state mark and the
+    -- separator are six bytes and four columns.
+    local before_glyph = ("%s%s "):format(indent, icon)
+    local head = before_glyph .. lead .. name
     local pad = math.max(1, width - vim.fn.strdisplaywidth(head) - #right - 1)
     local text = head .. (" "):rep(pad) .. right
 
@@ -244,6 +262,25 @@ function M.build(files, opts)
       #indent,
       { end_col = #indent + #icon, hl_group = reviewed and "CodeReviewStatAdd" or "CodeReviewNoteCount" }
     )
+    -- The colour the host's icon plugin chose for this file, over the glyph's own bytes.
+    --
+    -- **A second thing about the file, laid beside the state mark and never over it.** The
+    -- range above keeps every byte it had, because the glyph starts where the mark ends --
+    -- which is the same rule that put the glyph after the mark in the first place, now
+    -- answered in colour as well as in columns.
+    --
+    -- Emitted only when the adapter gave a group. A range in no group is an extmark that
+    -- costs a paint and draws nothing, and an adapter answering with a glyph alone has to go
+    -- on carrying the marks it has always carried.
+    --
+    -- The group is the host's own -- `MiniIconsAzure`, `DevIconLua` -- and is never
+    -- translated into one of this plugin's, which would be this plugin having the opinion
+    -- about colour that the adapter exists to avoid (ADR-0001). A group the active theme
+    -- gives no colour draws nothing extra, so a group nobody defined costs the glyph its
+    -- colour rather than costing the row its glyph.
+    if group then
+      mark(row, #before_glyph, { end_col = #before_glyph + #glyph, hl_group = group })
+    end
     if reviewed then
       mark(row, 0, { line_hl_group = "CodeReviewFileReviewed" })
     end

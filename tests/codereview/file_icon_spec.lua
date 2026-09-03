@@ -38,6 +38,26 @@ local function by_extension(path)
   return path:match("%.lua$") and LUA or path:match("%.md$") and MD or OTHER
 end
 
+-- The groups `mini.icons` and `nvim-web-devicons` answer with, spelled as one of them spells
+-- them. A host's group and never this plugin's: the whole point is that the colour is one
+-- the reviewer's icon plugin already chose, so nothing here may look like a group this
+-- plugin defines.
+local AZURE, YELLOW = "MiniIconsAzure", "MiniIconsYellow"
+
+---A host's adapter that answers the way both icon plugins do: a glyph, and the group that
+---colours it. `.ts` is deliberately answered with a glyph alone, so one tree carries both
+---kinds of answer and the upgrade rule is asserted on the same rows as the new one.
+---@param path string
+---@return string glyph, string|nil group
+local function coloured(path)
+  if path:match("%.lua$") then
+    return LUA, AZURE
+  elseif path:match("%.md$") then
+    return MD, YELLOW
+  end
+  return OTHER
+end
+
 --- What the adapter is handed, and what its answer becomes ----------------------
 
 ---One label of an ordinary modified file, with `file` and `opts` overriding what it needs to.
@@ -131,6 +151,85 @@ describe("the glyph it answers with", function()
   end)
 end)
 
+--- The colour the glyph is drawn in ---------------------------------------------
+
+-- **Both icon plugins a host would wire answer with two things and this plugin read one.**
+-- `nvim-web-devicons.get_icon` answers with a glyph and the name of the group that colours
+-- it; `MiniIcons.get` answers with the same pair. Dropping the second is why every wired
+-- glyph drew in the surface's own foreground -- a Lua file's glyph measured on the tree row
+-- as `#e0e2ea`, which is the tree's colour, where `mini.icons` had chosen `#8cf8f7`.
+--
+-- The rule is asserted here, with no surface behind it, because it is **one rule and three
+-- surfaces read it**. A second copy of these cases at each surface would be three places for
+-- one answer to drift.
+describe("the group the rule carries out of the adapter", function()
+  it("is answered beside the glyph", function()
+    local glyph, group = render.file_icon(coloured, "src/main.lua")
+    assert.same(LUA, glyph)
+    assert.same(AZURE, group)
+  end)
+
+  -- The colour follows the file, as the glyph does. One group for every file would be a
+  -- colour this plugin chose, which is the opinion the adapter exists to avoid (ADR-0001).
+  it("follows the file, so two files can carry two colours", function()
+    assert.same({ MD, YELLOW }, { render.file_icon(coloured, "docs/guide.md") })
+    assert.same({ LUA, AZURE }, { render.file_icon(coloured, "src/main.lua") })
+  end)
+
+  -- **The upgrade rule.** An adapter written against the contract as it was answers with a
+  -- glyph and nothing else, and it must go on drawing what it draws today. A group is what a
+  -- host may add, never what it must.
+  it("is absent when the adapter gave a glyph alone", function()
+    local glyph, group = render.file_icon(by_extension, "src/main.lua")
+    assert.same(LUA, glyph)
+    assert.is_nil(group)
+  end)
+
+  it("is absent, with the glyph too, when the adapter raises", function()
+    local glyph, group = render.file_icon(function()
+      error("this host's icon plugin is not loaded")
+    end, "src/main.lua")
+    assert.is_nil(glyph)
+    assert.is_nil(group)
+  end)
+end)
+
+-- A group is a name a surface hands to an extmark, and an extmark takes a string. A number
+-- or a table there raises on the paint that emits it, which would take down the review the
+-- glyph was there to help read. Every broken group answers the same way, and it is the way
+-- an adapter with no group to give answers: **the glyph survives and the colour is dropped**,
+-- so one bad answer costs a colour rather than a review.
+describe("a group the rule cannot use", function()
+  ---@param group any
+  local function dropped(group)
+    local glyph, answered = render.file_icon(function()
+      return LUA, group
+    end, "src/main.lua")
+    assert.same(LUA, glyph, "the glyph went with the group")
+    assert.is_nil(answered)
+  end
+
+  it("is dropped when it is a number", function()
+    dropped(42)
+  end)
+
+  it("is dropped when it is a table", function()
+    dropped({ AZURE })
+  end)
+
+  -- An empty group is not a group. Handed to an extmark it is the group `""`, which no
+  -- theme defines and which reads as a mark that did nothing -- an absence spelled the
+  -- expensive way.
+  it("is dropped when it is an empty string", function()
+    dropped("")
+  end)
+
+  -- `MiniIcons.get` answers with a third value, a boolean saying whether the icon was its
+  -- fallback. A host that hands the whole answer through in the wrong order arrives here.
+  it("is dropped when it is a boolean", function()
+    dropped(true)
+  end)
+end)
 describe("a review with no adapter wired", function()
   it("gives a file no glyph at all", function()
     assert.is_nil(label().file_icon)
@@ -515,6 +614,44 @@ local function leading(rendered, row)
   return rendered.lines[row]:sub(first.col + 1, first.opts.end_col), first.opts.hl_group
 end
 
+---Every highlighted range on one row, as `{ col, end_col, group }`, in column order.
+---
+---The line-wide marks are left out: `line_hl_group` carries no range at all, so what is
+---here is what covers *bytes* -- which is the only kind of mark a glyph's colour can be.
+---@param rendered CRPanelRender
+---@param row integer
+---@return table[]
+local function ranges(rendered, row)
+  local out = {}
+  for _, m in ipairs(rendered.marks) do
+    if m.row == row - 1 and m.opts.end_col then
+      out[#out + 1] = { m.col, m.opts.end_col, m.opts.hl_group }
+    end
+  end
+  table.sort(out, function(a, b)
+    return a[1] < b[1]
+  end)
+  return out
+end
+
+---What one row draws in `group`, read back off the row itself.
+---
+---**Read rather than computed**, for `leading`'s reason one column over: an expectation
+---built from the offsets the row was built from would agree with a range that covered the
+---state mark, or the separator, or the first byte of the name.
+---@param rendered CRPanelRender
+---@param row integer
+---@param group string
+---@return string|nil
+local function drawn_in(rendered, row, group)
+  for _, range in ipairs(ranges(rendered, row)) do
+    if range[3] == group then
+      return rendered.lines[row]:sub(range[1] + 1, range[2])
+    end
+  end
+  return nil
+end
+
 ---@param line string
 ---@param head string
 local function begins(line, head)
@@ -580,6 +717,143 @@ describe("the glyph on a tree row", function()
       "apps/api/src/routes/users.ts",
       "docs/guide.md",
     }, asked)
+  end)
+end)
+
+-- **The colour, on the surface the whole ticket was reported against.** A reviewer wired the
+-- adapter, every glyph came back in the tree's own foreground, and `docs/guide.md` and
+-- `apps/api/src/main.lua` carried different glyphs in one colour.
+--
+-- The range is read back off the row rather than computed, because computing it from the
+-- offsets the row was built from would agree with a range that covered the state mark, the
+-- separator, or the first bytes of the name.
+describe("the colour of a glyph on a tree row", function()
+  it("is the group the adapter named, over the glyph and nothing else", function()
+    local rendered = tree({ file_icon = coloured })
+    local row = (file_row(rendered, "apps/api/src/main.lua"))
+    assert.same(LUA, drawn_in(rendered, row, AZURE))
+  end)
+
+  it("follows the file, so two files in one tree carry two colours", function()
+    local rendered = tree({ file_icon = coloured })
+    assert.same(LUA, drawn_in(rendered, (file_row(rendered, "apps/api/src/main.lua")), AZURE))
+    assert.same(MD, drawn_in(rendered, (file_row(rendered, "docs/guide.md")), YELLOW))
+  end)
+
+  -- **The guard the block rests on.** Over a head whose bytes and columns agree, a range
+  -- placed at the display column and one placed at the byte offset cover the same character
+  -- and every case above passes either way. The indent, the state mark and the separator are
+  -- six bytes and four columns, and the glyph itself is two bytes and one column.
+  it("is placed by the glyph's bytes and not by its columns", function()
+    local head = ("  %s "):format(ICONS.unreviewed)
+    assert.is_true(#head > vim.fn.strdisplaywidth(head), "the head is not multibyte")
+    assert.is_true(#LUA > vim.fn.strdisplaywidth(LUA), "the glyph is not multibyte")
+
+    local rendered = tree({ file_icon = coloured })
+    local row = (file_row(rendered, "apps/api/src/main.lua"))
+    local range
+    for _, r in ipairs(ranges(rendered, row)) do
+      if r[3] == AZURE then
+        range = r
+      end
+    end
+    assert.same({ #head, #head + #LUA, AZURE }, range)
+  end)
+
+  -- The rule the whole ticket rests on, and the one a colour is likeliest to take: the
+  -- **state** mark keeps its column, its group and its place as the leftmost thing on the
+  -- row. All three states are asked, because a colour that had swallowed the mark's range
+  -- would be invisible on any two of them.
+  it("leaves the state mark leftmost, in its own group", function()
+    local cases = {
+      { ICONS.unreviewed, "CodeReviewNoteCount", {} },
+      { ICONS.reviewed, "CodeReviewStatAdd", { reviewed = { ["apps/api/src/main.lua"] = "blob" } } },
+      { ICONS.annotated, "CodeReviewNoteCount", { notes = { ["apps/api/src/main.lua:n:1"] = { {} } } } },
+    }
+    for _, case in ipairs(cases) do
+      local rendered = tree(vim.tbl_extend("force", { file_icon = coloured }, case[3]))
+      local row = (file_row(rendered, "apps/api/src/main.lua"))
+      assert.same({ case[1], case[2] }, { leading(rendered, row) })
+      assert.same(LUA, drawn_in(rendered, row, AZURE), "the glyph lost its colour to the state")
+    end
+  end)
+end)
+
+-- The upgrade rule on the surface, and the strongest form of it: an adapter that answers
+-- with a glyph alone draws the row it drew before a group could be answered at all, **mark
+-- for mark**. A row that merely looks right cannot satisfy this.
+describe("a tree row whose glyph has no colour", function()
+  it("draws what a glyph-alone adapter has always drawn", function()
+    local plain, both = tree({ file_icon = by_extension }), tree({ file_icon = coloured })
+    -- `users.ts` is the file `coloured` answers about with a glyph and no group, so its row
+    -- is the one both trees have to agree on.
+    local prow, pline = file_row(plain, "apps/api/src/routes/users.ts")
+    local row, line = file_row(both, "apps/api/src/routes/users.ts")
+    assert.same(pline, line)
+    assert.same(ranges(plain, prow), ranges(both, row))
+  end)
+
+  it("carries the state mark's range and no other", function()
+    local rendered = tree({ file_icon = coloured })
+    local row = (file_row(rendered, "apps/api/src/routes/users.ts"))
+    assert.same({ { 4, 4 + #ICONS.unreviewed, "CodeReviewNoteCount" } }, ranges(rendered, row))
+  end)
+end)
+
+-- Every way a group can be broken answers the way an adapter with no group answers: the
+-- glyph draws, in the row's own colour. Asserted as **every line and every mark** of a tree
+-- wired to an adapter that gives a glyph alone, which is what says the row lost nothing but
+-- the colour.
+describe("a group the tree cannot use", function()
+  ---@param group any
+  local function survives(group)
+    local plain = tree({ file_icon = by_extension })
+    local broken = tree({
+      file_icon = function(path)
+        return by_extension(path), group
+      end,
+    })
+    assert.same(plain.lines, broken.lines)
+    assert.same(plain.marks, broken.marks)
+  end
+
+  it("is survived when it is a number", function()
+    survives(42)
+  end)
+
+  it("is survived when it is a table", function()
+    survives({ AZURE })
+  end)
+
+  it("is survived when it is an empty string", function()
+    survives("")
+  end)
+
+  it("is survived when it is a boolean", function()
+    survives(true)
+  end)
+end)
+
+-- **The fade needs nothing built for it, and this is the case that says so.** It renames a
+-- mark's group to its blended twin *by name*, and a twin is computed for any group the theme
+-- gives a colour -- a host's icon group included, which is a group this plugin has never
+-- heard of and holds no table of. Anyone tempted to give these groups a fade rule of their
+-- own is refused here.
+describe("a host's icon group and the fade", function()
+  local fade = require("codereview.fade")
+  local hl = require("codereview.hl")
+
+  it("gets a blended twin, like any group the fade is handed", function()
+    vim.api.nvim_set_hl(0, AZURE, { fg = 0x8cf8f7 })
+    local twin = assert(hl.blended("faded", AZURE), "a host's icon group got no blend")
+    assert.same("CodeReviewFaded." .. AZURE, twin)
+    assert.same(twin, fade.group(AZURE))
+    -- A blend and not a link: the twin holds a colour of its own, pulled off the one the
+    -- host's icon plugin chose.
+    assert.is_true(
+      vim.api.nvim_get_hl(0, { name = twin, link = false }).fg ~= 0x8cf8f7,
+      "the twin holds the group's own colour rather than a blend of it"
+    )
   end)
 end)
 
@@ -700,6 +974,24 @@ describe("a panel too narrow for the name", function()
 
   -- An `end_col` past the end of a row is a hard error, and a glyph is one more thing pushing
   -- a long name over the edge of a panel this narrow.
+
+  -- **A colour is one more mark on the row a narrow panel is fighting over**, and an
+  -- `end_col` past the end of a row is a hard error rather than a badly-coloured glyph. The
+  -- glyph is what the cut spares, so its colour has to survive the cut with it.
+  it("keeps the glyph's colour, over the glyph and inside the row", function()
+    local rendered = narrow({
+      file_icon = function()
+        return OTHER, AZURE
+      end,
+      notes = { ["src/very-long-handler-name.ts:n:1"] = { {}, {} } },
+    })
+    local row, line = file_row(rendered, "src/very-long-handler-name.ts", LONG)
+    assert.same(OTHER, drawn_in(rendered, row, AZURE), "the glyph lost its colour to the cut")
+    for _, range in ipairs(ranges(rendered, row)) do
+      assert.is_true(range[2] <= #line, ("%s ends at %d past a row of %d"):format(range[3], range[2], #line))
+    end
+  end)
+
   it("keeps every mark inside the row the glyph helped fill", function()
     local rendered = narrow({ notes = { ["src/very-long-handler-name.ts:n:1"] = { {}, {} } } })
     for _, m in ipairs(rendered.marks) do
