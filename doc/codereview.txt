@@ -240,6 +240,19 @@ The tree collapses single-child directory chains, so a monorepo shows
 indent on segments that carry no information. Directories sort before files,
 and each directory carries a reviewed tally for its subtree.
 
+The footer carries a progress bar beside `N/M reviewed`, filled from those
+same two numbers, so how far the review has got is something you see rather
+than a fraction you convert. It draws in the footer's own color and never in
+green -- green already means a finished directory in this tree. The bar is one
+length for the whole review: it is measured against the widest tally the review
+can print, so it does not shrink by a column when the reviewed count grows a
+digit. A review you have started fills at least one cell, and only a finished
+review fills the last one. `icons.progress_full` and `icons.progress_empty` are
+the two glyphs. Replace both or neither: the bar tells its two kinds of cell
+apart by glyph and not by color, because the footer row draws in one line-wide
+highlight group and a line-wide group replaces the foreground of every mark
+beneath it.
+
 A file row carries the reviewed, annotated or unreviewed mark first, and then
 the glyph |codereview-opt-file_icon| gave that file -- the same glyph the diff
 and the sticky header draw for it, decided by one rule so the three cannot
@@ -1378,6 +1391,7 @@ Defaults: >
         reviewed = "✓", annotated = "●", unreviewed = "○",
         collapsed = "▸", expanded = "▾", change_bar = "▌",
         untouched = "↺", continuation = "↳",
+        progress_full = "█", progress_empty = "░",
       },
       types = nil,
       send = nil, pick_target = nil, pick_file = nil,
