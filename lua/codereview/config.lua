@@ -1,7 +1,7 @@
 ---Configuration and adapter injection.
 ---
 ---The adapters (`send`, `pick_target`, `pick_file`, `compose`, `open_diff`,
----`pick_checkout`, `file_icon`) are what keep
+---`pick_checkout`, `file_icon`, `dir_icon`) are what keep
 ---this plugin distributable. With none of them wired it still renders, annotates and
 ---queues -- the payload just reaches the `+` register instead of an agent, the batch stays
 ---queued because nothing consumed it, and `gd` is bound to nothing. A host config injects
@@ -270,6 +270,34 @@ M.defaults = {
   ---wired here calls nothing per file on either surface.
   ---@type (fun(path: string): string|nil, string|nil)|nil
   file_icon = nil,
+
+  ---A host's own glyph for a **directory**, and the group that colours it, on the row the
+  ---**file tree** draws for it. Answer with the glyph, or with the glyph and the highlight
+  ---group beside it, exactly as `file_icon` does; `MiniIcons.get("directory", name)` hands
+  ---you that pair already. Nothing is shipped behind this key.
+  ---
+  ---**A second adapter rather than a wider first one.** A directory names no file, so there
+  ---is nothing `file_icon` could be asked about it, and a host wires one function per kind
+  ---of thing so that neither has to guess which kind it was handed. This one is never asked
+  ---about a file, and `file_icon` is never asked about a directory.
+  ---
+  ---You are handed the row's **own** path. The tree compacts a chain of single-child
+  ---directories onto one row, so a row reading `apps/api/src` hands you `apps/api/src` and
+  ---never `apps`: the glyph and the name a row draws are about the same directory.
+  ---
+  ---**A second thing about the directory, and never a replacement for the first.** The
+  ---chevron that says whether it is open keeps its column, and the reviewed tally keeps its
+  ---own against the right margin. The glyph comes out of the name's budget, and a narrow
+  ---panel cuts the name from the left.
+  ---
+  ---Called once per **drawn** directory row per paint -- a collapsed directory hides its
+  ---children, so they are not drawn and not asked about -- and the tree is rebuilt on every
+  ---**file crossing** as well, so an adapter that raises, or answers with something that is
+  ---not a glyph, is survived rather than reported: that row draws without one and the review
+  ---goes on. There is no shipped glyph behind this and therefore no default implementation
+  ---to call, so a review with nothing wired here calls nothing per directory.
+  ---@type (fun(path: string): string|nil, string|nil)|nil
+  dir_icon = nil,
 }
 
 ---@type table

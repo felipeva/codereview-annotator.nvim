@@ -371,13 +371,22 @@ local function path_segments(path, out)
   out[#out + 1] = M.literal(path:sub(cut and cut + 1 or 1), NAME)
 end
 
----A host's own glyph for a file, and the group that colours it -- or nil when it has none.
+---A host's own glyph for a path, and the group that colours it -- or nil when it has none.
 ---
 ---**Exported because three surfaces name a file and one rule decides what its glyph is.**
 ---The diff's header row and the **sticky header** read it through `file_label`; the **file
 ---tree** reads it here, because a tree row is not a label and needs the glyph alone. Two
 ---copies of this rule is two places for those surfaces to come to disagree about the same
 ---file, which is the whole of *one file, one icon*.
+---
+---**Written for `file_icon` and handed `dir_icon` as well.** A directory names no file, so
+---the tree asks about one through a second adapter -- but *what an adapter answered with* is
+---the same question either way, and the answer is checked here by the same `pcall` and the
+---same two type tests. A directory copy of this rule is a third place for those tests to
+---drift, and a reviewer would meet the drift as a colour their icon plugin chose surviving
+---on a file row and not on the directory row above it. The name says which adapter the rule
+---was written for and not which one it may be handed; renaming it would rewrite `file_label`
+---below, the tree, and the spec's own watch on this function, for a word.
 ---
 ---**The group is carried out beside the glyph because both icon plugins answer with it.**
 ---`nvim-web-devicons.get_icon` answers with a glyph and the name of the group that colours
