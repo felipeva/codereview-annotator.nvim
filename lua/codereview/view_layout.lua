@@ -164,6 +164,13 @@ end
 
 --- Setup -----------------------------------------------------------------------
 
+---The buffer number every review window's buffer is named by, unless something says more.
+---
+---A number says nothing about what the buffer holds, and for the **file tree** and a before
+---**pane** that is the right answer: both are opened beside a diff of the same **scope**, so
+---a name for the scope on either of them would collide with the diff's on the first review.
+---Only the diff is the review, so only the diff claims the scope's name -- see
+---`M.name_review`, which writes it over this one.
 ---@param buf integer
 ---@param name string
 function M.scratch(buf, name)
@@ -173,6 +180,34 @@ function M.scratch(buf, name)
   vim.bo[buf].modifiable = false
   vim.bo[buf].filetype = name
   vim.api.nvim_buf_set_name(buf, name .. "://" .. tostring(buf))
+end
+
+---Name the review buffer for the **scope** it is showing.
+---
+---A tabline, a bufferline and `:ls` all read this name, and `codereview://3` says nothing
+---about what the review covers. The scope's *name* rather than its label: a label carries
+---the branch it is measured against and a **trim**'s count, with spaces and a `·` in it, and
+---those read as several entries in the one surface this name exists for.
+---
+---**The numbered form is a rule and not a nicety.** Two buffers cannot share a name:
+---`nvim_buf_set_name` raises `E95` rather than renaming, measured directly, and leaves the
+---buffer unnamed. A reviewer who has put a review buffer in a tab of its own keeps it alive
+---past the review that made it, so the next review of that scope meets a name already taken
+----- and a naming convenience must never cost anybody a review. Rejected: renaming or
+---wiping whoever holds the name. That buffer may be the reviewer's own, and a review must
+---not take a name off something it did not create.
+---
+---Both writes are guarded, for the same reason the fallback exists: this runs on the way
+---into a review and again on every **scope** change, so a name nothing can be found for
+---leaves the buffer with the name it already had rather than stopping either one.
+---@param buf integer
+---@param scope string The scope's name, which is what the review is of
+function M.name_review(buf, scope)
+  local plain = "codereview://" .. scope
+  if pcall(vim.api.nvim_buf_set_name, buf, plain) then
+    return
+  end
+  pcall(vim.api.nvim_buf_set_name, buf, ("%s#%d"):format(plain, buf))
 end
 
 ---Give a review buffer everything it carries: the diff's keys, and the two autocommands

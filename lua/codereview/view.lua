@@ -559,15 +559,17 @@ local function update_before_winbar()
   if not view_layout.has_before(V) then
     return
   end
-  local rev = V.scope.before
-  -- `:0` is git's name for the index, and a name nobody reads as one. The revision itself is
-  -- a name the repository chose, so it is a literal beside chrome rather than one string --
-  -- and it is accented, because it is what this pane exists to name. The same separator, and
-  -- the same quiet group on it, as the summary on the other pane.
+  -- What the revision is *called* is `render.rev_label`'s, not this bar's: an object name
+  -- abbreviates, `:0` reads `index`, and a branch or a tag stays whole. Asked here rather
+  -- than answered here, so the rule reads as data and one function holds the whole of it.
+  -- The revision is still a name the repository chose, so it is a literal beside chrome
+  -- rather than one string -- and it is accented, because it is what this pane exists to
+  -- name. The same separator, and the same quiet group on it, as the summary on the other
+  -- pane.
   local left = {
     render.chrome("Before"),
     render.chrome(SEP, "CodeReviewBarSep"),
-    render.literal(rev == ":0" and "index" or rev, "CodeReviewBarRev"),
+    render.literal(render.rev_label(V.scope.before), "CodeReviewBarRev"),
   }
   local width = vim.api.nvim_win_get_width(V.before_win)
   -- A file that exists only on the after side has no pre-image path to name, exactly as its
@@ -1570,6 +1572,11 @@ function M.set_scope(spec)
 
   V.scope = scope
   V.files = files
+  -- The name follows the scope, and it is written here because here is where the scope is
+  -- set: a tabline must never go on describing a review the reviewer has cycled away from.
+  -- The fallback applies again, because the scope this arrives at may be one another buffer
+  -- already holds the name of.
+  view_layout.name_review(V.buf, scope.name)
   -- Cached captures are keyed by path and side only, so they are meaningless once the
   -- refs behind those sides change.
   require("codereview.syntax").invalidate(V)
@@ -2303,6 +2310,10 @@ function M.open(spec, checkout)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_win_set_buf(main_win, buf)
   view_layout.scratch(buf, "codereview")
+  -- Over the numbered name `scratch` just wrote, rather than instead of it: `scratch` gives
+  -- every review window's buffer one identity, and this is the one buffer that has more to
+  -- say than its number. It is written again wherever the scope is set -- see `set_scope`.
+  view_layout.name_review(buf, scope.name)
   view_layout.window_opts(main_win)
 
   local key = scope_key(scope)

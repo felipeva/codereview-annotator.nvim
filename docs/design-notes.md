@@ -278,6 +278,16 @@ question for the cursor, and they must be asked in that order.** A review with n
 no cursor in one, so asking the cursor first leaves an empty scope silent where `]F` used to
 say the review was done. Cost one commit to put back.
 
+**The unified hunk header is git's own line, drawn as git wrote it.** git puts the enclosing
+declaration after the second `@@`, so the string the parser keeps in `hunk.header` already
+names the section — and the render appended `hunk.heading` to it as well, which is the same
+signature read twice. It is worst where it matters most: a long one doubled is what pushes
+the first copy off a narrow pane, and `truncate` then removes the very evidence a row
+assertion would look for. The **split** layout never carried the fault and must not be made
+to follow the same rule: it has *two* headers and no line of git's that says what either one
+spans, so it rebuilds both from the ranges and keeps the heading with the post-image, which is
+the image the heading describes.
+
 **Collapsing is done at render time, not with folds.** A collapsed file's body is never
 emitted, so the buffer and the anchor map stay small on a large review, and there is one
 mechanism instead of two.
@@ -624,6 +634,14 @@ count reading the working directory passes every case written from in there; one
 does not. `count_spec`'s last block asks from the tab the reviewer never left, and guards
 that the two checkouts have different numbers to report, or a working-directory read would
 pass while being about the wrong queue.
+
+**Nothing on a winbar may spawn a process.** The before **pane**'s bar names its base
+revision, and abbreviating a 40-character object name is the obvious job for `rev-parse
+--short`. That bar is assembled on every paint and a paint runs on every resize, so it would
+be a git process per resize — and a resize is the operation that has to feel immediate. The
+shape of the name is enough to decide instead: a 40-character run of hexadecimal is an object
+name and nothing else. Length alone was rejected, because a 40-character name that is *not*
+hexadecimal is a name somebody chose and its first seven characters name nothing.
 
 **Intra-line spans are computed when the diff is parsed, never when it is drawn.** On a
 12,000-line diff they cost about as much again as a whole repaint. Paid once per git read
@@ -1417,6 +1435,22 @@ back to the diff window, so choosing an agent from the queue float dumped the cu
 the diff — where `<C-s>` hits the *main* buffer's mapping, which submits the batch but
 leaves the float open behind it. It also has to drive its own repaint: the picker is
 asynchronous, so anything run after the call returns paints before a target exists.
+
+**Two buffers cannot share a name, and the second `nvim_buf_set_name` raises rather than
+renaming.** Measured: `Vim:E95: Buffer with this name already exists`, with the buffer left
+unnamed. That is why the review buffer, which is named for the **scope** it shows, falls back
+to `codereview://<scope>#<bufnr>` — a naming convenience must never cost anybody a review.
+Setting a buffer to the name it *already holds* returns cleanly, which is what makes renaming
+on every scope change safe rather than a collision with itself.
+
+**The collision is reachable, and it takes a reviewer doing nothing unusual.** Opening a
+review closes the current one with `tabclose`, and every review buffer is
+`bufhidden = "wipe"`, so ordinarily nothing survives to collide. A review buffer the reviewer
+has *also* put in a tab of their own does survive that close, holding its name, and the next
+review of that scope meets it. Only the diff claims the scope's name for the mirror-image
+reason: the **file tree**'s buffer and a before **pane**'s buffer are opened beside a diff of
+the same scope, so a scope name on either of them would collide with the diff's on the very
+first review.
 
 ## A checkout deleted underneath a review
 

@@ -626,6 +626,45 @@ function M.bar_width(segments)
   return width
 end
 
+---How many characters of an object name a person reads it by.
+---
+---git's own default for `--short`, and what a log, a review tool and a commit message all
+---shorten to. Not configurable: a bar naming seven characters while the reviewer's terminal
+---names eight is a difference nobody can act on.
+local ABBREV = 7
+
+---The length of a full object name, and half of what says a string is one.
+local OBJECT_NAME = 40
+
+---What a base revision is called on a bar.
+---
+---**What `file_label` is for a file, this is for a revision.** The before **pane**'s winbar
+---names two things, and both are now a rule returned as data: it reads without a window
+---behind it, and it is asserted without a repository behind it.
+---
+---Everything a reviewer would recognise -- a **branch**, a tag, a name they typed -- comes
+---back unchanged, because the one revision they *can* read must not be abbreviated into one
+---they cannot. `:0` is git's name for the index and a name nobody reads as one; that rule
+---lives here rather than at the winbar, so one function answers the whole question and a
+---second surface naming a revision cannot come to answer it differently.
+---
+---**Decided from the shape of the name, never by asking git.** The bar is assembled on
+---every paint and a paint runs on every resize, so a `rev-parse --short` here is a process
+---per resize. A 40-character run of hexadecimal is an object name and nothing else, which is
+---enough to decide. Length alone was rejected as the test: a 40-character name that is not
+---hexadecimal is a name somebody chose, and its first seven characters name nothing.
+---@param rev string The **scope**'s before-revision
+---@return string
+function M.rev_label(rev)
+  if rev == ":0" then
+    return "index"
+  end
+  if #rev == OBJECT_NAME and rev:match("^%x+$") then
+    return rev:sub(1, ABBREV)
+  end
+  return rev
+end
+
 ---Build the view.
 ---
 ---Returns the after-pane render first because the after-image is the primary one
@@ -1060,8 +1099,13 @@ function M.build(files, opts)
         )
         mark(before, hrow, 0, { line_hl_group = "CodeReviewHunkHeader" })
       else
-        local head = hunk.heading ~= "" and ("%s %s"):format(hunk.header, hunk.heading) or hunk.header
-        hrow = row2(truncate(head, width), hanchor)
+        -- git's own header, drawn as git wrote it. The section heading is already the tail
+        -- of that line, so appending `hunk.heading` here is the signature read twice -- and
+        -- worst where it matters most, because a long one doubled is what pushes the first
+        -- copy off a narrow pane. Rejected: rebuilding the line from the ranges the way the
+        -- branch above does. That pane has two headers and no line of git's that says what
+        -- either one spans; this layout has exactly one, and git already wrote it.
+        hrow = row2(truncate(hunk.header, width), hanchor)
       end
       after.hunk_rows[#after.hunk_rows + 1] = hrow
       if before then

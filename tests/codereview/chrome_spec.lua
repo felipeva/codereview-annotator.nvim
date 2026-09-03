@@ -262,6 +262,18 @@ describe("a second review of one scope", function()
     assert.same("codereview://staged", vim.api.nvim_buf_get_name(first))
   end)
 
+  -- The collision itself, proved at the moment the second review is open: the plain name is
+  -- really taken, and taking it really raises. Without this the case below says only that
+  -- the two names differ, which an implementation that numbered *every* second review would
+  -- satisfy while never meeting E95 at all.
+  it("really cannot be given the plain name", function()
+    local spare = vim.api.nvim_create_buf(false, true)
+    local ok, err = pcall(vim.api.nvim_buf_set_name, spare, "codereview://staged")
+    assert.is_false(ok)
+    assert.is_truthy(tostring(err):find("E95", 1, true), tostring(err))
+    vim.api.nvim_buf_delete(spare, { force = true })
+  end)
+
   it("opens, under the numbered form", function()
     assert.is_true(V.buf ~= first)
     assert.same(("codereview://staged#%d"):format(V.buf), vim.api.nvim_buf_get_name(V.buf))
