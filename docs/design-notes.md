@@ -283,13 +283,15 @@ emitted, so the buffer and the anchor map stay small on a large review, and ther
 mechanism instead of two.
 
 **A line-wide highlight is painted across the full window width past the end of the text,
-and it carries an underline out there with it.** On a **blank** row it is uniform from the
-first column to the last, which is what makes the **frame**'s bottom rule possible at all:
-the rule is a `line_hl_group` on the **pad** row, and no row is emitted for it. Measured on
-0.12, and `frame_child.lua` reads the pane's *last* column rather than its first, because a
-reading taken at the first column passes over a rule one cell wide. A row with no mark on it
-is visibly distinct from a marked blank row, so the pad row's rule is something a spec can
-read rather than something a reviewer has to be trusted about.
+and it carries its background and its underline out there with it.** On a **blank** row it is
+uniform from the first column to the last. That is what makes both halves of the **frame**
+possible without a row of its own: a file's header row is a **band** because a background
+reaches the window's edge, and on the terminal that can draw no band the **pad** row's rule is
+a `line_hl_group` on a row the diff had anyway. Measured on 0.12, and `frame_child.lua` reads
+the pane's *last* column rather than its first, because a reading taken at the first column
+passes over a rule one cell wide. A row with no mark on it is visibly distinct from a marked
+blank row, so what the pad row draws -- and, since the band landed, what it no longer draws --
+is something a spec can read rather than something a reviewer has to be trusted about.
 
 **A `line_hl_group` replaces every attribute it sets on every inline highlight the row
 carries, and priority does not arbitrate between the two.** This is the rule the **frame**
@@ -308,25 +310,52 @@ was built wrong against once, and the shape of it is not what either guess said.
   `line_hl_group` marks on one row do not merge: the higher-priority one is used and the
   other's attributes are gone entirely. So "emit the rule beside the header's own group"
   looks like it works and silently costs that row its colour and its bold everywhere the
-  column marks do not reach.
+  column marks do not reach. Measured again when the band was prototyped, from the other
+  direction: a band emitted as a second mark *below* the frame's priority drew **nothing** at
+  all. Whatever a row's line-wide group says, it says in one computed group.
 
 The consequence for this plugin was invisible and predates the frame: the file header row
 carried `CodeReviewFileHeader` as a `line_hl_group`, and `Title`'s foreground flattened every
 column mark on that row -- the `+N -M` stat and the note count were emitted, correct, and
 drawn in the header's colour. Nothing reported it, because every assertion about them was
-about which mark carried which group. So the frame's four groups carry **no foreground and no
-background**: an underline and `sp`, which is the underline's own colour. What the row is
-coloured in is a column mark of its own, below the band the stat and the path use, so the
-marks that own a run of the row win it by priority -- which is the thing priority does decide.
+about which mark carried which group. So the frame's four groups carry **no foreground**. What
+the row is coloured in is a column mark of its own, below the priority band the stat and the
+path use, so the marks that own a run of the row win it by priority -- which is the thing
+priority does decide.
 
-`sp` has no `cterm` counterpart, because a terminal palette has no underline colour. On cterm
-the rule draws in whatever foreground the cell already had, which is that terminal's best
-rendering rather than a wrong one. `hl.lua` blends `sp` beside `fg` and `bg`, and a group
-whose only colour is `sp` gets a twin like any other -- without that, the rule a file is
-framed with is the one bright line in a pane that has lost focus.
+**A file's header row is a band, and a band is a background and nothing else.** A background
+is the one attribute that row does not already own, so it is the one a line-wide group can add
+without taking something away: measured on a painted cell, a cell inside the file name under a
+band reads its own foreground, its own weight and the band's background together, and the
+path's two halves, the stat, the note count and a host's glyph all survive with it. A band
+carrying a foreground would flatten the row exactly as `Title` used to.
+
+**The band's strength is fixed by the theme's `CursorLine` and not by taste.** It is computed
+from `Normal` -- that background pulled toward `Normal`'s own foreground -- and on Neovim's own
+dark theme `Normal` is `#14161b` and `CursorLine` is `#2c2e33`. At 10% the band lands on
+`#282a30`: four units per channel from the cursor line, which is invisible, so every header row
+would read as permanently selected and the cursor would disappear on the one row a reviewer
+lands on when they jump to a file. 20% lands on `#3d3f44`, seventeen units per channel away.
+Deriving the band from `CursorLine` instead of from `Normal` would make that collision the
+design, so it is derived from `Normal` and the suite asserts the *inequality* -- a theme that
+moves its cursor line is caught rather than trusted.
+
+**The pad row's rule went with the band, and its group did not.** A band is a beginning nobody
+can scroll past without seeing, so the second hairline had nothing left to close: a header
+between two rules two rows apart is text in a box rather than a title. The group stays defined
+and carries nothing in gui, so the table that hands out a pair per file state goes on handing
+out one -- and it has a consequence worth knowing: a group with no colour at all gets no
+blended twin, so a **faded** file's pad row is emitted in the group itself. It draws nothing
+either way, which is why that is correct rather than merely harmless.
+
+**A terminal palette has no background to compute at a strength**, so on cterm there is no band
+and the underline stays -- on the header row and on the pad row alike. `sp` has no `cterm`
+counterpart either, so out there the rule draws in whatever foreground the cell already had.
+That is the review as it read before the band existed rather than a worse one, and it is why
+`hl.lua` writes the `cterm` table by hand rather than deleting the underline with the gui one.
 
 **`overline` is accepted by the highlight API and comes back in the `cterm` table**, so the
-temptation to draw the frame's bottom edge with one is real. It is the terminal and not
+temptation to draw that terminal's bottom edge with one is real. It is the terminal and not
 Neovim that is the risk: many emulators ignore the sequence, so that edge would be invisible
 on some terminals with nothing reporting it. Both edges are underlines, and the pad row's
 draws at the bottom of a blank row, which is visually just above the next file's header.

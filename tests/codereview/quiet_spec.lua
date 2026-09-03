@@ -85,6 +85,12 @@ end
 ---
 ---The span is written out from the render rather than asked of `fade.lua`: a case that asked
 ---the code under test where a file starts would agree with it whatever it answered.
+---
+---A group with **nothing to blend** counts as neither. The fade hands back nothing for it and
+---emits it as it stands, which is the nil contract rather than a row left bright -- see the
+---same rule, argued at more length, in `faded_spec`. The **pad** row's group is the one here:
+---since a file's header row became a **band** it carries no gui colour, only the rule a
+---terminal without true colour still draws.
 ---@param fi integer
 ---@return string[] faded, string[] bright
 local function file_groups(fi)
@@ -95,7 +101,7 @@ local function file_groups(fi)
   for group in pairs(drawn(first, last)) do
     if group:sub(1, #FADED) == FADED then
       faded[#faded + 1] = group
-    elseif group:sub(1, #"CodeReview") == "CodeReview" then
+    elseif group:sub(1, #"CodeReview") == "CodeReview" and require("codereview.hl").blended("faded", group) then
       bright[#bright + 1] = group
     end
   end

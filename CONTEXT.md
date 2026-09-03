@@ -108,17 +108,22 @@ which window the cursor is in, and which **muted** is written against.
 _Avoid_: focus, isolate, single-file mode, only, zen
 
 **Frame**:
-The rule above and below a file's body in the **review view**, so a file has a visible end and
-not only a visible beginning. Drawn as highlight groups on rows that are there anyway — an
-underline on the file's header row, and a second underline on the **pad** after its last hunk,
-which draws at the bottom of that blank row and is therefore visually just above the next
-file's header — and never as a row of its own: a row would need an **anchor**, and a reviewer
-could then put a cursor on a thing that is not part of the diff. Both edges are underlines and
-never an overline: an overline is accepted by Neovim and maps to a terminal sequence many
-emulators ignore, so a bottom edge drawn with it is invisible on some terminals and nothing
-reports it. A collapsed file gets the header's rule alone, because it has no body to bound and
-two rules with nothing between them read as a broken frame rather than a closed file. Fades
-with its file, the way that file's hunk headers do and its header row does not (see **Faded**).
+What marks a file out in the **review view**, so a file has a visible beginning and a visible
+end. Drawn as highlight groups on rows that are there anyway, and never as a row of its own: a
+row would need an **anchor**, and a reviewer could then put a cursor on a thing that is not
+part of the diff. The header row is a **band** — filled in a background one step off `Normal`,
+which is computed from the reviewer's own theme rather than taken from a palette this plugin
+holds, and far enough off it to clear that theme's cursor line. The band carries no foreground,
+so the path's two halves, the `+N -M` stat, the note count and a host's file glyph all keep
+their own colour on it, and a **reviewed** file keeps its dimming from the mark under the band.
+The **pad** after the last hunk carries no rule: a band is a beginning nobody can scroll past,
+so the second hairline had nothing left to close, and a header between two rules two rows apart
+read as text in a box rather than as a title. A terminal with no true colour has no background
+to compute at a strength, so there the band is an underline on the header row and the pad keeps
+its own — never an overline, which Neovim accepts and many emulators ignore, so an edge drawn
+with one is invisible on some terminals and nothing reports it. A collapsed file gets the band
+alone, because it has no body to bound. Fades with its file, the way that file's hunk headers
+do and its header row does not (see **Faded**).
 Not _separator_: a frame says where one file ends *and* where it began, which a thing between
 two files cannot.
 _Avoid_: border, box, card, rule, divider, separator

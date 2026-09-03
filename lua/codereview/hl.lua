@@ -141,37 +141,33 @@ local TYPE_FALLBACK = "DiagnosticInfo"
 local SPAN_SOURCE = "DiffText"
 local SPAN_GROUPS = { "CodeReviewAddSpan", "CodeReviewDelSpan" }
 
--- The **frame**: the rule above and below a file's body, so a file has a visible end and
--- not only a visible beginning. One entry per group a file's header row can carry, holding
--- that file's two edges: `framed` goes on the header row in place of the source group, and
--- `pad` goes on the blank **pad** row that closes the body.
+-- The **frame**: what marks a file out in a review. One entry per group a file's header row
+-- can carry, holding that file's two rows: `framed` fills the header row with the **band**,
+-- and `pad` holds the blank **pad** row that closes the body.
 --
 -- **Computed rather than linked, and that is forced rather than preferred.** A
 -- `default = true` link copies its target's attributes wholesale, so a group linked to
--- `Title` cannot be `Title` *and* an underline. The header row already carries a line-wide
--- group; what the frame changes is which one. The pad row carried none, and its group is
--- new.
+-- `Title` cannot be `Title` *and* a background no theme defines. The header row already
+-- carries a line-wide group; what the frame changes is which one.
 --
--- **Both edges are `underline`.** `overline` is accepted by this API and comes back in the
--- `cterm` table, so the temptation is real -- but it maps to a terminal sequence many
--- emulators ignore, and a bottom edge some terminals do not draw is one nothing reports.
--- The pad row's underline sits at the bottom of a blank row, which is visually just above
--- the next file's header, so one attribute draws both edges.
+-- **A band and a rule cannot be two marks.** Two line-wide groups on one row do not merge:
+-- the higher priority is applied and the other's attributes are gone entirely -- a band
+-- emitted below the frame's priority drew *nothing*, which is how the rule was found. So
+-- whatever a row's line-wide group says, it says in one computed group, and that is what
+-- makes these four definitions rather than a band added beside the rule.
 --
--- **A rule is an underline and the colour of that underline, and never a foreground.** All
--- four groups are emitted as `line_hl_group`, and a line-wide group replaces every attribute
--- it sets on every inline highlight the row carries -- at any priority, in either direction.
--- So a frame group carrying an `fg` would flatten the whole header row to one colour: the
--- path's own styling, the `+N -M` stat and the note count alike. The colour goes in `sp`,
--- which is the underline's own, and the row's foreground is left to the marks that own it.
--- See `docs/design-notes.md`, which has the measurement.
+-- **Both pairs hold the same band, and the key is what stays useful about that.** A reviewed
+-- file is not told from an unreviewed one by the band -- the dimming is the column mark
+-- underneath, so one computation at one strength answers both. What the key still buys is a
+-- group per state under `default = true`: a reviewer who wants a finished file's band dimmer
+-- can set `CodeReviewFrameReviewed` and leave every other header alone. Collapsed to one
+-- group, that override would take the whole review with it.
 --
--- **Keyed by the header's group, so one file's two edges come from one source.** A frame
--- whose edges disagree about the file's state reads as a rendering fault rather than as a
--- shade, and the disagreement is reachable: `za` expands a file without unmarking it, so a
--- reviewed file with a body is what that key is for. Keying the table this way is what
--- makes the two edges agree by construction instead of by a rule to remember, and the
--- fourth group is the whole cost of it.
+-- **No `overline`, on the cterm rule these still carry.** It is accepted by this API and comes
+-- back in the `cterm` table, so the temptation is real -- but it maps to a terminal sequence
+-- many emulators ignore, and a bottom edge some terminals do not draw is one nothing reports.
+-- The pad row's underline sits at the bottom of a blank row, which is visually just above the
+-- next file's header, so one attribute draws both edges there.
 ---@type table<string, { framed: string, pad: string }>
 local FRAME_SOURCES = {
   CodeReviewFileHeader = { framed = "CodeReviewFrameHeader", pad = "CodeReviewFramePad" },
@@ -185,6 +181,53 @@ local FRAME_SOURCES = {
 -- on what a reviewer has scrolled past, and `syntax.lua` already caches them per capture.
 local EDITOR_GROUPS = { "Normal", "CursorLine", "LineNr", "WinBar", "WinBarNC" }
 
+--- The colour arithmetic --------------------------------------------------------
+
+-- One copy, two callers: the **band** a file's header row is filled with, written once per
+-- colorscheme below, and every blended twin at the foot of this file. A second copy is how the
+-- two would drift apart on a theme neither was written against.
+
+---`Normal`'s two colours, with a theme that defines neither answered by which way it leans.
+---
+---A theme that gives `Normal` no background has the terminal's behind it, and the only
+---knowable fact about that background is the `background` option. The foreground is answered
+---the same way and for the same reason, so nothing here reaches for a palette.
+---@return integer bg, integer fg
+local function normal_colors()
+  local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+  local light = vim.o.background == "light"
+  return normal.bg or (light and 0xffffff or 0x000000), normal.fg or (light and 0x000000 or 0xffffff)
+end
+
+---Pull one color toward another, channel by channel.
+---@param color integer 0xRRGGBB
+---@param target integer 0xRRGGBB
+---@param strength number 0 keeps the color. 1 replaces it with `target`.
+---@return integer
+local function blend(color, target, strength)
+  local out = 0
+  for _, place in ipairs({ 65536, 256, 1 }) do
+    local from = math.floor(color / place) % 256
+    local to = math.floor(target / place) % 256
+    out = out + math.floor(from + (to - from) * strength + 0.5) * place
+  end
+  return out
+end
+
+---How far the **band** is pulled off `Normal`'s background, toward `Normal`'s own foreground.
+---
+---**It has to clear the theme's `CursorLine`, and that is what fixes the number.** Measured on
+---Neovim's own dark theme: `Normal` `#14161b`, `CursorLine` `#2c2e33`, and a band at 10%
+---`#282a30` -- four units per channel from the cursor line, which is invisible. Every header
+---row would read as permanently selected, and the cursor would disappear on the one row a
+---reviewer lands on when they jump to a file. 20% lands at `#3d3f44`, seventeen units per
+---channel away, and is unmistakably not the cursor line. `frame_spec` asserts the inequality
+---rather than the number, so a theme that moves its cursor line is caught rather than trusted.
+---
+---**Pulled from `Normal` and never from `CursorLine`.** Deriving the band from the cursor line
+---would make the collision above the design rather than the thing being avoided.
+local BAND_STRENGTH = 0.20
+
 local function apply_spans()
   local source = vim.api.nvim_get_hl(0, { name = SPAN_SOURCE, link = false })
   for _, group in ipairs(SPAN_GROUPS) do
@@ -192,29 +235,35 @@ local function apply_spans()
   end
 end
 
----Write the **frame**'s groups against the colors the links above now resolve to.
+---Write the **frame**'s groups against the colors the theme now resolves to.
 ---
----`cterm` is set by hand rather than left to follow the true-color attributes. It follows
----them only when it is *absent*, and a source group that carries any cterm attribute of its
----own -- `Title` is bold in Neovim's own default theme -- hands one over in the copy. The
----frame would then be underlined on a true-color terminal and not on any other, which is the
----one failure this whole family of groups exists to avoid.
+---**`Normal` is read here rather than asked of `backdrop()` below.** That memo is cleared by
+---`recolor_twins`, which runs at the *end* of `apply` -- so a band taken from it on a
+---colorscheme change would be computed against the theme that just left.
+---
+---**`cterm` is set by hand rather than left to follow the true-color attributes.** It follows
+---them only when it is *absent*, and a group carrying any cterm attribute of its own hands one
+---over in a copy. Here it carries the rule this began as: a terminal palette is an index and
+---not a colour with channels to pull, so there is no background to compute at a strength and
+---no band to draw. The header keeps its underline there and the **pad** row keeps its own,
+---which is the review as it read before the band existed rather than a worse one.
 local function apply_frame()
-  for source, pair in pairs(FRAME_SOURCES) do
-    local def = vim.api.nvim_get_hl(0, { name = source, link = false })
-    -- One shape for both edges: the attribute, and the colour of the attribute. Nothing
-    -- else, so nothing the row carries is replaced by a group that is only there to draw a
-    -- line. `sp` has no `cterm` counterpart -- a terminal palette has no underline colour --
-    -- so on cterm the rule draws in whatever foreground the cell already had, which is the
-    -- rendering that terminal can give rather than a wrong one.
-    local rule = {
-      sp = def.fg,
-      underline = true,
-      cterm = { underline = true },
-      default = true,
-    }
-    vim.api.nvim_set_hl(0, pair.framed, rule)
-    vim.api.nvim_set_hl(0, pair.pad, rule)
+  local bg, fg = normal_colors()
+  local band = blend(bg, fg, BAND_STRENGTH)
+  for _, pair in pairs(FRAME_SOURCES) do
+    -- **A background and nothing else.** A line-wide group replaces every attribute it sets on
+    -- every inline highlight the row carries, at any priority and in either direction, so a
+    -- band carrying a foreground would flatten the whole header row to one colour -- the
+    -- path's two halves, the `+N -M` stat, the note count and a host's glyph with it. A
+    -- background is the one attribute that row does not already own, so it is the one a band
+    -- can add. `docs/design-notes.md` has the measurement.
+    vim.api.nvim_set_hl(0, pair.framed, { bg = band, cterm = { underline = true }, default = true })
+    -- **The pad row's rule is retired, and its group is not.** A band is a beginning nobody
+    -- can scroll past without seeing, so the rule that closed the file above it has nothing
+    -- left to close -- and two hairlines two rows apart are what made a header read as text in
+    -- a box. The group stays defined, carrying the cterm rule alone, so everything reading the
+    -- table above goes on finding a pair.
+    vim.api.nvim_set_hl(0, pair.pad, { cterm = { underline = true }, default = true })
   end
 end
 
@@ -291,30 +340,15 @@ local toward = nil
 
 ---What a blended color is pulled toward, whichever family asks.
 ---
----A theme that gives `Normal` no background at all has the terminal's behind it. The only
----knowable fact about that background is which way the theme leans.
+---Memoised, because a twin is written per group and the answer moves only with the theme.
+---`recolor_twins` clears it, which is why the band above reads `Normal` for itself rather than
+---asking here: that pass runs last.
 ---@return integer
 local function backdrop()
   if not toward then
-    local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
-    toward = normal.bg or (vim.o.background == "light" and 0xffffff or 0x000000)
+    toward = (normal_colors())
   end
   return toward
-end
-
----Pull one color toward another, channel by channel.
----@param color integer 0xRRGGBB
----@param target integer 0xRRGGBB
----@param strength number 0 keeps the color. 1 replaces it with `target`.
----@return integer
-local function blend(color, target, strength)
-  local out = 0
-  for _, place in ipairs({ 65536, 256, 1 }) do
-    local from = math.floor(color / place) % 256
-    local to = math.floor(target / place) % 256
-    out = out + math.floor(from + (to - from) * strength + 0.5) * place
-  end
-  return out
 end
 
 ---Write `family`'s twin of `group`, or report that `group` has no color to blend.
@@ -322,10 +356,13 @@ end
 ---Only the true-color attributes are blended. `ctermfg` and `ctermbg` are indices into a
 ---palette with no channels to pull, so they are copied without a change.
 ---
----`sp` is blended beside `fg` and `bg`, and a group whose *only* colour is `sp` has a twin
----like any other. That is what the **frame** is: an underline and the colour of the
----underline, with no foreground at all. Left out, the rule a file is framed with would be
----the one bright line in a pane that has lost focus.
+---`sp` is blended beside `fg` and `bg`, so a group whose only colour is an underline's has a
+---twin like any other. A group with **no** colour at all gets none, which is the **pad** row's
+---group since the band retired its rule: there is nothing there to blend, and a caller that
+---finds no twin draws the group as it stands -- a group that draws nothing.
+---
+---The **band** is a background alone, and that is the half a muted pane most needs pulled: a
+---header row left unblended is the one bright stripe in a pane that has lost focus.
 ---@param family CRBlendFamily
 ---@param group string
 ---@return boolean written True if the twin now holds a blend of `group`.
