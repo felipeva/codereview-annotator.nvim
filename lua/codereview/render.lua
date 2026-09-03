@@ -404,8 +404,12 @@ end
 ---a `#` inside `%#...#`, so the only answers are to refuse the name or to refuse the segment,
 ---and refusing the name is the one that costs a colour rather than a glyph.
 ---
----An empty string fails this too, and is meant to: it is an absence spelled the expensive way
----and no theme defines it.
+---**An empty string fails this too, and by the plugin's own argument rather than Neovim's.**
+---`nvim_set_hl(0, "", ...)` does not raise: the name is accepted and silently discarded, so
+---`hlexists("")` stays 0 and nothing is defined. It is refused here because a marker or an
+---extmark naming it costs a paint and draws nothing, which is what an absence spelled the
+---expensive way is worth -- not because Neovim would have rejected it. The distinction is
+---asserted in `render_spec`, so a doc that flattens the two reds a case.
 ---@param group string
 ---@return boolean
 local function nameable(group)
@@ -422,8 +426,11 @@ end
 ---
 ---**Written for `file_icon` and handed `dir_icon` as well.** A directory names no file, so
 ---the tree asks about one through a second adapter -- but *what an adapter answered with* is
----the same question either way, and the answer is checked here by the same `pcall` and the
----same two type tests. A directory copy of this rule is a third place for those tests to
+---the same question either way, and the answer is checked here by the same `pcall`, the same
+---type test on each half, and the same refusal of a group that could not name a highlight
+---group. Named rather than counted: the count was two before that refusal arrived, and a
+---number in prose goes stale without anyone editing it. A directory copy of this rule is a
+---third place for those tests to
 ---drift, and a reviewer would meet the drift as a colour their icon plugin chose surviving
 ---on a file row and not on the directory row above it. The name says which adapter the rule
 ---was written for and not which one it may be handed; renaming it would rewrite `file_label`

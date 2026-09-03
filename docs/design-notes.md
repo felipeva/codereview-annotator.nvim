@@ -477,9 +477,11 @@ priority does decide.
 **A file's header row is a band, and a band is a background and nothing else.** A background
 is the one attribute that row does not already own, so it is the one a line-wide group can add
 without taking something away: measured on a painted cell, a cell inside the file name under a
-band reads its own foreground, its own weight and the band's background together, and the
-path's two halves, the stat, the note count and a host's glyph all survive with it. A band
-carrying a foreground would flatten the row exactly as `Title` used to.
+band reads its own foreground, its own weight and the band's background together. The path's
+two halves, the stat, the note count and a host's glyph then survive by the same mechanism --
+inferred from that cell and not read off four more, because `frame_child.lua` spawns a process
+per cell and reads `pad`, `covered`, `name` and `muted`. A band carrying a foreground would
+flatten the row exactly as `Title` used to.
 
 **The band's strength is fixed by the theme's `CursorLine` and not by taste.** It is computed
 from `Normal` -- that background pulled toward `Normal`'s own foreground -- and on Neovim's own

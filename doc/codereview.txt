@@ -1287,15 +1287,20 @@ file_icon({path})                                   *codereview-opt-file_icon*
         `nvim-web-devicons` and `mini.icons` both answer with that pair
         already, so handing their answer straight through is the whole of it.
         The group is yours and is never translated; one your theme leaves
-        undefined costs the glyph its colour and never its glyph, one that
-        could not be a highlight group at all is dropped the same way, and a
-        glyph alone is a complete answer.
+        undefined costs the glyph its colour and never its glyph, one Neovim
+        would refuse as a group name is dropped the same way, and a glyph
+        alone is a complete answer.
 
-        Neovim's own rule decides what could be a group: letters, digits,
-        `_`, `.`, `@` and `-`, and nothing else. It matters because the
-        sticky header is a statusline and a group reaches one as markup, so a
-        `#` in the name would end that markup early and put the rest of the
-        name on the bar as statusline items.
+        Neovim's rule is letters, digits, `_`, `.`, `@` and `-`, and nothing
+        else. It matters because the sticky header is a statusline and a
+        group reaches one as markup, so a `#` in the name would end that
+        markup early and put the rest of the name on the bar as statusline
+        items.
+
+        An empty string is dropped as well, and that one is this plugin's own
+        rule rather than Neovim's: Neovim accepts an empty name and discards
+        it, so it defines nothing, and a marker naming nothing costs a paint
+        and draws no colour.
 
         **The glyph is drawn on three surfaces, and the group colours it on
         all three.** The glyph reaches the file's header row in the diff, the

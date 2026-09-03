@@ -202,6 +202,34 @@ end)
 -- glyph was there to help read. Every broken group answers the same way, and it is the way
 -- an adapter with no group to give answers: **the glyph survives and the colour is dropped**,
 -- so one bad answer costs a colour rather than a review.
+---Whether Neovim accepts `name` as a highlight group, with the theme left as it was found.
+---
+---**The probe defines the name, because there is no read-only way to ask.** `hlexists` cannot
+---answer this: it says whether a name is *defined right now*, which is false for every
+---undefined name, the legitimate ones included -- so a case resting on it passes whatever the
+---rule refuses. `nvim_set_hl` is the authority, and asking it costs a write.
+---
+---So every name is read first and written back. What cannot be put back is *undefined*: there
+---is no API for it, so a name that was undefined comes back defined-and-empty. That state
+---holds no colour and `nvim_get_hl` still answers `{}` for it, which is what the acts below
+---read -- but it is reported by `nvim_eval_statusline` where an undefined one is dropped, and
+---plenary runs this file's `it` bodies top to bottom in one process, so a probe that skipped
+---the restore would hand every later case a group it never asked for. It did, once.
+---@param name string
+---@return boolean
+local function accepts(name)
+  -- The read is guarded as well as the write. `nvim_get_hl` raises `Highlight id out of
+  -- bounds` for a name that could not be a group, so reading the prior state of an invalid
+  -- name is itself an error -- and the two APIs agree name for name, which is a second
+  -- authority saying the same thing rather than a workaround.
+  local read_ok, before = pcall(vim.api.nvim_get_hl, 0, { name = name })
+  local ok = pcall(vim.api.nvim_set_hl, 0, name, { fg = 0x112233 })
+  if ok and read_ok then
+    vim.api.nvim_set_hl(0, name, before)
+  end
+  return ok
+end
+
 describe("a group the rule cannot use", function()
   ---@param group any
   local function dropped(group)
@@ -244,21 +272,34 @@ describe("a group the rule cannot use", function()
   it("is dropped when it cannot name a highlight group at all", function()
     for _, group in ipairs({ "A#B", "MiniIcons Azure", "A%B", "A/B", "Ünïcode", "A:B" }) do
       dropped(group)
-      -- The guard the case rests on: each of these really is a name Neovim refuses, so
-      -- dropping it costs a colour that was never available.
-      assert.same(0, vim.fn.hlexists(group), ("%q is a group Neovim accepts after all"):format(group))
+      -- **The guard, and it asks the authority rather than a proxy for it.** Each of these is
+      -- a name `nvim_set_hl` raises `E5248` for, so dropping it costs a colour that was never
+      -- available. `hlexists` cannot say that: it answers whether a name is *defined now*,
+      -- which is 0 for every undefined name, legitimate ones included.
+      assert.is_false(accepts(group), ("%q is a group Neovim accepts after all"):format(group))
     end
   end)
 
-  -- And the names a host will actually hand over are kept. Without this the case above passes
-  -- on a rule that dropped every group there is.
+  -- The empty string is on the same side of the rule and gets there by a different argument:
+  -- Neovim accepts it and discards it, so this is the plugin refusing an absence spelled the
+  -- expensive way rather than Neovim refusing a name. Its own case is above with the other
+  -- broken answers; `render_spec` pins the distinction against `nvim_set_hl`.
+  it("is dropped when it is an empty string, which Neovim would have taken", function()
+    dropped("")
+    assert.is_true(accepts(""), "Neovim raises on an empty name")
+  end)
+
+  -- And the names a host will actually hand over are kept. Without this the cases above pass
+  -- on a rule that dropped every group there is. A leading digit is here rather than there:
+  -- `nvim_set_hl` takes `1abc`, so refusing it would cost a colour Neovim would have drawn.
   it("is kept when it is a name a theme could define", function()
-    for _, group in ipairs({ AZURE, "DevIconLua", "@keyword.function", "Dev-Icon_9" }) do
+    for _, group in ipairs({ AZURE, "DevIconLua", "@keyword.function", "Dev-Icon_9", "1abc" }) do
       local glyph, answered = render.file_icon(function()
         return LUA, group
       end, "src/main.lua")
       assert.same(LUA, glyph)
       assert.same(group, answered)
+      assert.is_true(accepts(group), ("%q is a group Neovim refuses after all"):format(group))
     end
   end)
 end)
@@ -1567,6 +1608,17 @@ describe("a group a directory row cannot use", function()
 
   it("is survived when it is a boolean", function()
     survives(true)
+  end)
+
+  -- **The fifth kind, and the one that reaches this row through a shared rule rather than
+  -- through this act.** `render.file_icon` refuses a string that could not name a highlight
+  -- group at all -- a `#` in one would end its marker early on the **sticky header** -- and a
+  -- directory row goes through that same rule, so it inherits the refusal without a line of
+  -- its own in `panel.lua`. Inherited is exactly why it is asserted here: nothing on this
+  -- surface would have shown it going missing.
+  it("is survived when it could not name a highlight group at all", function()
+    survives("A#B")
+    assert.is_false(accepts("A#B"), "`A#B` is a group Neovim accepts after all")
   end)
 end)
 
