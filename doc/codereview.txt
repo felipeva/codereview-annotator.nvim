@@ -155,7 +155,8 @@ takes commits off the start of the branch included, works on any git.
 Buffer-local, inside the review view:
 
     ab af as an ai   Annotate as bug / fix / suggestion / nitpick / issue
-    aa               Annotate, picking the type from a menu
+    aa               Annotate, picking the type from a menu that names each
+                     type's key and directive
     x                Drop the annotation under the cursor
     R                Toggle reviewed on this file (collapses it); under
                      |codereview-solo|, go on to the next unreviewed file
@@ -756,14 +757,26 @@ and says so. Anything touching a deleted line is inlined as a diff block
 rather than referenced, because an `@ref` shows the file as it is now -- the
 line it names no longer exists. A hunk is always inlined for the same reason.
 
-Each type carries a `directive`, which becomes the instruction attached to
-that group in the submitted payload:
+Each type carries a glyph, a key and a `directive`. The directive becomes the
+instruction attached to that group in the submitted payload:
 
-    bug         diagnose and fix these
-    fix         apply these changes
-    suggestion  evaluate; apply if sound
-    nitpick     low priority -- batch these together
-    issue       do NOT fix -- summarize these for tracking
+    ✗  bug         ab  diagnose and fix these
+    ✎  fix         af  apply these changes
+    ✦  suggestion  as  evaluate; apply if sound
+    ▫  nitpick     an  low priority -- batch these together
+    ⚑  issue       ai  do NOT fix -- summarize these for tracking
+
+The glyph is what the picker offers each type with, what a queued note
+carries in front of its prose, and all an archived entry keeps -- see
+|codereview-archived|. Plain Unicode, one column wide, so no patched font is
+needed here or anywhere else the plugin draws.
+
+`aa` opens the picker, which offers those same four columns and `no type`
+last, under the untyped mark. The rows are built from your own types, so a
+replaced set is offered with its own names and its own keys, and a type with
+no directive is offered without one. None of that reaches the agent: the
+directive is what instructs a group, and the key and the glyph stay in the
+picker.
 
 `opts.types` replaces the whole set. Only `name` and `key` are required: >lua
     types = {
@@ -776,7 +789,8 @@ that group in the submitted payload:
     label       defaults to the name, title-cased and pluralized
     icon        defaults to `icons.annotated`
     hl          defaults to CodeReview<Name>, linked so it has color
-    directive   optional -- the heading is then just "## Questions (3)"
+    directive   optional -- the heading is then just "## Questions (3)",
+                and the picker's row for that type stops at its key
 
 Order is the order groups appear in the payload, most actionable first.
 Pluralization is naive, so an irregular name wants an explicit `label`.

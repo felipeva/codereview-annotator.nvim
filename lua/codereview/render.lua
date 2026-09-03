@@ -180,6 +180,22 @@ end
 ---a second copy would be a second set of rules about what "too wide" means.
 M.truncate = truncate
 
+---`text`, followed by blanks until it has spent `width` display columns.
+---
+---By display width rather than by byte count, which is what `("%-8s"):format` does: a glyph
+---or a name outside ASCII costs more bytes than it draws, and the column it is meant to hold
+---collapses by the difference. `truncate`'s neighbour, and here for its reason -- fitting
+---text into a column count is this module's job wherever the text goes.
+---
+---Right-padding only. `trim_float` pads the other way, to right-align a date under a date,
+---and that is a different operation rather than this one with a flag.
+---@param text string
+---@param width integer Display columns
+---@return string
+function M.pad(text, width)
+  return text .. (" "):rep(math.max(0, width - vim.fn.strdisplaywidth(text)))
+end
+
 ---The last `width` display columns of `text`, with `…` where the head was cut.
 ---
 ---`truncate`'s mirror, and the **sticky header**'s: a path that has to give up columns
