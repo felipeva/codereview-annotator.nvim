@@ -241,10 +241,13 @@ and each directory carries a reviewed tally for its subtree.
 
 A file row carries the reviewed, annotated or unreviewed mark first, and then
 the glyph |codereview-opt-file_icon| gave that file -- the same glyph the diff
-and the sticky header draw for it, in your icon plugin's own colour when your
-adapter names a highlight group. A directory row carries the glyph
-|codereview-opt-dir_icon| gave it, after the chevron and coloured the same
-way. Neither adapter is wired by default and the plugin ships no glyph behind
+and the sticky header draw for it. A directory row carries the glyph
+|codereview-opt-dir_icon| gave it, after the chevron. On **this** surface a
+glyph is drawn in your icon plugin's own colour when your adapter named a
+highlight group beside it; the diff and the bar draw the same glyph in the
+row's own colour.
+
+Neither adapter is wired by default and the plugin ships no glyph behind
 either, so with none wired every row is exactly what it has always been. A
 glyph comes out of the name's budget: a narrow panel cuts the name from the
 left and keeps the mark, the chevron and the glyph.
@@ -1267,10 +1270,13 @@ file_icon({path})                                   *codereview-opt-file_icon*
         undefined costs the glyph its colour and never its glyph, and a glyph
         alone is a complete answer.
 
-        It is drawn on three surfaces -- the file's header row in the diff,
-        the sticky header (|codereview-sticky-header|) and the file tree
-        (|codereview-tree|) -- and one rule decides what your answer becomes,
-        so a file cannot carry one glyph in the tree and another on the diff.
+        **The glyph is drawn on three surfaces; the group colours it on one.**
+        The glyph reaches the file's header row in the diff, the sticky header
+        (|codereview-sticky-header|) and the file tree (|codereview-tree|),
+        and one rule decides what your answer becomes, so a file cannot carry
+        one glyph in the tree and another on the diff. The group is read on
+        the **file tree** row. On the header row and on the bar the glyph
+        draws in the row's own colour, as it always has.
 
         **A second thing about the file and never a replacement for the
         first.** The reviewed, annotated and unreviewed marks keep their
