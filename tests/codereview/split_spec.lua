@@ -686,8 +686,17 @@ describe("opening in the split layout", function()
     assert.is_truthy(h.winbar(V.win):find(reviewed, 1, true), h.winbar(V.win))
   end)
 
-  it("names the revision the before pane is showing", function()
-    assert.is_truthy(vim.wo[V.before_win].winbar:find(V.scope.before, 1, true))
+  -- The one live case behind `chrome_spec`'s data answer: what the abbreviation *is* is a
+  -- rule with no repository behind it, and that this bar draws it needs a real branch scope,
+  -- whose pre-image is a 40-character object name. The guard is what lets this fail --
+  -- abbreviating a name that is already short says nothing. Both halves are asserted,
+  -- because finding the short form alone passes over a bar still naming the whole object:
+  -- the short one is a prefix of it.
+  it("names the revision the before pane is showing, abbreviated", function()
+    assert.is_truthy(V.scope.before:match("^%x+$") and #V.scope.before == 40, V.scope.before)
+    local drawn = h.winbar(V.before_win)
+    assert.is_truthy(drawn:find(render.rev_label(V.scope.before), 1, true), drawn)
+    assert.is_falsy(drawn:find(V.scope.before, 1, true), drawn)
   end)
 end)
 
