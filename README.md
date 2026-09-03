@@ -360,7 +360,9 @@ unnecessary:
 ```
 
 The rows are built from your own types, so a replaced set is offered with its own names and
-its own keys, and a type with no directive is offered without one. None of this reaches the
+its own keys, and a type with no directive is offered without one. The columns are measured
+over your list, so a glyph or a name wider than the shipped ones widens its column rather than
+pushing the rows out of line. None of this reaches the
 agent: what a group is told to do is the directive itself, and the key and the glyph stay in
 the picker.
 

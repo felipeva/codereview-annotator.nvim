@@ -146,7 +146,10 @@ describe("with no type given", function()
     for i, t in ipairs(require("codereview.config").get().types) do
       local label = offered[i]
       local name_at = label:find(t.name, 1, true)
-      local key_at = label:find("a" .. t.key, 1, true)
+      -- Through `types.PREFIX`, not through a literal `"a"`. The constant exists so the key
+      -- the picker prints and the key `keymaps.lua` binds cannot drift apart; asserting
+      -- against the literal it retired would leave that agreement unguarded.
+      local key_at = label:find(require("codereview.types").PREFIX .. t.key, 1, true)
       local directive_at = label:find(t.directive, 1, true)
       assert.is_truthy(name_at, ("%s: no name in %q"):format(t.name, label))
       assert.is_truthy(key_at, ("%s: no key in %q"):format(t.name, label))

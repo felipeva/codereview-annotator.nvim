@@ -353,7 +353,9 @@ describe("a custom type end to end", function()
     assert.same(#config.get().types + 1, #offered, vim.inspect(offered))
     for i, t in ipairs(config.get().types) do
       assert.is_truthy(offered[i]:find(t.name, 1, true), offered[i])
-      assert.is_truthy(offered[i]:find("a" .. t.key, 1, true), offered[i])
+      -- Through `types.PREFIX` rather than a literal `"a"`, so what the picker prints and
+      -- what `keymaps.lua` binds stay one fact under the test as well as under the code.
+      assert.is_truthy(offered[i]:find(types.PREFIX .. t.key, 1, true), offered[i])
       -- The host's own directive, not a shipped type's. `blocker` is what makes this able
       -- to fail: it is in no default set, so a label reading `types.defaults` instead of
       -- the configured list has nothing to print for it.
@@ -372,7 +374,7 @@ describe("a custom type end to end", function()
   it("offers a type with no directive without one", function()
     local label = offered[3]
     assert.is_truthy(label:find("question", 1, true), label)
-    assert.same("aq", label:match("(%S+)%s*$"), label)
+    assert.same(types.PREFIX .. "q", label:match("(%S+)%s*$"), label)
   end)
 
   it("titles the composer from the type", function()
@@ -388,5 +390,65 @@ describe("a custom type end to end", function()
     vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, "src/fresh.lua")), 0 })
     annotate.annotate("question")
     assert.same("Question · src/fresh.lua:1", seen)
+  end)
+end)
+
+-- The columns are the picker's whole argument: a reviewer looking for one type reads down a
+-- column rather than along a row. Two things break that, and the shipped five can see
+-- neither -- their glyphs are all present and all one cell wide.
+describe("the picker's columns", function()
+  local annotate = require("codereview.annotate")
+
+  ---The rows the picker would offer for a type list, without a view or a queue behind it.
+  ---@param list table
+  ---@param opts table|nil Passed to `normalize`, which is where a fallback glyph comes from
+  ---@return string[]
+  local function offered(list, opts)
+    local rows
+    local orig = vim.ui.select
+    vim.ui.select = function(items, _, _)
+      rows = items
+    end
+    annotate.pick_type(types.normalize(list, opts), function() end)
+    vim.ui.select = orig
+    return rows
+  end
+
+  -- `icons = { annotated = "" }` is how a host asks for no glyph at all, and a type that
+  -- names no icon of its own inherits it. The empty-icon rule covers a *type's* own field,
+  -- not the table it falls back to, so an empty glyph reaches a row -- and a row trimmed at
+  -- both ends then loses the leading columns every other row keeps.
+  it("keeps a directive-less row's leading columns when the glyph is empty", function()
+    local rows = offered({
+      { name = "bug", key = "b", directive = "fix it" },
+      { name = "question", key = "q" },
+    }, { icon = "" })
+    assert.same(rows[1]:find("bug", 1, true), rows[2]:find("question", 1, true), vim.inspect(rows))
+  end)
+
+  -- A host's glyph is theirs and `normalize` takes whatever they give it, so the glyph is a
+  -- column like the others. One two-cell glyph on one type otherwise moves every name in the
+  -- menu, which is the one thing the columns are there to prevent.
+  it("lines the names up when one host's glyph is wider than another's", function()
+    local rows = offered({
+      { name = "bug", key = "b", icon = "🐛", directive = "fix it" },
+      { name = "nit", key = "n", icon = "▫", directive = "later" },
+    })
+    assert.same(
+      vim.fn.strdisplaywidth(rows[1]:match("^(.-)bug")),
+      vim.fn.strdisplaywidth(rows[2]:match("^(.-)nit")),
+      vim.inspect(rows)
+    )
+  end)
+
+  -- Declining shares the glyph column -- it has a mark, and the mark is a glyph -- and
+  -- declines every column after it, because no key reaches it and it instructs nothing.
+  it("lines the untyped mark's name up with the types' names", function()
+    local rows = offered({ { name = "bug", key = "b", icon = "🐛", directive = "fix it" } })
+    assert.same(
+      vim.fn.strdisplaywidth(rows[1]:match("^(.-)bug")),
+      vim.fn.strdisplaywidth(rows[2]:match("^(.-)no type")),
+      vim.inspect(rows)
+    )
   end)
 end)

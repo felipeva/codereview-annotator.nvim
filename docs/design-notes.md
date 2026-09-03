@@ -136,6 +136,18 @@ columns wide. Dropping the date's padding alone reds one case in `trim_float_spe
 reds on the row *widths* rather than on the size's own offset: the size is pinned on its left
 by the subject's own fixed width either way.
 
+**The type picker's columns break in two ways the shipped five cannot show, and both are a
+host's to cause.** The glyph, the name and the key are each padded to the widest the
+*configured* list carries, and every part of that sentence is load-bearing. Measuring the
+name and the key but not the glyph looks safe while the shipped glyphs are all one cell wide,
+and `normalize` accepts whatever a host gives a type: one two-cell glyph then moves every name
+in the menu. And a row with no directive has to give up its trailing blanks without giving up
+its leading ones, which rules out `vim.trim` — that strips both ends, and the leading end is
+the glyph column on a row whose glyph is empty. `icons = { annotated = "" }` is a host asking
+for exactly that, and it reaches a row because the empty-string rule covers a *type's* own
+`icon` field, not the table it falls back to. Neither case is visible with the defaults, so
+both are pinned against a replaced vocabulary in `types_spec`.
+
 **That float's counts arrive after it is drawn, and the float can be gone by then.** The
 listing is a metadata query and near-instant; the sizes are a diff of every commit on the
 branch, which is what was refused when the counts were first left off a row. So the float

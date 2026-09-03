@@ -160,9 +160,11 @@ function M.normalize(list, opts)
     end
     by_name[t.name] = i
 
-    -- `aa` opens the type picker, so a type keyed with the prefix itself would shadow it.
+    -- The prefix pressed twice opens the type picker, so a type keyed with the prefix itself
+    -- would shadow it. Named from the constant rather than spelled `aa`: a message telling a
+    -- host which key they collided with has to be about the key that is actually bound.
     if t.key == M.PREFIX then
-      fail("types[%d] uses key %q, which collides with the `aa` type picker", i, t.key)
+      fail("types[%d] uses key %q, which collides with the `%s%s` type picker", i, t.key, M.PREFIX, M.PREFIX)
     end
     if by_key[t.key] then
       fail("types[%d] and types[%d] both use key %q", by_key[t.key], i, t.key)
