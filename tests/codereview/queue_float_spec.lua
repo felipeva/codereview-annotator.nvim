@@ -234,6 +234,20 @@ describe("an entry with an inlined diff block and a multi-line note", function()
     assert.is_nil(mark_of(buf, second, "CodeReviewStale"), text[second])
   end)
 
+  -- Staleness and an annotation type must not share a glyph. The mark is learned off this
+  -- row rather than written down here, because the claim is about the glyph this float
+  -- really spends: written down, the case would go on passing after the float changed it
+  -- and the collision it exists to refuse would be back unchecked.
+  it("spends a glyph on staleness that no annotation type also spends", function()
+    local span = assert(mark_of(buf, first, "CodeReviewStale"), text[first])
+    local mark = assert(text[first]:sub(span.col + 1, span.end_col):match("%S+"), text[first])
+    local seen = { [mark] = "the stale mark" }
+    for _, t in ipairs(config.get().types) do
+      assert.is_nil(seen[t.icon], ("%s and %s both draw %q"):format(t.name, tostring(seen[t.icon]), t.icon))
+      seen[t.icon] = t.name
+    end
+  end)
+
   it("puts the entry's tag in the state column beside it", function()
     local state = assert(mark_of(buf, second, "CodeReviewQueueState"), text[second])
     assert.same("deleted", text[second]:sub(state.col + 1, state.end_col))

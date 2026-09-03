@@ -13,15 +13,29 @@ local M = {}
 ---@field label string      Group heading in the payload. Defaults to the pluralized name.
 ---@field directive string? What the receiving agent should do with this group. Optional:
 ---                         a type without one gets a bare `## Label (n)` heading.
+---
+---Every field but `name` and `key` may be left out, and an empty string is left out:
+---clearing one asks for what the plugin derives rather than for nothing at all.
 
 ---Order is meaningful: it is the order groups appear in the payload, most actionable
 ---first, so the important work is not buried under nitpicks.
+---
+---The glyphs are plain Unicode and one display column wide. Three surfaces draw them -- the
+---type picker, a queued note on the diff and an **archived** entry -- and on the last of
+---those the glyph is all there is: an archived entry gives up its type's color deliberately,
+---so a type whose glyph was empty said nothing at all about what kind of finding it was.
+---
+---What each one was chosen against, because a glyph that says two things is worse than one
+---nobody chose: `⚠` was not available, since the queue float already spends it on a
+---**stale** entry; a nitpick takes `▫` rather than `◦`, which is the untyped mark `•` at
+---another size; and none of them is a mark the `icons` table already draws. Nothing here
+---may need a patched font, which is that table's own rule.
 ---@type CRType[]
 M.defaults = {
   {
     name = "bug",
     key = "b",
-    icon = "",
+    icon = "✗",
     hl = "CodeReviewBug",
     label = "Bugs",
     directive = "diagnose and fix these",
@@ -29,7 +43,7 @@ M.defaults = {
   {
     name = "fix",
     key = "f",
-    icon = "",
+    icon = "✎",
     hl = "CodeReviewFix",
     label = "Fixes",
     directive = "apply these changes",
@@ -37,7 +51,7 @@ M.defaults = {
   {
     name = "suggestion",
     key = "s",
-    icon = "",
+    icon = "✦",
     hl = "CodeReviewSuggestion",
     label = "Suggestions",
     directive = "evaluate; apply if sound",
@@ -45,7 +59,7 @@ M.defaults = {
   {
     name = "nitpick",
     key = "n",
-    icon = "",
+    icon = "▫",
     hl = "CodeReviewNitpick",
     label = "Nitpicks",
     directive = "low priority — batch these together",
@@ -53,7 +67,7 @@ M.defaults = {
   {
     name = "issue",
     key = "i",
-    icon = "",
+    icon = "⚑",
     hl = "CodeReviewIssue",
     label = "Issues",
     directive = "do NOT fix — summarize these for tracking",
@@ -117,9 +131,18 @@ function M.normalize(list, opts)
         fail("types[%d] has no `%s`", i, field)
       end
     end
+    -- Empty is *absent*, on every one of the four a type may leave out. `t.field or ...`
+    -- never fires on an empty string, because an empty string is truthy in Lua: that is
+    -- what left the five shipped types drawing a hole where a glyph belongs, and `label`
+    -- and `hl` carry the same shape one screen below. Rejecting an empty field instead
+    -- would refuse a host who cleared one on purpose, and clearing a field is how you ask
+    -- for what the plugin derives anyway. One pass, because one rule.
     for _, field in ipairs({ "icon", "hl", "label", "directive" }) do
       if t[field] ~= nil and type(t[field]) ~= "string" then
         fail("types[%d].%s is a %s, not a string", i, field, type(t[field]))
+      end
+      if t[field] == "" then
+        t[field] = nil
       end
     end
 

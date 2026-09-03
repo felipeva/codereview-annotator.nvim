@@ -41,6 +41,37 @@ describe("normalizing a type list", function()
     assert.same("◆", t.icon)
   end)
 
+  -- An empty string is truthy in Lua, so `t.icon or default` never fired on one: a type
+  -- configured with `icon = ""` drew a hole wherever a glyph belongs, and the documented
+  -- fallback was reachable only by leaving the field out entirely. Absent and empty say
+  -- the same thing -- *this type has no glyph of its own* -- so they get the same answer.
+  it("treats an empty icon as absent rather than as a glyph", function()
+    local t = types.normalize({ { name = "question", key = "q", icon = "" } }, { icon = "◆" })[1]
+    assert.same("◆", t.icon)
+  end)
+
+  -- Rejecting it instead would refuse a host who cleared a glyph on purpose. They asked
+  -- for no glyph of their own, which is what the annotated mark already means.
+  it("does not reject an empty icon", function()
+    assert.same("●", types.normalize({ { name = "question", key = "q", icon = "" } })[1].icon)
+  end)
+
+  -- The same hole on the two fields beside `icon` that derive the same way. One rule over
+  -- the four optional fields rather than one exception for the glyph: an empty `label`
+  -- printed `##  (2)` as a payload heading, and an empty `hl` asked the render to draw in a
+  -- highlight group with no name.
+  it("treats an empty label and an empty hl as absent too", function()
+    local t = types.normalize({ { name = "needs-info", key = "N", label = "", hl = "" } })[1]
+    assert.same("Needs Infos", t.label)
+    assert.same("CodeReviewNeedsInfo", t.hl)
+  end)
+
+  -- A directive is optional, so an empty one was never given -- and a group with nothing to
+  -- instruct takes a bare heading rather than a heading with a dash and nothing after it.
+  it("treats an empty directive as none", function()
+    assert.is_nil(types.normalize({ { name = "question", key = "q", directive = "" } })[1].directive)
+  end)
+
   it("title-cases a multi-word name for the label and the group", function()
     local t = types.normalize({ { name = "needs-info", key = "N" } })[1]
     assert.same("Needs Infos", t.label)
@@ -55,6 +86,57 @@ describe("normalizing a type list", function()
 
   it("leaves directive unset when it was not given", function()
     assert.is_nil(types.normalize({ { name = "question", key = "q" } })[1].directive)
+  end)
+end)
+
+-- The glyphs the five shipped types carry.
+--
+-- Three surfaces already draw an annotation type's icon, and on an **archived** entry the
+-- glyph is the only thing left: that entry gives up its type's color on purpose -- the
+-- color says how much a finding matters, which is an instruction to act, and this one has
+-- been acted on -- so an empty glyph left it saying nothing about what kind of finding it
+-- was.
+describe("the glyphs the shipped types carry", function()
+  it("gives every one of them a glyph", function()
+    for _, t in ipairs(types.defaults) do
+      assert.is_true(t.icon ~= nil and t.icon ~= "", ("%s carries no glyph"):format(t.name))
+    end
+  end)
+
+  -- Against every glyph the plugin already draws, not merely against each other. A type
+  -- drawing `○` would say *unreviewed* on the row above it, and a reviewer meeting one
+  -- glyph with two meanings cannot tell which of them a row means.
+  it("spends a glyph nothing else the plugin draws already spends", function()
+    local seen = { [types.UNTYPED.icon] = "the untyped mark" }
+    for name, glyph in pairs(config.defaults.icons) do
+      seen[glyph] = name
+    end
+    for _, t in ipairs(types.defaults) do
+      assert.is_nil(seen[t.icon], ("%s draws %q, which is already %s"):format(t.name, t.icon, tostring(seen[t.icon])))
+      seen[t.icon] = t.name
+    end
+  end)
+
+  -- The width Neovim measures here, which protects more than the look of a row: the marker
+  -- in front of a note is what that row's columns are counted past, so a glyph two columns
+  -- wide would move the prose, the wrap budget, and the indent of every row a note that
+  -- does not fit continues onto.
+  it("spends exactly one display column on each", function()
+    for _, t in ipairs(types.defaults) do
+      assert.same(1, vim.fn.strdisplaywidth(t.icon), ("%s draws %q"):format(t.name, t.icon))
+    end
+  end)
+
+  -- Plain Unicode: nothing the plugin draws may need a patched font, which is the rule the
+  -- icon table itself states. A patched font puts its glyphs in a private use area, where
+  -- an unpatched one draws a hollow box -- so that is where a glyph must not come from.
+  -- The code point and not the byte count, because a plain glyph can be four bytes too.
+  it("asks for no patched font", function()
+    for _, t in ipairs(types.defaults) do
+      local cp = vim.fn.char2nr(t.icon)
+      local private = (cp >= 0xE000 and cp <= 0xF8FF) or (cp >= 0xF0000 and cp <= 0x10FFFD)
+      assert.is_false(private, ("%s draws U+%X, which no unpatched font has"):format(t.name, cp))
+    end
   end)
 end)
 

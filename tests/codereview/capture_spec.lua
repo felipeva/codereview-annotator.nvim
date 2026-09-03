@@ -122,6 +122,21 @@ describe("with no type given", function()
     assert.same(#require("codereview.config").get().types + 1, #offered)
   end)
 
+  -- The picker is the one place a reviewer meets the whole vocabulary at once, so it has to
+  -- offer the same glyphs the diff draws -- choosing and reading are then one vocabulary.
+  --
+  -- The glyph is read as the label's first non-blank run rather than looked for anywhere in
+  -- it, because `find` alone cannot fail here: a glyph that had gone empty is found in every
+  -- string. That fixes where the glyph is and nothing else about the label, which is free to
+  -- grow to the right.
+  it("offers every type with its own glyph, and declining with the untyped mark", function()
+    for i, t in ipairs(require("codereview.config").get().types) do
+      assert.same(t.icon, offered[i]:match("^%S+"), ("%s: %q"):format(t.name, offered[i]))
+    end
+    local untyped = require("codereview.types").UNTYPED.icon
+    assert.same(untyped, offered[#offered]:match("^%S+"), offered[#offered])
+  end)
+
   it("queues with the type that was picked", function()
     assert.same(1, queue.count())
     assert.same("fix", queue.all()[1].type)
