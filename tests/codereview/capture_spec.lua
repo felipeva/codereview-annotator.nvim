@@ -124,14 +124,17 @@ describe("with no type given", function()
 
   -- The picker is the one place a reviewer meets the whole vocabulary at once, so it has to
   -- offer the same glyphs the diff draws -- choosing and reading are then one vocabulary.
-  -- What a label *carries* and not how it is laid out: the format is free to grow.
+  --
+  -- The glyph is read as the label's first non-blank run rather than looked for anywhere in
+  -- it, because `find` alone cannot fail here: a glyph that had gone empty is found in every
+  -- string. That fixes where the glyph is and nothing else about the label, which is free to
+  -- grow to the right.
   it("offers every type with its own glyph, and declining with the untyped mark", function()
     for i, t in ipairs(require("codereview.config").get().types) do
-      assert.is_true(t.icon ~= "", ("%s carries no glyph to offer"):format(t.name))
-      assert.is_truthy(offered[i]:find(t.icon, 1, true), ("%s: %q"):format(t.name, offered[i]))
+      assert.same(t.icon, offered[i]:match("^%S+"), ("%s: %q"):format(t.name, offered[i]))
     end
     local untyped = require("codereview.types").UNTYPED.icon
-    assert.is_truthy(offered[#offered]:find(untyped, 1, true), offered[#offered])
+    assert.same(untyped, offered[#offered]:match("^%S+"), offered[#offered])
   end)
 
   it("queues with the type that was picked", function()

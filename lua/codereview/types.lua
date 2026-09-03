@@ -8,21 +8,22 @@ local M = {}
 ---@class CRType
 ---@field name string       Required. Identifier used by `annotate()` and stored on an entry.
 ---@field key string        Required. Suffix after the `a` annotate prefix.
----@field icon string       Defaults to the configured `icons.annotated`, which is also
----                         what an empty one gets: empty means *no glyph of my own*.
+---@field icon string       Defaults to the configured `icons.annotated`.
 ---@field hl string         Defaults to `CodeReview<Name>`, auto-linked so it has color.
 ---@field label string      Group heading in the payload. Defaults to the pluralized name.
 ---@field directive string? What the receiving agent should do with this group. Optional:
 ---                         a type without one gets a bare `## Label (n)` heading.
+---
+---Every field but `name` and `key` may be left out, and an empty string is left out:
+---clearing one asks for what the plugin derives rather than for nothing at all.
 
 ---Order is meaningful: it is the order groups appear in the payload, most actionable
 ---first, so the important work is not buried under nitpicks.
 ---
----The glyphs are plain Unicode and one display column wide at `ambiwidth=single`, which is
----the default and what the suite measures. Three surfaces draw them -- the type picker, a
----queued note on the diff and an **archived** entry -- and on the last of those the glyph
----is all there is: an archived entry gives up its type's color deliberately, so a type
----whose glyph was empty said nothing at all about what kind of finding it was.
+---The glyphs are plain Unicode and one display column wide. Three surfaces draw them -- the
+---type picker, a queued note on the diff and an **archived** entry -- and on the last of
+---those the glyph is all there is: an archived entry gives up its type's color deliberately,
+---so a type whose glyph was empty said nothing at all about what kind of finding it was.
 ---
 ---What each one was chosen against, because a glyph that says two things is worse than one
 ---nobody chose: `⚠` was not available, since the queue float already spends it on a
@@ -130,9 +131,18 @@ function M.normalize(list, opts)
         fail("types[%d] has no `%s`", i, field)
       end
     end
+    -- Empty is *absent*, on every one of the four a type may leave out. `t.field or ...`
+    -- never fires on an empty string, because an empty string is truthy in Lua: that is
+    -- what left the five shipped types drawing a hole where a glyph belongs, and `label`
+    -- and `hl` carry the same shape one screen below. Rejecting an empty field instead
+    -- would refuse a host who cleared one on purpose, and clearing a field is how you ask
+    -- for what the plugin derives anyway. One pass, because one rule.
     for _, field in ipairs({ "icon", "hl", "label", "directive" }) do
       if t[field] ~= nil and type(t[field]) ~= "string" then
         fail("types[%d].%s is a %s, not a string", i, field, type(t[field]))
+      end
+      if t[field] == "" then
+        t[field] = nil
       end
     end
 
@@ -151,15 +161,6 @@ function M.normalize(list, opts)
     by_key[t.key] = i
 
     t.label = t.label or default_label(t.name)
-    -- An empty icon is *absent*, not a glyph. `t.icon or ...` never fires on one, because
-    -- an empty string is truthy in Lua -- so a type configured with `icon = ""` drew a hole
-    -- wherever a glyph belongs, and the documented fallback was reachable only by leaving
-    -- the field out. Rejecting it instead was the other candidate and it loses: a host who
-    -- cleared a glyph asked for no glyph of their own, which is what the annotated mark
-    -- already means, and an error would refuse a configuration that reads perfectly well.
-    if t.icon == "" then
-      t.icon = nil
-    end
     t.icon = t.icon or opts.icon or "●"
     t.hl = t.hl or ("CodeReview" .. table.concat(words(t.name)))
     out[i] = t

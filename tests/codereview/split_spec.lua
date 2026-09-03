@@ -504,6 +504,48 @@ describe("note text in a narrow pane", function()
     end
   end)
 
+  ---Every virtual line a build emitted, in order, whatever row carries it.
+  ---@param rendered CRRender
+  ---@return table[][]
+  local function note_lines(rendered)
+    local out = {}
+    for _, m in ipairs(rendered.marks) do
+      for _, line in ipairs(m.opts.virt_lines or {}) do
+        out[#out + 1] = line
+      end
+    end
+    return out
+  end
+
+  -- The block has to read as one comment, which it only does while every row after the first
+  -- starts where the prose above it starts. The marker is measured in columns and the indent
+  -- under it was measured in bytes, so the two agreed exactly while every shipped glyph was
+  -- empty -- four spaces are four of each -- and drifted two columns apart the moment a glyph
+  -- arrived. Asserted as the two widths and not as a number, so it holds for a host's glyph
+  -- as well as for ours.
+  it("indents a continuation row to the column the prose above it starts at", function()
+    local lines = note_lines(build({ width = 46, notes = { [key] = { { note = long, type = "bug" } } } }))
+    assert.is_true(#lines > 1, "the note did not wrap, so there is no continuation row to read")
+    local marker = vim.fn.strdisplaywidth(lines[1][1][1])
+    for n = 2, #lines do
+      assert.same(marker, vim.fn.strdisplaywidth(lines[n][1][1]), ("continuation row %d"):format(n))
+    end
+  end)
+
+  -- A note the reviewer broke themselves, in the layout that never wraps one: the same
+  -- indent, reached by the other branch. Nothing wraps here, so a case about the pane's
+  -- width would say nothing about this one.
+  it("indents the rows of a note that carries its own line breaks", function()
+    local note = "the first line\nthe second\nthe third"
+    local lines =
+      note_lines(build({ layout = "unified", width = 80, notes = { [key] = { { note = note, type = "bug" } } } }))
+    assert.same(3, #lines)
+    local marker = vim.fn.strdisplaywidth(lines[1][1][1])
+    for n = 2, 3 do
+      assert.same(marker, vim.fn.strdisplaywidth(lines[n][1][1]), ("row %d"):format(n))
+    end
+  end)
+
   -- Unwrapped is what the unified layout has always emitted, and it is a full-width window.
   it("leaves the unified layout's notes exactly as they were", function()
     local unified = build({ layout = "unified", width = 46, notes = { [key] = { { note = long, type = "bug" } } } })

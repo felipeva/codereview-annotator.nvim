@@ -56,6 +56,22 @@ describe("normalizing a type list", function()
     assert.same("●", types.normalize({ { name = "question", key = "q", icon = "" } })[1].icon)
   end)
 
+  -- The same hole on the two fields beside `icon` that derive the same way. One rule over
+  -- the four optional fields rather than one exception for the glyph: an empty `label`
+  -- printed `##  (2)` as a payload heading, and an empty `hl` asked the render to draw in a
+  -- highlight group with no name.
+  it("treats an empty label and an empty hl as absent too", function()
+    local t = types.normalize({ { name = "needs-info", key = "N", label = "", hl = "" } })[1]
+    assert.same("Needs Infos", t.label)
+    assert.same("CodeReviewNeedsInfo", t.hl)
+  end)
+
+  -- A directive is optional, so an empty one was never given -- and a group with nothing to
+  -- instruct takes a bare heading rather than a heading with a dash and nothing after it.
+  it("treats an empty directive as none", function()
+    assert.is_nil(types.normalize({ { name = "question", key = "q", directive = "" } })[1].directive)
+  end)
+
   it("title-cases a multi-word name for the label and the group", function()
     local t = types.normalize({ { name = "needs-info", key = "N" } })[1]
     assert.same("Needs Infos", t.label)
@@ -76,9 +92,10 @@ end)
 -- The glyphs the five shipped types carry.
 --
 -- Three surfaces already draw an annotation type's icon, and on an **archived** entry the
--- glyph is the only thing left: that entry gives up its type's color on purpose -- severity
--- is an instruction to act, and it has been acted on -- so an empty glyph left it saying
--- nothing about what kind of finding it was.
+-- glyph is the only thing left: that entry gives up its type's color on purpose -- the
+-- color says how much a finding matters, which is an instruction to act, and this one has
+-- been acted on -- so an empty glyph left it saying nothing about what kind of finding it
+-- was.
 describe("the glyphs the shipped types carry", function()
   it("gives every one of them a glyph", function()
     for _, t in ipairs(types.defaults) do
@@ -100,12 +117,10 @@ describe("the glyphs the shipped types carry", function()
     end
   end)
 
-  -- The width the suite measures, at the `ambiwidth=single` every process here runs with.
-  -- It protects more than the look of a row: the marker in front of a note is what a note
-  -- row's columns are measured past, so a glyph that is *wide* rather than ambiguous would
-  -- move them. All five are East Asian Ambiguous, exactly as the shipped `✓`, `○`, `●` and
-  -- `▌` already are, so `ambiwidth=double` draws the whole vocabulary two columns wide
-  -- together -- that is the precedent this follows and not a claim this case makes.
+  -- The width Neovim measures here, which protects more than the look of a row: the marker
+  -- in front of a note is what that row's columns are counted past, so a glyph two columns
+  -- wide would move the prose, the wrap budget, and the indent of every row a note that
+  -- does not fit continues onto.
   it("spends exactly one display column on each", function()
     for _, t in ipairs(types.defaults) do
       assert.same(1, vim.fn.strdisplaywidth(t.icon), ("%s draws %q"):format(t.name, t.icon))

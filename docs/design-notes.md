@@ -32,6 +32,18 @@ scroll invalidates.
 separator are multibyte, so each rendered row records where its code text actually begins;
 assuming a fixed prefix width shifts every highlight on every changed line.
 
+**The marker in front of a note is the mirror image of that trap, and it bit.** The marker
+is `"   <glyph> "`, and two numbers come off it: the budget a note wraps to, in display
+columns, and the indent every row it continues onto carries, which was taken in bytes. Those
+are the same number for the four spaces an empty glyph left behind and two apart for a glyph
+that is three bytes and one column — so the first glyph the plugin ever shipped put every
+continuation row two columns right of the prose it continued, and pushed a wrapped note two
+columns past its pane, against the comment two lines above saying the block reads as one
+comment. Both numbers now come from one `strdisplaywidth`, measured once beside the marker,
+so they cannot drift apart again. Widening the marker to prove nothing depends on it proves
+only half of what it looks like: an ASCII marker makes bytes and columns agree by accident,
+so the widening has to be multibyte.
+
 **The same trap is on the file header row, and it needs no unusual path to spring.** A path is
 colored there in two ranges — its directories quiet, its own name bright — and it starts after
 `"○ ▾ "`, which is **eight bytes and four display columns**. A mark placed at the display

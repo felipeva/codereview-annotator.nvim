@@ -751,6 +751,12 @@ function M.build(files, opts)
     local group = archived and "CodeReviewArchived" or (type_def and type_def.hl or "CodeReviewNote")
     local text_group = archived and "CodeReviewArchivedNote" or "CodeReviewNote"
     local prefix = ("   %s "):format(icon)
+    -- In columns, never in bytes, and measured once so the budget a note wraps to and the
+    -- indent its continuation rows carry cannot disagree. They did: `#prefix` and
+    -- `strdisplaywidth(prefix)` are the same number for the four spaces an empty glyph left
+    -- behind, and two apart for `   ✗ ` -- which put every continuation row two columns
+    -- right of the prose it continues and pushed a wrapped note two columns past the pane.
+    local indent = vim.fn.strdisplaywidth(prefix)
 
     -- One slot before the prose, and the two things that can occupy it never share an
     -- entry -- which is the rule, not an economy. A queued entry carries staleness: its
@@ -778,7 +784,7 @@ function M.build(files, opts)
       -- The marker only prefixes the first line, but wrapping the whole note to the
       -- narrower budget is what makes "nothing is clipped" true by construction rather
       -- than true of every line except one.
-      local avail = wrap_to - vim.fn.strdisplaywidth(prefix) - (flag and vim.fn.strdisplaywidth(flag) or 0)
+      local avail = wrap_to - indent - (flag and vim.fn.strdisplaywidth(flag) or 0)
       body = wrap(item.note, math.max(8, avail))
     else
       body = vim.split(item.note, "\n", { plain = true })
@@ -795,7 +801,7 @@ function M.build(files, opts)
         chunks[#chunks + 1] = { text, text_group }
         virt[#virt + 1] = chunks
       else
-        virt[#virt + 1] = { { (" "):rep(#prefix), text_group }, { text, text_group } }
+        virt[#virt + 1] = { { (" "):rep(indent), text_group }, { text, text_group } }
       end
     end
   end
