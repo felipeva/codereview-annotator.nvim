@@ -1,16 +1,19 @@
--- The `file_icon` adapter: a host's own glyph for a file, beside the mark that says what the
--- reviewer has done with it.
+-- The `file_icon` adapter: a host's own glyph for a file and the group that colours it,
+-- beside the mark that says what the reviewer has done with it.
 --
 -- The adapter is a stub here, as every adapter in this suite is. There is no icon plugin to
--- drive, and which glyph a file deserves is exactly what this plugin declines to have an
--- opinion about (ADR-0001) -- so what is asserted is what the adapter is *handed*, what the
--- two surfaces do with what it answers, and what they do when it answers nothing usable.
+-- drive, and which glyph a file deserves -- and in which colour -- is exactly what this
+-- plugin declines to have an opinion about (ADR-0001) -- so what is asserted is what the
+-- adapter is *handed*, what the three surfaces do with what it answers, and what they do
+-- when it answers nothing usable.
 --
--- Three acts, and they have to run in this order, for the reason `open_diff_spec`'s two do:
--- what a review draws with **no** adapter wired can only be asserted by a process that has
--- not injected one yet. The first act needs neither, because `file_label` and `render.build`
--- are pure -- data in, data out -- and a rule about what a file is called needs no review
--- open to be true.
+-- The acts have to run in the order they are written in, for the reason `open_diff_spec`'s
+-- two do: what a review draws with **no** adapter wired can only be asserted by a process
+-- that has not injected one yet, and `setup` is a process. The three at the end are that
+-- order -- nothing wired, then a glyph alone, then a glyph and a group -- and each one is
+-- read against what the one before it recorded. The acts in front of them need no review at
+-- all, because `file_label`, `render.build` and `panel.build` are pure -- data in, data out
+-- -- and a rule about what a file is called needs no review open to be true.
 --
 -- The glyph goes **after** the chevron and before the path. It says what kind of file this
 -- is, which is an attribute of the file's name; the state mark is the leftmost column and a
@@ -527,6 +530,105 @@ describe("the before pane's header row", function()
   end)
 end)
 
+-- **The trap the rule's own note names, pinned where it can spring.** The rule answers with
+-- two values, and `file_label` reaches it through `opts.file_icon and M.file_icon(…) or nil`
+-- -- an expression, which truncates the second away. That truncation is why carrying a group
+-- out of the adapter cost the diff nothing, and it is exactly the kind of thing an edit to
+-- this surface unpicks by accident: capture the group here, put it anywhere near the prefix,
+-- and every byte offset on every header row in every review moves.
+--
+-- So the claim is made as an equality between two adapters rather than as a shape: an
+-- adapter answering with a glyph **and** a group draws what the same adapter answering with
+-- the glyph alone draws, line for line and mark for mark. Nothing here says the header row
+-- *should* stay uncoloured for ever -- #229 is what colours it -- and when it does, this
+-- block is what it has to argue with rather than something it can pass by accident.
+describe("a header row whose adapter answered with a group", function()
+  ---The same glyph either way; only the second answer differs.
+  ---@param path string
+  ---@return string glyph, string|nil group
+  local function with_group(path)
+    return by_extension(path), path:match("%.lua$") and AZURE or YELLOW
+  end
+
+  local FILES = {
+    one(),
+    one({ path = "README.md" }),
+    one({ path = "src/newname.lua", old_path = "src/oldname.lua", status = "R" }),
+  }
+
+  it("draws the rows and the marks a glyph-alone adapter draws", function()
+    for _, layout in ipairs({ "unified", "split" }) do
+      for _, width in ipairs({ 40, 60, 100 }) do
+        local opts = { width = width, layout = layout, before_width = layout == "split" and width or nil }
+        local plain = build(FILES, vim.tbl_extend("force", { file_icon = by_extension }, opts))
+        local grouped = build(FILES, vim.tbl_extend("force", { file_icon = with_group }, opts))
+        local where = ("%s at %d"):format(layout, width)
+        assert.same(plain.lines, grouped.lines, where)
+        assert.same(plain.marks, grouped.marks, where)
+      end
+    end
+  end)
+
+  -- The before pane draws its own header rows, and its indent is measured off the prefix --
+  -- so a group leaking into the prefix would move that pane's paths and nothing else.
+  it("draws the before pane a glyph-alone adapter draws", function()
+    local opts = { layout = "split", before_width = 60 }
+    local _, plain = build(FILES, vim.tbl_extend("force", { file_icon = by_extension }, opts))
+    local _, grouped = build(FILES, vim.tbl_extend("force", { file_icon = with_group }, opts))
+    assert.same(assert(plain).lines, assert(grouped).lines)
+    assert.same(plain.marks, grouped.marks)
+  end)
+
+  -- **The label, which is the surface the sticky header is built from.** The bar takes its
+  -- head off `prefix` and its path off `name`, so a label that is equal field for field is a
+  -- bar that is equal -- which is what lets the pure seam speak for a surface that needs a
+  -- window. The live half is at the end of this file.
+  it("answers with the label a glyph-alone adapter answers with", function()
+    for _, layout in ipairs({ "unified", "split" }) do
+      for _, file in ipairs(FILES) do
+        assert.same(
+          label(file, { file_icon = by_extension, layout = layout }),
+          label(file, { file_icon = with_group, layout = layout }),
+          ("%s %s"):format(file.path, layout)
+        )
+      end
+    end
+  end)
+
+  -- **Absolute, because the three cases above are comparisons and a comparison is blind to
+  -- anything that moves both arms.** A mark laid over the glyph in a group the plugin chose
+  -- would appear on the glyph-alone row too, and every equality above would go on holding.
+  -- So the head is stated rather than compared: **exactly one range covers any byte of the
+  -- prefix, and it is the whole row's own quiet.** The state mark, the chevron and the glyph
+  -- carry nothing of their own on this surface.
+  --
+  -- #229 is what adds the second one, and this is the line it has to change on the way.
+  it("draws the state mark, the chevron and the glyph in the row's own group and no other", function()
+    local after = build(FILES, { file_icon = with_group })
+    local row = assert(after.file_rows[1])
+    local line = after.lines[row]
+    local prefix = label(FILES[1], { file_icon = with_group }).prefix
+    -- The guard under the guard: a prefix of no bytes would make the filter below empty.
+    assert.is_true(#prefix > 0 and line:sub(1, #prefix) == prefix, line)
+
+    local over_the_head = {}
+    for _, m in ipairs(after.marks) do
+      if m.row == row - 1 and m.opts.end_col and m.col < #prefix then
+        over_the_head[#over_the_head + 1] = { m.col, m.opts.end_col, m.opts.hl_group }
+      end
+    end
+    assert.same({ { 0, #line, "CodeReviewFileHeader" } }, over_the_head)
+  end)
+
+  -- The guard, and the reason the cases above are not vacuous: the two adapters really do
+  -- answer differently, and the answer the rule carries out of the second really does hold a
+  -- group.
+  it("really was handed two different answers", function()
+    assert.same({ LUA }, { render.file_icon(by_extension, "src/main.lua") })
+    assert.same({ LUA, AZURE }, { render.file_icon(with_group, "src/main.lua") })
+  end)
+end)
+
 --- The file tree -----------------------------------------------------------------
 
 -- The third surface that names a file, and the one a reviewer looks at first. `panel.build`
@@ -843,17 +945,50 @@ describe("a host's icon group and the fade", function()
   local fade = require("codereview.fade")
   local hl = require("codereview.hl")
 
+  -- The colour `mini.icons` was measured choosing for a Lua file.
+  local CHOSEN = 0x8cf8f7
+
   it("gets a blended twin, like any group the fade is handed", function()
-    vim.api.nvim_set_hl(0, AZURE, { fg = 0x8cf8f7 })
-    local twin = assert(hl.blended("faded", AZURE), "a host's icon group got no blend")
-    assert.same("CodeReviewFaded." .. AZURE, twin)
-    assert.same(twin, fade.group(AZURE))
-    -- A blend and not a link: the twin holds a colour of its own, pulled off the one the
-    -- host's icon plugin chose.
-    assert.is_true(
-      vim.api.nvim_get_hl(0, { name = twin, link = false }).fg ~= 0x8cf8f7,
-      "the twin holds the group's own colour rather than a blend of it"
-    )
+    -- **Read, written and put back before a single assertion runs.** This is the one case in
+    -- the file that defines a highlight group, and it defines the group the tree cases carry
+    -- on their marks. Plenary runs every `it` in one process, top to bottom, so a definition
+    -- left behind here is a definition every case below inherits -- and a case that went red
+    -- would leave it behind on the way out. So the whole interaction happens first and the
+    -- assertions read variables.
+    local before = vim.api.nvim_get_hl(0, { name = AZURE })
+    vim.api.nvim_set_hl(0, AZURE, { fg = CHOSEN })
+
+    local twin = hl.blended("faded", AZURE)
+    local renamed = fade.group(AZURE)
+    local blended = twin and vim.api.nvim_get_hl(0, { name = twin, link = false }) or {}
+
+    vim.api.nvim_set_hl(0, AZURE, before)
+    -- The twin cannot be undefined -- there is no API for it -- so it is emptied. `hl.lua`
+    -- memoises the name either way, which costs nothing: no case below asks for this group's
+    -- blend, and one that did would recompute it against whatever the theme says then.
+    if twin then
+      vim.api.nvim_set_hl(0, twin, {})
+    end
+
+    assert.same("CodeReviewFaded." .. AZURE, twin, "a host's icon group got no blend")
+    assert.same(twin, renamed)
+    -- **A blend, and not a link and not an absence.** `~=` alone passes on a twin with no
+    -- colour at all, which is what a group the blend could not compute looks like -- so the
+    -- colour has to be there *and* be a different one.
+    assert.is_number(blended.fg, "the twin holds no foreground at all")
+    assert.is_true(blended.fg ~= CHOSEN, "the twin holds the group's own colour, not a blend of it")
+    -- Pulled toward the backdrop rather than away from it, which is the direction that makes
+    -- it a fade. `Normal` has no background in this process, so the backdrop is the dark
+    -- default and a blend of it is darker.
+    assert.is_true(blended.fg < CHOSEN, ("%06x is not pulled toward the backdrop"):format(blended.fg))
+  end)
+
+  -- **The restore, asserted rather than trusted.** Plenary runs these bodies in the order they
+  -- are written, in one process, so this is what a later case would inherit. It is also what
+  -- says the case above put back what it borrowed even on the day it goes red.
+  it("leaves the group it borrowed undefined, for every case after it", function()
+    assert.same({}, vim.api.nvim_get_hl(0, { name = AZURE }))
+    assert.same({}, vim.api.nvim_get_hl(0, { name = "CodeReviewFaded." .. AZURE }))
   end)
 end)
 
@@ -1124,6 +1259,30 @@ local function tree_line(path)
   return vim.api.nvim_buf_get_lines(V.panel_buf, row - 1, row, false)[1]
 end
 
+---The **file tree**'s own namespace, which is not the diff's.
+local PANEL_NS = vim.api.nvim_create_namespace("codereview_panel")
+
+---Every range the plugin drew on one file's header row, as `{ col, end_col, group }`.
+---
+---Read off the buffer rather than off `V.render.marks`: what is being compared across a
+---`setup` is what the two surfaces *drew*, and a render is what they were told to draw.
+---@param path string
+---@return table[]
+local function header_marks(path)
+  local V = current()
+  local row = assert(V.render.file_rows[assert(h.file_index(V, path))])
+  local out = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(V.buf, h.NS, { row - 1, 0 }, { row - 1, -1 }, { details = true })) do
+    if m[4].end_col then
+      out[#out + 1] = { m[3], m[4].end_col, m[4].hl_group }
+    end
+  end
+  table.sort(out, function(a, b)
+    return a[1] == b[1] and tostring(a[3]) < tostring(b[3]) or a[1] < b[1]
+  end)
+  return out
+end
+
 require("codereview").setup({ syntax = false })
 
 describe("a review opened with no adapter wired", function()
@@ -1273,5 +1432,105 @@ describe("the state a file's mark carries, with a glyph beside it", function()
     )
     local bar = h.winbar(current().win)
     assert.is_truthy(bar:find(("%s %s %s src/main.lua"):format(ICONS.reviewed, ICONS.collapsed, LUA), 1, true), bar)
+  end)
+end)
+
+--- The same answer, with a group on it -------------------------------------------
+
+-- **The live half of the truncation trap.** The pure seam says the label and the header row
+-- are equal under either answer, and the **sticky header** is built from that label -- but a
+-- bar is assembled rather than rendered, and "built from" is a claim about a module and not
+-- about a window. So the bar is read off a real one.
+--
+-- The comparison has to be made *across* a `setup`, because `setup` is a process: what the
+-- two surfaces draw under the adapter above is recorded here, before the next one is
+-- injected. `src/main.lua` is reviewed by the block above, so it is recorded in the state it
+-- is actually in rather than in the state it started in.
+read_into("src/main.lua")
+local GLYPH_ALONE = {
+  header = header("src/main.lua"),
+  bar = h.winbar(current().win),
+  bar_group = h.winbar_group(current().win, LUA),
+  marks = header_marks("src/main.lua"),
+  tree = tree_line("src/main.lua"),
+}
+view.close()
+
+require("codereview").setup({
+  syntax = false,
+  file_icon = function(path)
+    if path == "src/nonl.md" then
+      return PERCENT, YELLOW
+    end
+    return by_extension(path), path:match("%.lua$") and AZURE or YELLOW
+  end,
+})
+
+view.open("branch")
+
+describe("a review whose adapter answered with a group", function()
+  it("draws the header row it draws without one, byte for byte", function()
+    read_into("src/main.lua")
+    assert.same(GLYPH_ALONE.header, header("src/main.lua"))
+  end)
+
+  it("carries the marks that header row always carried", function()
+    read_into("src/main.lua")
+    -- A header row that carried no range at all would make the comparison two empty lists.
+    assert.is_true(#GLYPH_ALONE.marks > 0, "nothing was read off that header row to compare")
+    assert.same(GLYPH_ALONE.marks, header_marks("src/main.lua"))
+  end)
+
+  -- Absolute beside the comparison, for the reason the pure act states it: a range laid over
+  -- the glyph in a group the plugin chose would be on both rows and the equality above would
+  -- hold. On a real buffer, over a row a reviewer is looking at.
+  --
+  -- The group is the *reviewed* file's rather than the plain header's, because the block
+  -- above marked `src/main.lua` reviewed and this act reads the review in the state it is
+  -- actually in. Which of the two it is does not matter to the claim; that there is **one**
+  -- of them, and that it spans the whole row rather than aiming at the glyph, is the claim.
+  it("leaves the head one range, which is the row's own quiet", function()
+    read_into("src/main.lua")
+    local line = header("src/main.lua")
+    local prefix = line:match("^(%S+ %S+ " .. vim.pesc(LUA) .. " )")
+    assert.is_truthy(prefix, line)
+    local over_the_head = {}
+    for _, range in ipairs(header_marks("src/main.lua")) do
+      if range[1] < #prefix then
+        over_the_head[#over_the_head + 1] = range
+      end
+    end
+    assert.same({ { 0, #line, "CodeReviewFileReviewed" } }, over_the_head)
+  end)
+
+  it("draws the sticky header it draws without one, byte for byte", function()
+    read_into("src/main.lua")
+    assert.same(GLYPH_ALONE.bar, h.winbar(current().win))
+  end)
+
+  -- The bar's glyph keeps the group the mark and the chevron are drawn in. #229 is what
+  -- changes this line, and it has to argue with it rather than pass it by accident.
+  it("draws the glyph on the bar in the group it always drew it in", function()
+    read_into("src/main.lua")
+    assert.same("CodeReviewBarIcon", h.winbar_group(current().win, LUA))
+    assert.same(GLYPH_ALONE.bar_group, h.winbar_group(current().win, LUA))
+  end)
+
+  -- **The guard, and the whole reason the four cases above are not vacuous.** An injected
+  -- group that reached nothing at all would leave every one of them green. The tree is the
+  -- surface this ticket colours, so the tree is where the same injection is read back --
+  -- from the panel's own buffer, in a review a reviewer would be looking at.
+  it("really did inject a group, and the tree row carries it", function()
+    read_into("src/main.lua")
+    assert.same(GLYPH_ALONE.tree, tree_line("src/main.lua"))
+    local V = current()
+    local row = assert(V.panel_render.file_row[assert(h.file_index(V, "src/main.lua"))])
+    local found
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(V.panel_buf, PANEL_NS, 0, -1, { details = true })) do
+      if m[2] == row - 1 and m[4].hl_group == AZURE then
+        found = V.panel_render.lines[row]:sub(m[3] + 1, m[4].end_col)
+      end
+    end
+    assert.same(LUA, found, "no range on the tree row in the group the adapter answered with")
   end)
 end)
