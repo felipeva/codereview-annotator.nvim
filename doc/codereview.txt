@@ -239,6 +239,16 @@ The tree collapses single-child directory chains, so a monorepo shows
 indent on segments that carry no information. Directories sort before files,
 and each directory carries a reviewed tally for its subtree.
 
+A file row carries the reviewed, annotated or unreviewed mark first, then the
+glyph |codereview-opt-file_icon| gave that file, then the name. It is the same
+glyph the file's header row and the sticky header draw, decided by one rule so
+the three cannot disagree -- and it is drawn in the color your icon plugin
+chose for it, on all three, when your adapter answers with a highlight group
+beside the glyph. The mark keeps its column and its own color, the glyph comes
+out of the name's budget, and a narrow panel cuts the name from the left so
+the end of it survives. A directory row carries no glyph: a directory names no
+file.
+
 `panel.enabled` decides whether a review opens with a tree; `gp` decides it
 from there on, for the rest of that review. Dismissing it from inside the tree
 hands focus back to the diff. Collapsed directories belong to the review, not
@@ -554,11 +564,14 @@ file's own header row in the diff does not cost you the file: >
     ○ ▾ src/routes.lua  +12 -3  [2 notes]    branch vs master · ✓2/7 · ●2
 <
 It carries what the in-buffer file header carries -- the icon, the chevron,
-the path, the `+N -M` and the note count -- with the review summary
-right-aligned beside it. A rename follows the same rule the file header
-follows: the unified layout spells `old -> new`, and in the split layout each
-pane names its own side, so the left pane names the pre-image path beside the
-revision it is showing.
+the glyph |codereview-opt-file_icon| gave the file, the path, the `+N -M` and
+the note count -- with the review summary right-aligned beside it. The glyph
+is drawn in the color your icon plugin chose for it, which is the color the
+file's header row and its row in the file tree draw it in.
+
+A rename follows the same rule the file header follows: the unified layout
+spells `old -> new`, and in the split layout each pane names its own side, so
+the left pane names the pre-image path beside the revision it is showing.
 
 The file named is the one under the *cursor*, not the one at the top of the
 window, and it is always shown rather than only once the real header has
@@ -1047,11 +1060,12 @@ any other note you walked away from.
 8. ADAPTERS                                            *codereview-adapters*
 
 The plugin has no opinion about where a review goes, about which pickers you
-use, or about which diff tool you read a rewrite in. Six optional functions
-inject that. With none of them wired everything still works: the payload
-reaches the `+` register instead of an agent and the batch stays queued, `@`
-in the composer stays a literal `@`, `gd` is not bound to anything, and a
-switch offers its checkouts through `vim.ui.select`.
+use, about which diff tool you read a rewrite in, or about which icon a
+filetype has. Seven optional functions inject that. With none of them wired
+everything still works: the payload reaches the `+` register instead of an
+agent and the batch stays queued, `@` in the composer stays a literal `@`,
+`gd` is not bound to anything, a switch offers its checkouts through
+`vim.ui.select`, and no file carries a filetype glyph.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
@@ -1241,6 +1255,56 @@ pick_checkout({checkouts}, {cb})               *codereview-opt-pick_checkout*
         that picker. What a checkout *is* stays the plugin's own knowledge --
         `git worktree list` does not move under it the way agent tooling does
         -- and how a list is put in front of you is yours.
+
+file_icon({path})                                   *codereview-opt-file_icon*
+        Give a file the icon its filetype has in your configuration. It is
+        drawn on every surface that names the file: the file's header row in
+        the diff, the |codereview-sticky-header|, and the file's row in the
+        |codereview-tree|. >
+            file_icon = function(path)
+              return require("nvim-web-devicons").get_icon(path, nil,
+                                                           { default = true })
+            end,
+<
+        Handed the repository-relative path -- the post-image one, which is
+        the name all three surfaces draw -- and answering with a glyph and,
+        beside it, the highlight group that colors the glyph: >
+            return glyph, group    the glyph, in your icon plugin's color
+            return glyph           the glyph, in the row's own color
+            return nil             no glyph; the row reads exactly as it
+                                   does with nothing wired
+<
+        `nvim-web-devicons.get_icon` and `MiniIcons.get` both answer with that
+        pair already, so handing their answer straight through is the whole of
+        it. **A glyph alone is a complete answer** and always was: the group
+        is what you may add, never what you must.
+
+        The group is yours and is never translated into one of the plugin's.
+        One your colorscheme does not define costs the glyph its color and
+        never its glyph, and one that is not a non-empty string is dropped the
+        same way. See |codereview-highlights| for why the plugin has no
+        opinion about which color a filetype deserves.
+
+        One rule decides what your answer becomes, so a file cannot carry one
+        glyph on the diff and another in the tree, or one color on one surface
+        and a different one on the next.
+
+        The glyph is a second thing about the file and never a replacement for
+        the first: the reviewed, annotated and unreviewed marks keep their
+        column and their meaning, so you never lose *I have read this* in
+        exchange for *this is Lua*. A directory row carries no glyph at all --
+        a directory names no file, so there is nothing to ask about.
+
+        Called once per file per paint by the diff and by the tree, and the
+        tree is rebuilt on every file crossing as well -- so an adapter that
+        raises, or that answers with something that is not a string, is
+        survived rather than reported: that file draws without a glyph and the
+        review goes on.
+
+        The plugin ships no glyph behind this and depends on no icon plugin,
+        so with nothing wired nothing is called per file at all, on any
+        surface, and all three draw exactly what they drew before this
+        existed.
 
 ==============================================================================
 9. CONFIGURATION                                  *codereview-configuration*
