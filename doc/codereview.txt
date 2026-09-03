@@ -239,6 +239,16 @@ The tree collapses single-child directory chains, so a monorepo shows
 indent on segments that carry no information. Directories sort before files,
 and each directory carries a reviewed tally for its subtree.
 
+A file row carries the reviewed, annotated or unreviewed mark first, and then
+the glyph |codereview-opt-file_icon| gave that file -- the same glyph the diff
+and the sticky header draw for it, in your icon plugin's own colour when your
+adapter names a highlight group. A directory row carries the glyph
+|codereview-opt-dir_icon| gave it, after the chevron and coloured the same
+way. Neither adapter is wired by default and the plugin ships no glyph behind
+either, so with none wired every row is exactly what it has always been. A
+glyph comes out of the name's budget: a narrow panel cuts the name from the
+left and keeps the mark, the chevron and the glyph.
+
 `panel.enabled` decides whether a review opens with a tree; `gp` decides it
 from there on, for the rest of that review. Dismissing it from inside the tree
 hands focus back to the diff. Collapsed directories belong to the review, not
@@ -1047,11 +1057,12 @@ any other note you walked away from.
 8. ADAPTERS                                            *codereview-adapters*
 
 The plugin has no opinion about where a review goes, about which pickers you
-use, or about which diff tool you read a rewrite in. Six optional functions
-inject that. With none of them wired everything still works: the payload
-reaches the `+` register instead of an agent and the batch stays queued, `@`
-in the composer stays a literal `@`, `gd` is not bound to anything, and a
-switch offers its checkouts through `vim.ui.select`.
+use, about which diff tool you read a rewrite in, or about which glyph a file
+or a directory deserves. Eight optional functions inject that. With none of
+them wired everything still works: the payload reaches the `+` register
+instead of an agent and the batch stays queued, `@` in the composer stays a
+literal `@`, `gd` is not bound to anything, a switch offers its checkouts
+through `vim.ui.select`, and no file and no directory carries a glyph.
 
 send({payload}, {target})                                *codereview-opt-send*
         Deliver the rendered batch. {target} is whatever `pick_target`
@@ -1242,6 +1253,67 @@ pick_checkout({checkouts}, {cb})               *codereview-opt-pick_checkout*
         `git worktree list` does not move under it the way agent tooling does
         -- and how a list is put in front of you is yours.
 
+file_icon({path})                                   *codereview-opt-file_icon*
+        The glyph a file carries, and the highlight group that colours it.
+        {path} is repository-relative. Answer with a glyph, or with a glyph
+        and a group: >
+            file_icon = function(path)
+              return require("nvim-web-devicons").get_icon(path)
+            end,
+<
+        `nvim-web-devicons` and `mini.icons` both answer with that pair
+        already, so handing their answer straight through is the whole of it.
+        The group is yours and is never translated; one your theme leaves
+        undefined costs the glyph its colour and never its glyph, and a glyph
+        alone is a complete answer.
+
+        It is drawn on three surfaces -- the file's header row in the diff,
+        the sticky header (|codereview-sticky-header|) and the file tree
+        (|codereview-tree|) -- and one rule decides what your answer becomes,
+        so a file cannot carry one glyph in the tree and another on the diff.
+
+        **A second thing about the file and never a replacement for the
+        first.** The reviewed, annotated and unreviewed marks keep their
+        column and their meaning on every one of those surfaces: you must not
+        lose *I have read this* in exchange for *this is Lua*.
+
+        Called once per file per paint, and the tree is rebuilt on every file
+        crossing as well -- so an adapter that raises, or that answers with
+        anything but a string, is survived rather than reported: that file
+        draws without a glyph and the review goes on. The plugin ships no
+        glyph behind this key and depends on no icon plugin, so with it
+        unwired nothing at all is called per file.
+
+dir_icon({path})                                     *codereview-opt-dir_icon*
+        The glyph a **directory** carries on its row in the file tree
+        (|codereview-tree|), and the group that colours it. The same contract
+        as |codereview-opt-file_icon|, and the same rule reads your answer: >
+            dir_icon = function(path)
+              return MiniIcons.get("directory", vim.fs.basename(path))
+            end,
+<
+        **The file tree and nothing else.** The diff's header row and the
+        sticky header name files, and neither has a directory row for a glyph
+        to go on, so neither calls this.
+
+        **A second adapter rather than a wider first one.** A directory names
+        no file, so there is nothing `file_icon` could be asked about it. You
+        wire one function per kind of thing and neither has to guess which
+        kind it was handed: this one is never asked about a file, and
+        `file_icon` is never asked about a directory.
+
+        {path} is the row's **own** path. The tree compacts a chain of
+        single-child directories onto one row, so a row reading
+        `apps/api/src` hands you `apps/api/src` and never `apps` -- the glyph
+        and the name a row draws are about the same directory.
+
+        The chevron keeps its column and the reviewed tally keeps the right
+        margin. Called once per *drawn* directory row per paint -- a
+        collapsed directory hides its children, so they are not drawn and not
+        asked about -- and every way of failing is survived exactly as
+        |codereview-opt-file_icon| survives it. Nothing is shipped behind
+        this key either.
+
 ==============================================================================
 9. CONFIGURATION                                  *codereview-configuration*
 
@@ -1267,7 +1339,8 @@ Defaults: >
       },
       types = nil,
       send = nil, pick_target = nil, pick_file = nil,
-      compose = nil, open_diff = nil,
+      compose = nil, open_diff = nil, pick_checkout = nil,
+      file_icon = nil, dir_icon = nil,
     })
 <
 `max_syntax_bytes` bounds the one operation with a real performance cliff.
