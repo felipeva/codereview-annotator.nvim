@@ -176,6 +176,64 @@ local function row_icon(adapter, path)
   return glyph, group, lead, vim.fn.strdisplaywidth(lead)
 end
 
+---The footer row: the reviewed tally, and a progress bar filled from the same two numbers.
+---
+---**The bar carries no highlight range of its own, and that is a measurement rather than a
+---saving.** The row draws in one line-wide `CodeReviewTitle`, and a line-wide group with a
+---foreground replaces the foreground of every mark beneath it. Read on a painted cell: a
+---range asking for `ee0000` on this row comes back `00ee00`, which is the row's own colour. So
+---a bar emitted as two ranges -- one for its filled cells, one for its empty ones -- draws in
+---one colour, and no assertion over mark tables can see that it did. Narrowing the line-wide
+---group to the text would free those cells, and would take the row's fill off every
+---colorscheme that gives `Title` a background, which is a fill this plugin cannot see. So the
+---two kinds of cell are told apart by their glyph and the bar takes the tally's own colour.
+---
+---**The bar is measured against the widest tally the review can print, not against the one it
+---prints now.** `N/M reviewed` grows a column the moment the reviewed count grows a digit, so
+---a bar taking whatever is left over shrinks as it fills -- and at a hundred files it stops
+---moving: 9 reviewed leaves 18 cells and fills one of them, 10 leaves 17 and fills one of
+---them, so a file was read and the bar says nothing happened. The tally is padded out to
+---`M/M reviewed` instead. That is the rule the commit list's size column already follows: a
+---column only while every row spends the same width on it.
+---
+---**A started review draws at least one cell.** The count is a floor, which is what makes a
+---full bar mean a finished review and nothing else -- 299 of 300 is 15 cells of 16, and only
+---`reviewed == total` can reach the last one. The floor costs the other end: at 300 files it
+---reaches its first cell at 19 reviewed, so a reviewer finishes eighteen files and the bar
+---still says they have not begun, on the review size the bar is most use on. The clamp
+---answers that end and cannot reach the other.
+---
+---**The row spends the columns every other row of the tree spends**, which is `width - 1`, so
+---the bar ends where a directory's tally ends. With no columns left for a bar the row is the
+---tally alone, byte for byte what it was before this existed.
+---
+---**A scope with no files in it draws no bar either.** A full row of empty cells over `0/0
+---reviewed` says there is everything left to read, which is the opposite of true, and it is
+---the same lie the clamp above exists to stop telling from the other end. It is also what
+---`file_icon_spec` already asserts of an empty scope: an empty tree, and a footer.
+---@param reviewed integer
+---@param total integer
+---@param width integer
+---@param icons table
+---@return string
+local function footer(reviewed, total, width, icons)
+  local tally = ("%d/%d reviewed"):format(reviewed, total)
+  local widest = ("%d/%d reviewed"):format(total, total)
+  local cells = width - 1 - #widest - 1
+  if cells < 1 or total == 0 then
+    return tally
+  end
+  -- `reviewed * cells` first and the division after it. `reviewed / total * cells` is two
+  -- roundings, and the second is not free: 15 of 22 files over a 22-cell bar -- a panel 38
+  -- columns wide -- lands on 14.999999999999998 and floors to 14, one cell short of the 15
+  -- the exact form gives. The shipped width cannot show it, because 18 cells over a two-digit
+  -- total agrees either way, so the case that pins this spells the width out.
+  local filled = reviewed > 0 and math.max(1, math.floor(reviewed * cells / total)) or 0
+  local bar = icons.progress_full:rep(filled) .. icons.progress_empty:rep(cells - filled)
+  -- The tally is padded to the widest, so the bar starts in the same column all review long.
+  return tally .. (" "):rep(#widest - #tally + 1) .. bar
+end
+
 ---@param files CRFile[]
 ---@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, dir_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
 ---@return CRPanelRender
@@ -375,7 +433,7 @@ function M.build(files, opts)
   end
 
   lines[#lines + 1] = ""
-  lines[#lines + 1] = ("%d/%d reviewed"):format(tree.reviewed, tree.total)
+  lines[#lines + 1] = footer(tree.reviewed, tree.total, width, icons)
   mark(#lines, 0, { line_hl_group = "CodeReviewTitle" })
 
   return {

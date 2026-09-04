@@ -23,7 +23,7 @@ the end.
 │ ▾ packages/…    0/1 ││                                                           │
 │   ○ types.ts        ││ ✓ ▸ apps/api/src/routes.ts                       +4 -0    │
 │ ○ README.md         ││                                                           │
-│ 2/7 reviewed        ││ ○ ▾ apps/web/src/index.ts                        +2 -1    │
+│ 2/7 reviewed ██░░░░░││ ○ ▾ apps/web/src/index.ts                        +2 -1    │
 └─────────────────────┘└───────────────────────────────────────────────────────────┘
 ```
 
@@ -760,6 +760,16 @@ The tree collapses single-child directory chains, so you get `apps/api/src` and 
 nested rows. It sorts directories before files. It carries a reviewed tally on every
 directory, so you can see which packages are done without opening them.
 
+**The footer carries a progress bar** beside `N/M reviewed`, filled from those same two
+numbers, so how far the review has got is something you see rather than a fraction you
+convert. It draws in the footer's own colour and never in green — green already means a
+finished directory in this tree. The bar is one length for the whole review: it is measured
+against the widest tally the review can print, so it does not shrink by a column when the
+reviewed count grows a digit. A review you have started fills at least one cell, and only a
+finished review fills the last one. `icons.progress_full` and `icons.progress_empty` are the
+two glyphs; replace both or neither, because the bar tells its two kinds of cell apart by
+glyph and not by colour.
+
 The tree follows the diff cursor, and `<Tab>` into it lands on the file you were reading.
 
 A file row carries the reviewed, annotated or unreviewed mark first, then the glyph your
@@ -875,7 +885,8 @@ opts = {
   panel = { enabled = true, width = 34, position = "left" },
   icons = { reviewed = "✓", annotated = "●", unreviewed = "○",
             collapsed = "▸", expanded = "▾", change_bar = "▌",
-            untouched = "↺", continuation = "↳" },
+            untouched = "↺", continuation = "↳",
+            progress_full = "█", progress_empty = "░" },
                                    -- plain Unicode throughout: no Nerd Font anywhere.
                                    -- For a per-filetype icon beside these, wire the
                                    -- `file_icon` adapter, and `dir_icon` for a

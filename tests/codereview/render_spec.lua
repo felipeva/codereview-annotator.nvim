@@ -127,9 +127,11 @@ describe("the panel", function()
     assert.is_true(V.panel_win ~= nil and vim.api.nvim_win_is_valid(V.panel_win))
   end)
 
+  -- The tally heads that row rather than being the whole of it: the progress bar takes the
+  -- columns after it, and what the bar draws is `panel_spec`'s.
   it("footers the reviewed tally", function()
     local lines = vim.api.nvim_buf_get_lines(V.panel_buf, 0, -1, false)
-    assert.same(("0/%d reviewed"):format(#V.files), lines[#lines])
+    assert.same(("0/%d reviewed"):format(#V.files), lines[#lines]:match("^%d+/%d+ reviewed"))
   end)
 
   it("maps a row to every file", function()

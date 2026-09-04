@@ -157,6 +157,15 @@ M.defaults = {
     ---Neither the bar nor the line number repeats there, and their absence is worth
     ---explaining rather than merely noticing.
     continuation = "↳",
+    ---The two cells of the file tree's progress bar, beside `N/M reviewed` on the footer row.
+    ---
+    ---**A pair, because the bar has one colour.** The footer row draws in one line-wide
+    ---group, and a line-wide group with a foreground replaces the foreground of every mark
+    ---beneath it -- so the filled cells and the empty ones cannot be told apart by colour and
+    ---are told apart by glyph instead. Replace both or neither: one shipped glyph beside one
+    ---of your own is a bar whose two halves were chosen by two people.
+    progress_full = "█",
+    progress_empty = "░",
   },
 
   --- Annotations ---
