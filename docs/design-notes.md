@@ -1460,6 +1460,44 @@ crossing, which is the other half of why: a winbar hung off the tree's own repai
 name the right file with the tree open and freeze the moment it was dismissed — the one
 case the header exists for.
 
+**A line-wide group replaces every attribute it sets on the marks beneath it, at every
+priority, and priority is not the lever it looks like.** Measured on painted cells, in both
+directions. A range in a group with a foreground, under a `line_hl_group` whose group also has
+one, draws the *line's* foreground: with the line at its default priority, at 200, at 4096,
+and with the range raised to 300 against every one of them. A `line_hl_group` carrying a
+*background* only takes the background, and the range's foreground comes through untouched.
+So a colour on a tree row survives a line-wide background and can never be made to survive a
+line-wide foreground — which is the **Band**'s rule read the other way round, and specific
+enough to decide a case the glossary sentence is not.
+
+**The two line-wide groups on a tree row therefore answer differently.**
+`CodeReviewPanelSel` links to `CursorLine`, which carries a background, so the row the diff
+cursor is in keeps its marks' own colours — and that is the whole of why a file's **leading
+type** reaches the one row a reviewer is looking at. `CodeReviewFileReviewed` links to
+`Comment`, which carries a foreground, so a reviewed row draws in the comment colour from end
+to end.
+
+**Which means the reviewed row's `CodeReviewStatAdd` has never reached a cell.** Measured on
+the unmodified tree, with `Added` set to `00ee00` and `Comment` to `ee0000`: the ✓ on a
+reviewed row reads `fg=ee0000`. That mark is emitted on every paint and draws nothing. It is
+left alone on purpose rather than removed, because a reviewed row is *meant* to be recessive —
+the tree answers what to read next, and a file already read is not a candidate, so the comment
+colour is the right statement and the green was never the one being made. For the same reason
+the leading type is not put on a reviewed row at all: a second mark that cannot draw is one
+more thing a later reader has no way of discovering is dead.
+
+**A colourscheme that gives `CursorLine` a foreground takes the leading type off the row the
+cursor is in**, and nothing in this plugin can answer it. `panel_spec` reads that case as a
+painted cell of its own, beside the three that hold, so "the colour survives the row the
+reviewer is on" says *which mechanism it survives by* rather than passing by luck.
+
+**The leading type rides in the note-count walk, and that walk is over anchor keys.** The
+bucketing loop takes `#items` per key, which is O(1) — an **entry**'s own type is something it
+did not read. So the leading type costs one comparison per entry, inside the pass that was
+already there and with no second pass anywhere. What that cost is counted in is entries
+queued and not files reviewed, which is why it stays small on the reviews the tree matters
+most on: three hundred files holding ten annotations walk ten more items.
+
 ## Windows, modes and focus
 
 **`nvim_win_call` propagates only the first return value.** Returning `line("w0"), line("w$")`
