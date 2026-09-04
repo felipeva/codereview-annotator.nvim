@@ -1483,6 +1483,18 @@ reds nothing until a case names a width. At 38 columns a review of 22 files with
 is a 22-cell bar, and there the divide-first form lands on 14.999999999999998 and floors to
 14, one cell short. Found by mutation-checking the shipped rule, not by reading it.
 
+**Both worked examples written for this bar were false, and both times the conclusion they
+were written for was right.** The first said the divide-first form puts 10 of 12 over 18 cells
+at 14.999999999999998; it is exactly 15, and the trap is real at other widths. The second said
+a bar taking the columns left after the tally stops moving between 9 and 10 reviewed of a
+hundred; it does, and so does the fixed-length bar, because at 16 cells over a hundred files
+that is the granularity rather than the tally's width -- what the fixed length really buys is
+the *last* file, which under the ticket's wording fills no new cell at all. Neither error was
+visible from the sentence around it, because in both cases the sentence was true. So a worked
+example in this file is a claim of its own and has to be run like one: the arithmetic that
+motivates a rule is not checked by the rule passing its tests, and a number nobody measured
+survives every green suite there is.
+
 **The panel repaints only when the cursor crosses into a different file.** Following the
 diff cursor runs on every `CursorMoved`; rebuilding the tree on each keystroke is real work
 on a large review. The crossing is judged on the view rather than inside the tree's sync,
