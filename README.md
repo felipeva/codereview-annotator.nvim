@@ -770,6 +770,17 @@ group beside the glyph, which `nvim-web-devicons` and `mini.icons` both do alrea
 keeps its column and its own colour, the glyph comes out of the name's budget, and a narrow
 panel cuts the name from the left, so the end of it survives.
 
+**A file that holds a queued annotation draws its mark in that annotation's own colour.** The
+colour is the file's *leading type*: the first annotation type in your configured
+[`types`](#annotation-types) order that has an entry in that file. So a file holding a bug
+does not look like a file holding a nitpick, and the tree tells you what to read first before
+you open anything. A file holding entries of several types takes the first configured type
+present, whichever order you made the entries in. An entry whose type you have since taken out
+of `types` is still counted, and it never leads.
+
+A file you marked reviewed keeps the reviewed colour, and a file with no queued entry keeps
+the colour it had.
+
 A directory row carries a glyph of its own, from the [`dir_icon`](#adapters) adapter — a
 second one, because a directory names no file and there is nothing `file_icon` could be asked
 about it. It goes after the chevron, in your icon plugin's colour when your adapter names a

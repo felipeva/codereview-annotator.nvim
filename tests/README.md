@@ -316,6 +316,16 @@ so the out-of-core language path is still checked locally without ever failing C
   which file it was is to rerun with `{ sequential = true, keep_going = true }` and read the
   failures in order. This is the same trap as "the plenary tally lies", arriving through the
   scheduler instead of through ANSI codes.
+- **A notification prints with no trailing newline, so a `Fail` line lands glued to the end of
+  one.** `vim.notify` writes `Queued bug apps/api/src/main.lua:1 (1 in queue)` and stops
+  there, and plenary's next result line goes onto the same line of the log. A parser spelled
+  `line.startswith("Fail")` then misses every failure a spec queued an annotation in front of:
+  measured on `panel_spec`, where a run holding nine failures read back as five, and the four
+  it lost were the four whose blocks annotate. Match the result marker *anywhere* in the line,
+  and cross-check against plenary's own `Success:` / `Failed:` / `Errors:` summary with the
+  ANSI codes stripped first. Third way this suite's output lies about failures, after the
+  tally and the scheduler above — and the one that is different in kind: those two are wrong
+  about the *counts*, this one is wrong about which *lines* exist to be counted.
 - **Re-opening a review does not re-read that checkout's stored queue.** The read-back
   latch is per **checkout**, and once it is set memory is the truth — a reopen points the
   queue back at the checkout and reads nothing. So a block that clears the queue by hand and
