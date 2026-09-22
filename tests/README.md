@@ -648,6 +648,23 @@ so the out-of-core language path is still checked locally without ever failing C
   old map claimed. `syntax_spec` collapses a file *above* the one it checks, guards that the
   rows below really did move, and only then asserts that every syntax mark still covers its
   own token. Same trap as "a filter test needs a fixture only that filter can reject".
+- **A case named for columns that reads a trimmed row cannot see the columns.** A new shape,
+  and not one of the arithmetic ones above: the name promised something the body never looked
+  at. `panel_spec`'s `spends no columns at all on a review with no line counts anywhere in it`
+  asserted `vim.trim(line)` on a tree of binary files. A field of blanks and no field at all
+  trim to the same string, so counting a binary file's `+0 -0` into the **stat**'s column
+  widths — which leaves a five-column gutter on every row and takes five columns off every
+  name — left the case green. It reads the name's budget now, with its conditions named. Found
+  by mutation-checking the committed tree and findable no other way: nothing about the case is
+  wrong to read, and every assertion in it is true.
+- **A right-aligned field makes its own padding fungible, so no row text can see a column
+  width.** The file tree's stat is padded to the widest count in the review and pinned to the
+  right margin, so a column one byte too narrow moves that byte out of the field and into the
+  pad and the row comes out **byte-identical**. Three row literals in `panel_spec` — with two,
+  three and one digit of padding between them — all stayed green under exactly that mutation,
+  and the case that caught it was the one asserting where the *marks* land. Row-text
+  assertions are real assertions and on this surface they simply cannot make this claim.
+  Whoever adds the next right-aligned column to this row needs a mark assertion with it.
 - **`truncate` can delete the evidence a row assertion is looking for.** A hunk header that
   says its section heading twice is 81 columns wide in `chrome_spec`'s fixture, and most of
   this suite renders at 80. At 80 the second copy is cut, so a case counting how often the

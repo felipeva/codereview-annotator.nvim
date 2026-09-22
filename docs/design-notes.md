@@ -1544,6 +1544,14 @@ own, so the digits line up down the page and the `+` and the `-` are the things 
 field fixed in advance was the alternative and it loses both ways: too narrow it cuts a large
 count, too wide it charges every name in every review for digits no file in it has.
 
+**That padding is fungible against the right margin, which costs a whole kind of assertion.**
+The field is pinned to the right of the row, so a column width one byte too narrow moves that
+byte out of the field and into the pad and the row comes out byte-identical. No assertion over
+what the row *says* can see the width -- only one over where the marks land. Measured by
+mutation rather than reasoned: three row literals with two, three and one digit of padding
+between them all stayed green while the added column took the last file's width instead of the
+widest. `tests/README.md` carries it as a trap, with the second one the mutation check found.
+
 **A binary file draws that field blank, and the file header row draws the word `binary` --
 the divergence is deliberate.** The word is six columns, so one binary file anywhere in a
 review would take a column off every name in it, and a word in a column of numbers does not
