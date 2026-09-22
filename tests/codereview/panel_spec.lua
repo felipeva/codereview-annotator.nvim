@@ -1614,13 +1614,24 @@ describe("a file row's +N -M stat", function()
     assert.same(1, #ranges_on(r, row))
   end)
 
+  -- **Read on the name's budget and not on the trimmed row**, because a field of blanks and
+  -- no field at all trim to the same string: the columns *are* the claim here, so the columns
+  -- are what is read. Found by mutation-checking this case -- counting a binary file's zeroes
+  -- into the column widths left a five-column blank gutter on every row and took five columns
+  -- off every name, and the trimmed rows below saw none of it.
+  --
+  -- Conditions, as for every budget here: the top of the tree, no glyph, and no file in the
+  -- review with line counts to give. Thirty.
   it("spends no columns at all on a review with no line counts anywhere in it", function()
+    local fits, cut = ("f"):rep(30), ("g"):rep(31)
     local r = build_of({
+      { path = fits, added = 0, removed = 0, binary = true },
+      { path = cut, added = 0, removed = 0, binary = true },
       { path = "logo.png", added = 0, removed = 0, binary = true },
-      { path = "shot.jpg", added = 0, removed = 0, binary = true },
     })
-    assert.same("○ logo.png", vim.trim(line_of(r, 1)))
-    assert.same("○ shot.jpg", vim.trim(line_of(r, 2)))
+    drawn_whole(r, 1, fits)
+    cut_from_the_left(r, 2, cut, 30)
+    assert.same("○ logo.png", vim.trim(line_of(r, 3)))
   end)
 
   -- **A reviewed row keeps the two numbers and is given no colour.** `CodeReviewFileReviewed`
