@@ -246,6 +246,18 @@ and the sticky header draw for it, decided by one rule so the three cannot
 disagree. A directory row carries the glyph |codereview-opt-dir_icon| gave it,
 after the chevron. The mark keeps its column and its own color.
 
+A file that holds a queued annotation draws its mark in that annotation's own
+color. The color is the file's leading type: the first type in your configured
+`types` order that has an entry in that file. A file holding a bug therefore
+does not look like a file holding a nitpick, and the tree tells you what to
+read first before you open anything. A file holding entries of several types
+takes the first configured type present, whichever order you made the entries
+in. An entry whose type is no longer in `types` is still counted, and it never
+leads.
+
+A file you marked reviewed keeps the reviewed color, and a file with no queued
+entry keeps the color it had.
+
 A glyph is drawn in your icon plugin's own color, on every surface that draws
 it, when your adapter named a highlight group beside it: a file's glyph in the
 tree, on its header row in the diff and on the sticky header; a directory's in

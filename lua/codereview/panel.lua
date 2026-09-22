@@ -28,6 +28,9 @@ local render = require("codereview.render")
 ---@field total integer        Files in this subtree
 ---@field reviewed integer     Reviewed files in this subtree
 ---@field notes integer        Annotations in this subtree
+---@field lead string|nil      Highlight group of a file's **leading type**. A file node only:
+---                            a directory answers how much of it has been read, not what kind
+---                            of thing is waiting inside it.
 
 ---@class CRPanelRender
 ---@field lines string[]
@@ -79,7 +82,7 @@ end
 ---child, so a monorepo shows `apps/api/src` on one row instead of burning three rows and
 ---six columns of indent on path segments that carry no information.
 ---@param node table
----@param stat fun(file: CRFile, path: string): boolean reviewed, integer notes
+---@param stat fun(file: CRFile, path: string): boolean reviewed, integer notes, string|nil lead
 ---@return CRPanelNode
 local function finish(node, stat)
   -- The root is virtual and has no row of its own, so it must not absorb its only child;
@@ -104,10 +107,15 @@ local function finish(node, stat)
     return a.name:lower() < b.name:lower()
   end)
   for _, file in ipairs(node.files) do
-    local reviewed, notes = stat(file.file, file.path)
+    local reviewed, notes, lead = stat(file.file, file.path)
     file.reviewed = reviewed and 1 or 0
     file.total = 1
     file.notes = notes
+    -- Not totalled onto the parent below, unlike the three above it. A directory's row says
+    -- how much of it has been read, and a **leading type** of a whole subtree would be a
+    -- second question that row was never asked -- and a fourth field on a directory node that
+    -- nothing reads is a field someone later has to prove is dead.
+    file.lead = lead
     children[#children + 1] = file
   end
 
@@ -122,22 +130,58 @@ local function finish(node, stat)
   return node
 end
 
+---A file's **leading type** is the first **annotation type** in the *configured* order with an
+---**entry** in that file, and it is what colours the file's state mark.
+---
+---**The configured order arrives as an argument**, the way the glyph table and the icon
+---adapters already do, so this stays a pure function of what it is handed and the
+---configuration module stays out of its requires. Declaration order is the order the type
+---picker lists and the **payload** groups, so the tree agrees with both rather than holding a
+---private ordering a host would have to learn a second time.
+---
+---**Ranked by position rather than matched by name at the mark.** A rank turns "first in the
+---configured order" into one integer comparison per **entry**; comparing names would be a
+---search of the list per entry instead.
 ---@param files CRFile[]
----@param opts { reviewed: table<string, string>, notes: table<string, table[]> }
+---@param opts { reviewed: table<string, string>, notes: table<string, table[]>, types: CRType[]|nil }
 ---@return CRPanelNode
 function M.tree(files, opts)
+  local rank, group = {}, {}
+  for i, t in ipairs(opts.types or {}) do
+    rank[t.name] = rank[t.name] or i
+    group[i] = t.hl
+  end
+
   -- Note counts are bucketed once rather than rescanned per file: the naive form is
   -- O(files x annotations), which is the whole panel's cost on a large review.
-  local per_path = {}
+  --
+  -- **The leading type rides in this walk, and it is not free.** The walk is over anchor
+  -- *keys* and `#items` is O(1), so an entry's own type is something this loop did not read
+  -- before. What it adds is one comparison per **entry**, inside the pass that is already
+  -- here, and no second pass over anything. The tree is rebuilt on every file crossing as
+  -- well as on every paint, so what the cost is counted in matters: entries queued, not files
+  -- reviewed. A three-hundred-file review holding ten annotations walks ten more items.
+  local per_path, lead = {}, {}
   for key, items in pairs(opts.notes or {}) do
     local path = key:match("^(.*):[nof]:%d+$")
     if path then
       per_path[path] = (per_path[path] or 0) + #items
+      for _, item in ipairs(items) do
+        -- An entry whose type is not in the configured list is counted above and leads
+        -- nothing. A queue restored under a configuration that has since dropped a type still
+        -- says how much is waiting in a file and stops saying what kind of thing it is, which
+        -- is the same answer `types.group` gives it in the payload.
+        local r = rank[item.type]
+        if r and r < (lead[path] or math.huge) then
+          lead[path] = r
+        end
+      end
     end
   end
 
   return finish(build(files), function(_, path)
-    return (opts.reviewed or {})[path] ~= nil, per_path[path] or 0
+    local first = lead[path]
+    return (opts.reviewed or {})[path] ~= nil, per_path[path] or 0, first and group[first] or nil
   end)
 end
 
@@ -177,7 +221,7 @@ local function row_icon(adapter, path)
 end
 
 ---@param files CRFile[]
----@param opts { width: integer, icons: table, file_icon: (fun(path: string): string|nil, string|nil)|nil, dir_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
+---@param opts { width: integer, icons: table, types: CRType[]|nil, file_icon: (fun(path: string): string|nil, string|nil)|nil, dir_icon: (fun(path: string): string|nil, string|nil)|nil, reviewed: table<string, string>, notes: table<string, table[]>, collapsed: table<string, boolean>, current: integer|nil }
 ---@return CRPanelRender
 function M.build(files, opts)
   local icons = opts.icons
@@ -334,11 +378,25 @@ function M.build(files, opts)
     file_row[node.index] = row
     file_rows[#file_rows + 1] = row
 
-    mark(
-      row,
-      #indent,
-      { end_col = #indent + #icon, hl_group = reviewed and "CodeReviewStatAdd" or "CodeReviewNoteCount" }
-    )
+    -- **The state mark carries the file's leading type**, so a file holding a bug stops
+    -- looking like a file holding a nitpick -- and it says so in the column a reviewer already
+    -- runs their eye down for review state, rather than in a second column of its own. The
+    -- group is the type's own, so a host that replaced the vocabulary outright gets its own
+    -- groups here and the tree agrees with the picker and the queue float about one colour per
+    -- kind of finding.
+    --
+    -- **A reviewed file is not given one, and not only because the two facts have to be
+    -- ordered.** A line-wide group replaces every attribute it sets on the marks beneath it,
+    -- at every priority -- measured, and recorded in `docs/design-notes.md` -- and a reviewed
+    -- row carries `CodeReviewFileReviewed` over the whole of it. A group put here would be
+    -- named by an extmark on every paint and would reach no cell on any screen, which is a
+    -- dead mark a later reader has no way of discovering is dead. A reviewed row is
+    -- deliberately recessive anyway: the tree answers what to read next, and a file already
+    -- read is not a candidate.
+    mark(row, #indent, {
+      end_col = #indent + #icon,
+      hl_group = reviewed and "CodeReviewStatAdd" or node.lead or "CodeReviewNoteCount",
+    })
     -- The colour the host's icon plugin chose for this file, over the glyph's own bytes.
     --
     -- **A second thing about the file, laid beside the state mark and never over it.** The

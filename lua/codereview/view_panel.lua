@@ -56,6 +56,11 @@ function M.paint_panel(V, view)
   V.panel_render = panel.build(V.files, {
     width = vim.api.nvim_win_get_width(V.panel_win),
     icons = cfg.icons,
+    -- The configured **annotation types**, in order, so the tree can colour a file's state
+    -- mark in that file's **leading type**. Handed over like the glyph table above and the
+    -- adapters below rather than read by the tree itself: the builder is pure, and what
+    -- decides which type leads is the host's own declaration order.
+    types = cfg.types,
     file_icon = cfg.file_icon,
     dir_icon = cfg.dir_icon,
     reviewed = V.reviewed,

@@ -223,6 +223,21 @@ _Avoid_: category, severity, label (a label is a type's group heading)
 The instruction attached to an annotation type, telling the receiving agent what to do with
 that group. Optional — a type without one still groups.
 
+**Leading type**:
+The first **annotation type** in the configured order that has an **entry** in a file. What
+the file tree draws that file's reviewed/annotated/unreviewed mark in, so a file holding a
+bug does not look like a file holding a nitpick and a reviewer can see what to read next
+without opening anything. Said of a *file* and never of an **entry**, which has one type, nor
+of a **batch**, which groups by all of them. Decided by the **host**'s declaration order —
+the same order the type picker lists in and the **payload** groups in — so the tree holds no
+ordering of its own and a host has no second one to learn. An entry whose type is not in the
+configured list is counted and never leads; a file with none that leads keeps the colour it
+had. A file marked reviewed has none drawn on it at all: that row says *done*, which is a
+statement a type's colour would argue with, and a line-wide group over the whole row would
+flatten the colour anyway (see **Band**). Not _severity_, which **Annotation type** already
+refuses, and not _priority_, which is where a mark sits in the emission's order.
+_Avoid_: severity, priority, worst type, dominant type, highest, top type
+
 **Untyped annotation**:
 An annotation carrying no annotation type. Says something is worth reading without saying
 what should be done about it.
