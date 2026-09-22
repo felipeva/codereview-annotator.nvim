@@ -25,7 +25,18 @@ local render = require("codereview.render")
 -- The shipped glyphs, spelled here rather than read off the configuration, as `path_spec`
 -- spells them: nothing in the first act calls `setup`, and what a label does with an icon is
 -- to carry it rather than to choose it.
-local ICONS = { reviewed = "✓", annotated = "●", unreviewed = "○", collapsed = "▸", expanded = "▾" }
+-- The last pair is the file tree's footer bar. This act says nothing about that row, but
+-- `panel.build` draws it on every tree it returns, so a table without them is a table the
+-- panel cannot build from.
+local ICONS = {
+  reviewed = "✓",
+  annotated = "●",
+  unreviewed = "○",
+  collapsed = "▸",
+  expanded = "▾",
+  progress_full = "█",
+  progress_empty = "░",
+}
 local DIR, NAME = "CodeReviewFileDir", "CodeReviewFileName"
 
 -- One column wide and more than one byte long, which is what a devicon is. **That is what

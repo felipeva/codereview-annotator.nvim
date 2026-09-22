@@ -1450,6 +1450,51 @@ the directory containing it — but the nearest directory row *above* a file is 
 sibling directory the cursor already scrolled past, not its parent. Each row records its
 tree depth, and the parent is the nearest directory row above with a smaller one.
 
+**The footer's progress bar carries no highlight range of its own, and that is a measurement
+rather than a saving.** The footer row draws in one line-wide `CodeReviewTitle`, and a
+line-wide group with a foreground replaces the foreground of every mark beneath it -- so a bar
+emitted as two ranges, one for its filled cells and one for its empty ones, draws in one
+colour, and no assertion over mark tables can see that it did. Read on a painted cell: a range
+asking for `ee0000` on that row comes back `00ee00`, which is the row's own. Narrowing the
+line-wide group to a column range over the text *does* free those cells and *does not* change
+how the text draws -- both read on cells of their own -- but it takes the row's fill off every
+colorscheme that gives `Title` a background, which is a fill this plugin has never seen. So the
+two kinds of cell are told apart by their glyph, and `panel_spec` reads a third cell on the
+flattening itself, so that a bar in two colours cannot be added later and silently draw in one.
+
+**The bar is measured against the widest tally the review can print, and not against the one it
+prints now.** `N/M reviewed` grows a column when the reviewed count grows a digit, so a bar
+taking whatever columns are left after the tally is re-laid-out while it fills: at a hundred
+files on this 33-column row it would be 18 cells below ten reviewed, 17 below a hundred and 16
+at a hundred. The sharp end of that is the last file of all -- 99 of 100 would be 16 filled of
+17 and 100 of 100 is 16 of 16, so finishing the review adds no filled cell. The tally is padded
+out to `M/M reviewed` instead, which is the rule the commit list's size column already follows
+one surface over: a column only while every row spends the same width on it.
+
+**A started review draws one cell, and only a finished one draws them all.** The filled count is
+a floor, which is what makes a full bar mean a finished review: only `reviewed == total` can
+reach the last cell. The floor costs the other end, and it costs it worst where the bar is most
+use -- at 300 files the bar is 16 cells and reaches its first at 19 reviewed, so eighteen files
+are read and the row still says nothing has begun. The clamp answers that end and cannot reach
+the other. It is also why the count is `reviewed * cells / total` and never `reviewed / total *
+cells`. The second is two roundings, and **the default width cannot show the difference** --
+18 cells over a two-digit total agrees either way, which is why the mutation that swaps them
+reds nothing until a case names a width. At 38 columns a review of 22 files with 15 reviewed
+is a 22-cell bar, and there the divide-first form lands on 14.999999999999998 and floors to
+14, one cell short. Found by mutation-checking the shipped rule, not by reading it.
+
+**Both worked examples written for this bar were false, and both times the conclusion they
+were written for was right.** The first said the divide-first form puts 10 of 12 over 18 cells
+at 14.999999999999998; it is exactly 15, and the trap is real at other widths. The second said
+a bar taking the columns left after the tally stops moving between 9 and 10 reviewed of a
+hundred; it does, and so does the fixed-length bar, because at 16 cells over a hundred files
+that is the granularity rather than the tally's width -- what the fixed length really buys is
+the *last* file, which under the ticket's wording fills no new cell at all. Neither error was
+visible from the sentence around it, because in both cases the sentence was true. So a worked
+example in this file is a claim of its own and has to be run like one: the arithmetic that
+motivates a rule is not checked by the rule passing its tests, and a number nobody measured
+survives every green suite there is.
+
 **The panel repaints only when the cursor crosses into a different file.** Following the
 diff cursor runs on every `CursorMoved`; rebuilding the tree on each keystroke is real work
 on a large review. The crossing is judged on the view rather than inside the tree's sync,
