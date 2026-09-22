@@ -267,11 +267,15 @@ describe("rendering queued annotations", function()
     assert.is_truthy(header:find("[1 note]", 1, true))
   end)
 
-  it("counts it on the file's panel row", function()
+  -- The count number left the file row with #242 and its columns went to the `+N -M` **stat**,
+  -- so what says a file holds an entry is the **state** mark: annotated rather than
+  -- unreviewed. Trailing digits are the stat's now, and a case reading them reads a size.
+  it("marks the file annotated on its panel row", function()
     -- The panel is a tree, so row 1 is a directory; find the file's own row.
     local prow = V.panel_render.file_row[assert(h.file_index(V, "src/fresh.lua"))]
     local line = vim.api.nvim_buf_get_lines(V.panel_buf, prow - 1, prow, false)[1]
-    assert.same("1", line:match("(%d)%s*$"))
+    local annotated = config.get().icons.annotated
+    assert.same(annotated, vim.trim(line):sub(1, #annotated))
     assert.is_truthy(line:find("fresh.lua", 1, true))
   end)
 end)

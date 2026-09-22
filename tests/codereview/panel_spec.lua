@@ -72,7 +72,9 @@ describe("tree structure", function()
     local top = {}
     for i, l in ipairs(panel_lines()) do
       if (V.panel_render.row_depth[i] or 99) == 0 then
-        top[#top + 1] = vim.trim(l):gsub("%s+%d+/%d+$", ""):gsub("%s+$", "")
+        -- What a row is *named*, with the right margin taken off it: a directory's tally, or
+        -- a file's `+N -M` **stat**.
+        top[#top + 1] = vim.trim((l:gsub("%s+%d+/%d+%s*$", ""):gsub("%s+%+%d+ %-%d+%s*$", "")))
       end
     end
     assert.same({ "▾ apps", "▾ docs", "▾ packages/shared/src", "○ README.md" }, top)
@@ -226,9 +228,11 @@ describe("navigating the diff", function()
     assert.same("packages/shared/src/types.lua", V.files[anchor.file].path)
   end)
 
-  it("counts that file's notes in the tree", function()
+  -- The count itself left the file row with #242 and its columns went to the **stat**; what
+  -- says a file holds something is the **state** mark, and what kind of thing is its colour.
+  it("marks that file as annotated in the tree", function()
     local line = panel_lines()[row_of_file("packages/shared/src/types.lua")]
-    assert.same("1", line:match("(%d)%s*$"))
+    assert.same("●", vim.trim(line):sub(1, #"●"))
   end)
 end)
 
@@ -738,12 +742,18 @@ describe("a file's state mark in its leading type's colour", function()
     assert.same({ col = col, end_col = end_col, group = "CodeReviewBug" }, over[1])
   end)
 
-  -- The number stays on the row for now. It is redundant once the colour is there, and the
-  -- ticket that removes it and spends its columns on the `+N -M` stat is blocked by this one:
-  -- taking it out here ships a row that lost information and gained none.
-  it("leaves the note count number on the row", function()
-    assert.same("1", tree_text(P, tree_row(P, BUG)):match("(%d+)%s*$"))
-    assert.same("2", tree_text(P, tree_row(P, NIT_THEN_BUG)):match("(%d+)%s*$"))
+  -- The number is gone and its columns are the **stat**'s. What it said -- which type is
+  -- waiting -- is the colour asserted above, which is what let it go. A file holding one
+  -- entry and a file holding two now draw the same row, and the row says how big the change
+  -- is instead.
+  it("prints no note count number on the row", function()
+    local one = tree_text(P, tree_row(P, BUG))
+    local two = tree_text(P, tree_row(P, NIT_THEN_BUG))
+    assert.same("+1 -1", one:match("%+%d+ %-%d+%s*$"), one)
+    assert.same("+1 -1", two:match("%+%d+ %-%d+%s*$"), two)
+    -- Nothing between the name and the stat but spaces, which is where the count sat.
+    assert.same("● main.lua              +1 -1", vim.trim(one))
+    assert.same("● index.lua             +1 -1", vim.trim(two))
   end)
 
   -- A guard rather than a red case: a directory row must come out of this unchanged, so
@@ -841,10 +851,16 @@ describe("a tree drawn under a host's own annotation types", function()
     assert.same("HostChore", state_group(Q, CHORE))
   end)
 
+  -- The number left the file row with #242, so what *counted* looks like here is the **state**
+  -- mark: a file whose only entry is of a type the host has dropped still reads as annotated
+  -- rather than clean, and still takes the colour it had rather than that type's.
   it("counts an entry of a type it no longer has, and never lets it lead", function()
-    assert.same("1", tree_text(Q, tree_row(Q, STRANGER)):match("(%d+)%s*$"))
+    local _, _, _, stranger = state_extent(Q, STRANGER)
+    assert.same(config.get().icons.annotated, stranger)
     assert.same("CodeReviewNoteCount", state_group(Q, STRANGER))
-    assert.same("2", tree_text(Q, tree_row(Q, BOTH)):match("(%d+)%s*$"))
+
+    local _, _, _, both = state_extent(Q, BOTH)
+    assert.same(config.get().icons.annotated, both)
     assert.same("HostChore", state_group(Q, BOTH))
   end)
 
@@ -1026,12 +1042,14 @@ describe("the footer's progress bar", function()
     progress_empty = EMPTY,
   }
 
+  ---A file list of `count` files. Each carries line counts as well as a path, because the
+  ---builder draws a file row's `+N -M` from them and a `CRFile` has always had both.
   ---@param count integer
   ---@return table[]
   local function files_of(count)
     local out = {}
     for i = 1, count do
-      out[i] = { path = ("src/f%02d.lua"):format(i) }
+      out[i] = { path = ("src/f%02d.lua"):format(i), added = 1, removed = 1, binary = false }
     end
     return out
   end
@@ -1319,5 +1337,482 @@ describe("the cell the footer bar is drawn on", function()
   -- assertion over marks could see it.
   it("flattens a range that tries to colour a filled cell on its own", function()
     assert.same('cell "█" fg=00ee00 bg=none', flattened)
+  end)
+end)
+
+--- A file row's `+N -M` stat -------------------------------------------------------
+--
+-- Every file row carries the two counts its file record already holds, at the right margin,
+-- so a reviewer reads change sizes down a column instead of opening a file to find out
+-- whether it is a rename or a rewrite. They are the same two numbers the file's header row
+-- draws in the **review view**, in the same two groups: one file, one set of facts, wherever
+-- the file is named. The note count number leaves the row and pays for the columns -- what
+-- mattered about it, which type is waiting, is on the state mark's colour since #244.
+--
+-- **Two seams, because one of them cannot see colour.** Everything structural is read off
+-- `panel.build`, which is pure -- files and options in, lines and marks out -- on file lists
+-- built by hand, so counts of two, three and one digit are all available and every expected
+-- column is a literal. The colours are read off painted cells in child processes at the foot
+-- of this file, because a reviewed row carries a line-wide `CodeReviewFileReviewed` and a
+-- line-wide group with a foreground replaces the foreground of every mark beneath it.
+--
+-- **Every column below is spelled as a number.** A width computed from the same expression
+-- the builder pads with agrees with the builder whatever that expression is, which is the one
+-- general cause of an assertion in this suite that cannot fail.
+describe("a file row's +N -M stat", function()
+  -- The shipped glyphs, spelled here rather than read off the configuration, for the reason
+  -- the footer bar's block spells them: what a case asserts must not be taken from what it is
+  -- asserting about.
+  local ICONS = {
+    reviewed = "✓",
+    annotated = "●",
+    unreviewed = "○",
+    collapsed = "▸",
+    expanded = "▾",
+    progress_full = "█",
+    progress_empty = "░",
+  }
+
+  ---@param files table[]
+  ---@param opts table|nil
+  ---@return CRPanelRender
+  local function build_of(files, opts)
+    return panel.build(
+      files,
+      vim.tbl_extend("force", {
+        width = 34,
+        icons = ICONS,
+        reviewed = {},
+        notes = {},
+        collapsed = {},
+      }, opts or {})
+    )
+  end
+
+  ---The row a file was drawn on, by its place in the list handed to the builder.
+  ---@param rendered CRPanelRender
+  ---@param index integer
+  ---@return string
+  local function line_of(rendered, index)
+    return rendered.lines[assert(rendered.file_row[index], "file " .. index .. " has no row")]
+  end
+
+  ---Every *range* mark on one row of a build, ascending. The line-wide marks carry no
+  ---`end_col` and are not ranges, so they are not here.
+  ---@param rendered CRPanelRender
+  ---@param row integer 1-indexed
+  ---@return { col: integer, end_col: integer, group: string }[]
+  local function ranges_on(rendered, row)
+    local out = {}
+    for _, m in ipairs(rendered.marks) do
+      if m.row == row - 1 and m.opts.end_col then
+        out[#out + 1] = { col = m.col, end_col = m.opts.end_col, group = m.opts.hl_group }
+      end
+    end
+    table.sort(out, function(a, b)
+      return a.col < b.col
+    end)
+    return out
+  end
+
+  -- Three files whose counts are one, three and two digits wide, so the padding is real on
+  -- two rows of the three and a build that spent every row's own width would draw a ragged
+  -- edge here.
+  local SIZED = {
+    { path = "a.lua", added = 1, removed = 1, binary = false },
+    { path = "b.lua", added = 120, removed = 3, binary = false },
+    { path = "c.lua", added = 7, removed = 45, binary = false },
+  }
+  -- What that stat costs a row: `+120` is four columns, `-45` is three, and one space
+  -- separates them. A literal, because it is what the case is about.
+  local SIZED_STAT = 8
+
+  it("draws every file row's two counts at the right margin", function()
+    local r = build_of(SIZED)
+    assert.same("○ a.lua                    +1  -1", line_of(r, 1))
+    assert.same("○ b.lua                  +120  -3", line_of(r, 2))
+    assert.same("○ c.lua                    +7 -45", line_of(r, 3))
+  end)
+
+  -- The column, said as a property rather than left to three row literals: every file row
+  -- spends the same columns on its stat and ends in the same column, which is the whole of
+  -- what makes the sizes readable down the page.
+  it("spends the same columns on every row's stat, however the counts read", function()
+    local r = build_of(SIZED)
+    for index = 1, 3 do
+      local text = line_of(r, index)
+      assert.same(33, vim.fn.strdisplaywidth(text))
+      assert.is_truthy(text:sub(-SIZED_STAT):match("^%s*%+%d+%s+%-%d+$"), ("row %d: %q"):format(index, text))
+    end
+  end)
+
+  -- **The counts' own bytes and nothing beside them.** Not two offsets: an offset spelled out
+  -- of the arithmetic the builder pads with agrees with the builder whatever that arithmetic
+  -- is. The counts are found in the row the builder really drew, and the ranges are then
+  -- asserted against where they were found -- in order, never overlapping, never past the
+  -- row, and leaving nothing but spaces uncovered inside the field.
+  it("colours each count over its own bytes, and neither the padding nor the space between", function()
+    local r = build_of(SIZED)
+    for index = 1, 3 do
+      local row = assert(r.file_row[index])
+      local text = line_of(r, index)
+      local plus_at, plus_to = text:find("%+%d+")
+      local minus_at, minus_to = text:find("%-%d+")
+      local rs = ranges_on(r, row)
+
+      local last = 0
+      for _, x in ipairs(rs) do
+        assert.is_true(x.col >= last, ("range at %d overlaps the one ending at %d"):format(x.col, last))
+        assert.is_true(x.end_col > x.col, ("empty range at %d"):format(x.col))
+        assert.is_true(x.end_col <= #text, ("range ends at %d, past a row of %d bytes"):format(x.end_col, #text))
+        last = x.end_col
+      end
+
+      assert.same({ col = plus_at - 1, end_col = plus_to, group = "CodeReviewStatAdd" }, rs[#rs - 1])
+      assert.same({ col = minus_at - 1, end_col = minus_to, group = "CodeReviewStatDel" }, rs[#rs])
+
+      -- What the two ranges leave uncovered in the field is padding and the one space
+      -- between the counts. Said here rather than left to be discovered: a hole in a range
+      -- is invisible on a space today and is a one-column hole the day either group grows a
+      -- background.
+      for at = #text - SIZED_STAT + 1, #text do
+        local covered = false
+        for _, x in ipairs(rs) do
+          covered = covered or (x.col < at and x.end_col >= at)
+        end
+        assert.is_true(covered or text:sub(at, at) == " ", ("byte %d of %q is covered by nothing"):format(at, text))
+      end
+    end
+  end)
+
+  -- The number is gone from the row. It is still produced and still totalled onto the
+  -- directory nodes; what left is the printing of it, and what it said -- which type is
+  -- waiting -- is on the state mark's colour.
+  it("prints no note count number on a file row", function()
+    local r = build_of(SIZED, {
+      notes = {
+        ["a.lua:n:2"] = { { type = "bug" }, { type = "nitpick" }, { type = "bug" } },
+      },
+      types = { { name = "bug", hl = "CodeReviewBug" }, { name = "nitpick", hl = "CodeReviewNitpick" } },
+    })
+    -- The state mark says a file holds something, and its colour says what.
+    assert.same("● a.lua                    +1  -1", line_of(r, 1))
+    local row = assert(r.file_row[1])
+    assert.same("CodeReviewBug", ranges_on(r, row)[1].group)
+  end)
+
+  --- The name's budget ------------------------------------------------------------
+  --
+  -- **A number with its conditions, and never a number.** The budget moves with the indent,
+  -- with what the stat costs *this* review, and with whether a host wired a glyph. The
+  -- ticket quoted seventeen columns with all three dropped, which is true of one row of one
+  -- mockup and of nothing else -- so each case below names its three conditions, measures the
+  -- ones a runner could disagree about, and spells its figure as a literal.
+  --
+  -- Each is a pair: a name of exactly the budget, drawn whole, and a name one column wider,
+  -- cut from the left. One alone says nothing -- a builder that truncated everything would
+  -- pass the second and a builder that truncated nothing would pass the first.
+
+  ---A one-column glyph and its separator: the two columns a wired adapter costs a name.
+  local GLYPH = "λ"
+
+  ---@param names string[]
+  ---@param dir string
+  ---@param added integer
+  ---@param removed integer
+  ---@return table[]
+  local function named(names, dir, added, removed)
+    local out = {}
+    for i, name in ipairs(names) do
+      out[i] = { path = dir .. name, added = added, removed = removed, binary = false }
+    end
+    return out
+  end
+
+  ---@param rendered CRPanelRender
+  ---@param index integer
+  ---@param name string
+  local function drawn_whole(rendered, index, name)
+    local text = line_of(rendered, index)
+    assert.is_truthy(text:find(name, 1, true), ("%q does not hold %q"):format(text, name))
+    assert.is_nil(text:find("…", 1, true), text)
+  end
+
+  ---@param rendered CRPanelRender
+  ---@param index integer
+  ---@param name string
+  ---@param keeps integer Columns of the name the row is expected to keep, the ellipsis included
+  local function cut_from_the_left(rendered, index, name, keeps)
+    local text = line_of(rendered, index)
+    local tail = name:sub(#name - (keeps - 2) + 1)
+    assert.is_truthy(text:find("…" .. tail, 1, true), ("%q does not hold %q"):format(text, "…" .. tail))
+  end
+
+  -- Conditions: the top of the tree, no glyph wired, and a review whose widest counts make
+  -- the stat five columns. Twenty-five.
+  it("gives a top-level name twenty-five columns with no glyph and a five-column stat", function()
+    local r = build_of(named({ ("f"):rep(25), ("g"):rep(26) }, "", 1, 1))
+    -- The condition the figure rests on, read off the row rather than assumed.
+    assert.same("+1 -1", line_of(r, 1):match("%+%d+ %-%d+$"))
+
+    drawn_whole(r, 1, ("f"):rep(25))
+    cut_from_the_left(r, 2, ("g"):rep(26), 25)
+  end)
+
+  -- Conditions: two levels down, a glyph wired, the same five-column stat. Nineteen. `top`
+  -- holds two directories so it cannot compact, which is what keeps these rows at depth two.
+  it("gives a name two levels down nineteen columns with a glyph and a five-column stat", function()
+    assert.same(2, vim.fn.strdisplaywidth(GLYPH .. " "), "this glyph and its separator are not two columns")
+    local files = named({ ("f"):rep(19), ("g"):rep(20) }, "top/one/", 1, 1)
+    files[#files + 1] = { path = "top/two/z.lua", added = 1, removed = 1, binary = false }
+    local r = build_of(files, {
+      file_icon = function()
+        return GLYPH
+      end,
+    })
+    assert.same("+1 -1", line_of(r, 1):match("%+%d+ %-%d+$"))
+    assert.is_truthy(line_of(r, 1):find(GLYPH, 1, true), "no glyph on the row the budget is read from")
+
+    drawn_whole(r, 1, ("f"):rep(19))
+    cut_from_the_left(r, 2, ("g"):rep(20), 19)
+  end)
+
+  -- Conditions: the same two levels and the same glyph, and a review holding a file whose
+  -- counts make the stat seven. Seventeen -- which is the ticket's figure, true here and
+  -- nowhere it was quoted.
+  it("gives that same name seventeen columns once the review's widest counts make the stat seven", function()
+    local files = named({ ("f"):rep(17), ("g"):rep(18) }, "top/one/", 1, 1)
+    files[#files + 1] = { path = "top/two/z.lua", added = 99, removed = 99, binary = false }
+    local r = build_of(files, {
+      file_icon = function()
+        return GLYPH
+      end,
+    })
+    assert.same(" +1  -1", line_of(r, 1):sub(-7))
+
+    drawn_whole(r, 1, ("f"):rep(17))
+    cut_from_the_left(r, 2, ("g"):rep(18), 17)
+  end)
+
+  -- A **binary** file has no line counts to give. Two zeroes would be a size it never had,
+  -- and the row keeps the columns clear instead -- which is what the commit list already does
+  -- one surface over for a commit git answered nothing for, rather than pulling every row
+  -- under it out of line.
+  it("leaves a file with no line counts blank rather than claiming two zeroes", function()
+    local r = build_of({
+      { path = "a.lua", added = 1, removed = 1, binary = false },
+      { path = "logo.png", added = 0, removed = 0, binary = true },
+    })
+
+    assert.same("○ a.lua                     +1 -1", line_of(r, 1))
+    local blank = line_of(r, 2)
+    assert.same("○ logo.png", vim.trim(blank))
+    assert.same(33, vim.fn.strdisplaywidth(blank))
+    assert.is_nil(blank:match("[+%-]%d"), blank)
+    -- One range: the state mark. No colour is spent on a field with nothing in it.
+    local row = assert(r.file_row[2])
+    assert.same(1, #ranges_on(r, row))
+  end)
+
+  -- **Read on the name's budget and not on the trimmed row**, because a field of blanks and
+  -- no field at all trim to the same string: the columns *are* the claim here, so the columns
+  -- are what is read. Found by mutation-checking this case -- counting a binary file's zeroes
+  -- into the column widths left a five-column blank gutter on every row and took five columns
+  -- off every name, and the trimmed rows below saw none of it.
+  --
+  -- Conditions, as for every budget here: the top of the tree, no glyph, and no file in the
+  -- review with line counts to give. Thirty.
+  it("spends no columns at all on a review with no line counts anywhere in it", function()
+    local fits, cut = ("f"):rep(30), ("g"):rep(31)
+    local r = build_of({
+      { path = fits, added = 0, removed = 0, binary = true },
+      { path = cut, added = 0, removed = 0, binary = true },
+      { path = "logo.png", added = 0, removed = 0, binary = true },
+    })
+    drawn_whole(r, 1, fits)
+    cut_from_the_left(r, 2, cut, 30)
+    assert.same("○ logo.png", vim.trim(line_of(r, 3)))
+  end)
+
+  -- **A reviewed row keeps the two numbers and is given no colour.** `CodeReviewFileReviewed`
+  -- resolves to `Comment`, which carries a foreground, and a line-wide group with a
+  -- foreground replaces the foreground of every range beneath it at every priority --
+  -- measured, and read again on a painted cell at the foot of this file. A range emitted here
+  -- would be named by an extmark on every paint and would reach no cell on any screen, which
+  -- is a dead mark a later reader has no way of discovering is dead. The row is meant to be
+  -- recessive anyway: the tree answers what to read next, and a file already read is not a
+  -- candidate.
+  it("keeps the counts on a reviewed row and spends no colour on them", function()
+    local r = build_of(SIZED, { reviewed = { ["b.lua"] = "blob" } })
+    assert.same("✓ b.lua                  +120  -3", line_of(r, 2))
+    local row = assert(r.file_row[2])
+    local rs = ranges_on(r, row)
+    assert.same(1, #rs)
+    assert.same("CodeReviewStatAdd", rs[1].group)
+    assert.same(0, rs[1].col)
+  end)
+end)
+
+--- The stat on the review this spec opened ----------------------------------------
+--
+-- The block above reads a builder on file lists of its own. This one reads the tree a real
+-- review really drew over the nested fixture, where every changed file is a one-line change
+-- and the stat is therefore `+1 -1` on every row.
+--
+-- A review of its own, so it reads a tree it opened rather than whatever the blocks above
+-- left behind.
+require("codereview").setup({
+  syntax = false,
+  compose = function(_, on_accept, _)
+    on_accept(nil, "n")
+  end,
+})
+view.open("branch")
+local S = assert(view.current(), "no review view opened")
+queue.clear()
+S.reviewed, S.expanded = {}, {}
+view.paint()
+
+describe("the stat on a real review's tree", function()
+  ---@param path string
+  ---@return string
+  local function row_text(path)
+    local i = assert(h.file_index(S, path), path .. " is not in this review")
+    local row = assert(S.panel_render.file_row[i], path .. " has no tree row")
+    return vim.api.nvim_buf_get_lines(S.panel_buf, row - 1, row, false)[1]
+  end
+
+  it("draws the stat on every file row", function()
+    assert.same(7, #S.files)
+    for _, row in ipairs(S.panel_render.file_rows) do
+      local text = vim.api.nvim_buf_get_lines(S.panel_buf, row - 1, row, false)[1]
+      assert.same("+1 -1", text:match("%+%d+ %-%d+%s*$"), text)
+    end
+  end)
+
+  -- The annotated file draws its mark and its stat, and no number between them. Spelled as
+  -- the whole row, because what is being asserted is what the row now is.
+  it("draws a mark, a name and a stat on an annotated row, and nothing else", function()
+    local path = "apps/api/src/main.lua"
+    vim.api.nvim_win_set_cursor(S.win, { assert(h.line_row(S, path)), 0 })
+    annotate.annotate("bug")
+    assert.same("    ● main.lua              +1 -1", row_text(path))
+    queue.clear()
+    view.paint()
+  end)
+
+  -- A guard rather than a red case: a directory row must come out of this unchanged. The
+  -- pre-image is spelled out, because the builder has no switch that turns the stat off and
+  -- so cannot be compared against itself.
+  it("leaves every directory row byte-for-byte what it was", function()
+    local rows = {}
+    for row, _ in pairs(S.panel_render.row_dir) do
+      rows[#rows + 1] = row
+    end
+    table.sort(rows)
+    local text = {}
+    for _, row in ipairs(rows) do
+      text[#text + 1] = vim.api.nvim_buf_get_lines(S.panel_buf, row - 1, row, false)[1]
+    end
+    assert.same({
+      "▾ apps                        0/4",
+      "  ▾ api/src                   0/2",
+      "    ▾ routes                  0/1",
+      "  ▾ web/src                   0/2",
+      "    ▾ components              0/1",
+      "▾ docs                        0/1",
+      "▾ packages/shared/src         0/1",
+    }, text)
+  end)
+
+  -- A guard: no basename of this fixture is wide enough to be cut at the default width, on
+  -- any row of it. What the deepest row's budget really is, is measured by the case above --
+  -- this one only says that nothing here reaches it.
+  it("cuts no name at the default panel width", function()
+    -- The window is taken into a local first: luassert's `assert` returns three values, and
+    -- a call position keeps all three.
+    local panel_win = assert(S.panel_win)
+    assert.same(34, vim.api.nvim_win_get_width(panel_win))
+    for _, row in ipairs(S.panel_render.file_rows) do
+      local text = vim.api.nvim_buf_get_lines(S.panel_buf, row - 1, row, false)[1]
+      assert.is_nil(text:find("…", 1, true), text)
+    end
+  end)
+end)
+
+--- The cells a reviewer's screen holds, for the stat -------------------------------
+--
+-- One child per reading, because `nvim__inspect_cell` is honest only on the first call a
+-- process makes. Each opens the same review over a fixture of this block's own, in the
+-- unified layout at 80x24, and reads one cell of a file row's stat -- found by the range the
+-- tree really emitted, except on the reviewed row, where the point is that there is none.
+--
+-- `00ee00` is what `CodeReviewStatAdd` resolves to, `00eeee` what `CodeReviewStatDel` does,
+-- `ee0000` what both `CodeReviewNoteCount` and `CodeReviewFileReviewed` do, and `0000ee` the
+-- background `CursorLine` carries -- which is what `CodeReviewPanelSel` resolves to on the row
+-- the diff cursor is in.
+describe("the cell a file row's stat is drawn on", function()
+  local fixture = h.fixture("mktree")
+
+  ---@param mode string
+  ---@return string
+  local function child(mode)
+    local run = vim
+      .system({
+        vim.v.progpath,
+        "--clean",
+        "-l",
+        vim.fs.joinpath(h.root, "tests", "codereview", "row_stat_child.lua"),
+      }, {
+        cwd = fixture,
+        text = true,
+        env = {
+          FIXTURE = fixture,
+          MODE = mode,
+          XDG_STATE_HOME = vim.fn.tempname() .. "-state",
+          GIT_CONFIG_GLOBAL = "/dev/null",
+          GIT_CONFIG_SYSTEM = "/dev/null",
+        },
+      })
+      :wait(60000)
+    -- `nvim -l` sends print to stderr, so read both streams rather than guessing.
+    local out = (run.stdout or "") .. (run.stderr or "")
+    assert(run.code == 0, out)
+    -- A **notification** lands on the same stream `print` does, so the reading is picked out
+    -- of that stream by name rather than by trimming the whole of it.
+    local reading = assert(out:match("cell [^\n]*"), out)
+    return (reading:gsub(" at %d+,%d+$", ""))
+  end
+
+  local added = child("added")
+  local removed = child("removed")
+  local current = child("current")
+  local reviewed = child("reviewed")
+
+  it("draws the added count in the added group's colour", function()
+    assert.same('cell "+" fg=00ee00 bg=none', added)
+  end)
+
+  -- A second colour on a screen, and not merely a second name in a table.
+  it("draws the removed count in another", function()
+    assert.same('cell "-" fg=00eeee bg=none', removed)
+  end)
+
+  -- **The reading that says the stat survives the row a reviewer is looking at.** The
+  -- background says the line-wide group really painted this row, so the case cannot pass on a
+  -- row that never had one; the foreground says the stat's colour came through it.
+  -- `CodeReviewPanelSel` resolves to `CursorLine`, which carries a background and no
+  -- foreground, and a line-wide background leaves a range's foreground alone.
+  it("keeps the colour on the row the diff cursor is in", function()
+    assert.same('cell "+" fg=00ee00 bg=0000ee', current)
+  end)
+
+  -- **And the row the tree gives no colour at all.** `CodeReviewFileReviewed` resolves to
+  -- `Comment`, which carries a foreground, and a line-wide foreground replaces a range's at
+  -- every priority. So the two counts draw here in the comment colour whatever the tree asks
+  -- for, and the tree asks for nothing: this reading is why that row is given no range rather
+  -- than one that costs a paint and reaches no cell.
+  it("draws the counts in the reviewed row's own colour, which no range could change", function()
+    assert.same('cell "+" fg=ee0000 bg=none', reviewed)
   end)
 end)

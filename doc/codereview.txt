@@ -259,6 +259,25 @@ and the sticky header draw for it, decided by one rule so the three cannot
 disagree. A directory row carries the glyph |codereview-opt-dir_icon| gave it,
 after the chevron. The mark keeps its column and its own color.
 
+A file row also carries its `+N -M` at the right margin, so a rename and a
+rewrite stop drawing the same row. They are the same two numbers the file's
+header row draws in the diff, in the same two colors: added counts green and
+removed counts red, one file and one set of facts wherever the file is named.
+Each count is padded to the widest that count reaches anywhere in the review
+and no wider, so the sizes form a column to read down -- which is why the `+`
+and the `-` move between rows and the digits do not.
+
+A binary file draws no stat: it has no line counts, and `+0 -0` would be a
+size it never had. A file marked reviewed keeps its two numbers and draws them
+in the reviewed color with the rest of its row. A directory row keeps its
+`reviewed/total` and gains no stat -- the question a reviewer asks about a
+directory is how much of it they have read, not how big it is.
+
+The file row no longer prints the number of queued annotations. Its columns
+went to the stat. What that number said -- that something is waiting, and what
+kind of thing -- is the state mark and its color, just below. How many is the
+queue float's answer.
+
 A file that holds a queued annotation draws its mark in that annotation's own
 color. The color is the file's leading type: the first type in your configured
 `types` order that has an entry in that file. A file holding a bug therefore
@@ -557,7 +576,7 @@ draws the file it names:
 It is a rendering choice and never a scope (|codereview-scopes|), and that is
 the whole of what it does not touch. The review goes on covering everything
 its scope covers, so the file tree lists every file with its reviewed marks
-and its note counts, the review summary counts every file in the scope --
+and its stats, the review summary counts every file in the scope --
 `✓2/7` does not become `✓0/1` because of how someone is reading -- and the
 queue, the archive and the payload are what they were. No entry records that
 solo was on: an annotation captured with one file on screen is identical to

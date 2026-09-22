@@ -1536,6 +1536,55 @@ cursor is in**, and nothing in this plugin can answer it. `panel_spec` reads tha
 painted cell of its own, beside the three that hold, so "the colour survives the row the
 reviewer is on" says *which mechanism it survives by* rather than passing by luck.
 
+**A file row's stat is padded to the review's widest count and no wider, which is a rule this
+repository already had.** `trim_float.size_widths` answers the same question for the commit
+list -- "the widest figure any row carries, and no wider" -- and a stat is a column only while
+every row spends the same width on it. Each count is right-aligned inside a sub-column of its
+own, so the digits line up down the page and the `+` and the `-` are the things that move. A
+field fixed in advance was the alternative and it loses both ways: too narrow it cuts a large
+count, too wide it charges every name in every review for digits no file in it has.
+
+**That padding is fungible against the right margin, which costs a whole kind of assertion.**
+The field is pinned to the right of the row, so a column width one byte too narrow moves that
+byte out of the field and into the pad and the row comes out byte-identical. No assertion over
+what the row *says* can see the width -- only one over where the marks land. Measured by
+mutation rather than reasoned: three row literals with two, three and one digit of padding
+between them all stayed green while the added column took the last file's width instead of the
+widest. `tests/README.md` carries it as a trap, with the second one the mutation check found.
+
+**A binary file draws that field blank, and the file header row draws the word `binary` --
+the divergence is deliberate.** The word is six columns, so one binary file anywhere in a
+review would take a column off every name in it, and a word in a column of numbers does not
+answer how big a change is. Clear columns are what the commit list leaves for a commit git
+answered nothing for, rather than pulling every row under it out of line. `+0 -0` was never an
+option: a binary file has no line counts, and two zeroes are a size it never had. A review of
+nothing but binary files spends no columns on the field at all.
+
+**The reviewed row is given neither of the stat's ranges, on the same measurement that killed
+the leading type there.** Read again on a painted cell while this was written: a range asking
+for `00ee00` on a reviewed row comes back `ee0000`, which is `Comment`'s through the line-wide
+`CodeReviewFileReviewed`. So the two numbers draw, in the row's own colour, and no extmark is
+emitted for them. The existing `CodeReviewStatAdd` on that row's state mark is left where it
+is for the reason recorded above; what is *not* done is adding two more marks that could never
+draw. A row already read is meant to be recessive, so the comment colour is the right
+statement rather than a loss.
+
+**The name's budget is a number with three conditions and is wrong without them.** It is
+`width - indent - 2 - stat - 2 - glyph`, so it moves with the depth of the row, with what the
+stat costs *this* review, and with whether a host wired a `file_icon`. At the default width:
+twenty-five columns at the top of the tree with a five-column stat and nothing wired, nineteen
+two levels down with a glyph beside it, seventeen if that review's widest counts make the stat
+seven. #242's ticket quoted the seventeen with all three conditions dropped, as a property of
+the panel width, and it is true of exactly one row of one mockup. `panel_spec` asserts all
+three with their conditions named and measured, which is the only shape this figure can be
+written in.
+
+**The note count number left the file row; the walk that produces it did not.** Only the
+printing went. The count still decides whether a row's state mark is the *annotated* one, and
+it is still totalled onto the directory nodes -- and the **leading type** rides in that same
+walk. A later reader finding no number on any row and deleting the bucketing would take the
+annotated mark and the leading type with it.
+
 **The leading type rides in the note-count walk, and that walk is over anchor keys.** The
 bucketing loop takes `#items` per key, which is O(1) — an **entry**'s own type is something it
 did not read. So the leading type costs one comparison per entry, inside the pass that was

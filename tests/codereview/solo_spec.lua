@@ -298,7 +298,10 @@ describe("a review opened with solo on", function()
   -- Solo is a rendering choice and never a **scope**, so the map of the review is whole
   -- while one square of it is read: the marks and the counts belong to the tree, and the
   -- tree is built from the review's files rather than from what the diff drew.
-  it("keeps every file's reviewed mark and note count in the tree", function()
+  -- The note count number left the file row with #242, so the second half of this reads the
+  -- **state** mark instead: a file holding an entry draws the annotated mark wherever the
+  -- diff happens to be. The claim is unchanged -- the tree is built from the review's files.
+  it("keeps every file's reviewed mark and annotated mark in the tree", function()
     local marked = assert(h.file_index(V, "src/routes.lua"))
     V.reviewed[V.files[marked].path] = V.files[marked].blob or ""
     vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, V.files[1].path)), 0 })
@@ -310,7 +313,8 @@ describe("a review opened with solo on", function()
       lines[V.panel_render.file_row[marked]]:find(icons.reviewed, 1, true),
       lines[V.panel_render.file_row[marked]]
     )
-    assert.same("1", lines[V.panel_render.file_row[1]]:match("(%d)%s*$"))
+    local annotated = lines[V.panel_render.file_row[1]]
+    assert.same(icons.annotated, vim.trim(annotated):sub(1, #icons.annotated), annotated)
 
     queue.clear()
     unreview()

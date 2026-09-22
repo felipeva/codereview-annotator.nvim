@@ -706,7 +706,7 @@ solo changes. `]h` and `[h` stop at the drawn file's last and first hunk and say
 than repainting the whole view to reach another file's hunk, and `]a` and `[a` move between
 that file's annotations.
 
-The **tree** goes on listing every file with its reviewed marks and note counts, so you keep
+The **tree** goes on listing every file with its reviewed marks and its stats, so you keep
 the map of the review while reading one square of it, and the review summary counts the whole
 scope — `✓2/7` does not become `✓0/1` because of how you are reading.
 
@@ -779,6 +779,22 @@ icon plugin chose for it**, on all three surfaces, when your adapter answers wit
 group beside the glyph, which `nvim-web-devicons` and `mini.icons` both do already. The mark
 keeps its column and its own colour, the glyph comes out of the name's budget, and a narrow
 panel cuts the name from the left, so the end of it survives.
+
+**And it carries its `+N -M` at the right margin**, so you can tell a rename from a rewrite
+by reading down the tree instead of opening files. They are the same two numbers the file's
+header row draws in the diff, in the same two colours: added counts green and removed counts
+red, one file and one set of facts wherever the file is named. Each count is padded to the
+widest that count reaches anywhere in the review and no wider, so the sizes form a column you
+can compare down — which means the `+` and the `-` move between rows and the digits do not.
+
+A **binary** file draws no stat. It has no line counts, and `+0 -0` would be a size it never
+had. A file you marked reviewed keeps its two numbers and draws them in the reviewed colour
+along with the rest of its row: a row already read is meant to be quiet, and a colour laid
+over it could not reach the screen there anyway.
+
+**The file row no longer prints the number of queued annotations.** Its columns went to the
+stat. What that number said — that something is waiting, and what kind of thing it is — is the
+state mark and its colour, just below. The queue float is where *how many* is answered.
 
 **A file that holds a queued annotation draws its mark in that annotation's own colour.** The
 colour is the file's *leading type*: the first annotation type in your configured
