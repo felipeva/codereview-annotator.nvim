@@ -220,6 +220,31 @@ local function row_icon(adapter, path)
   return glyph, group, lead, vim.fn.strdisplaywidth(lead)
 end
 
+---How wide each of a file row's two counts has to be drawn: the widest each one reaches
+---anywhere in the review, and no wider.
+---
+---**The same question `trim_float.size_widths` answers for the commit list**, one surface
+---over, and the same answer -- "the widest figure any row carries, and no wider". A stat is a
+---column only while every row spends the same width on it, and a reviewer comparing two
+---changes is then comparing two columns rather than doing arithmetic. A width fixed in
+---advance would either cut a large count or charge every name in every review for digits no
+---file in it has.
+---
+---**A binary file is skipped rather than counted as zero.** It has no line counts to give,
+---so it widens nothing, and its row draws the field blank -- see `M.build`.
+---@param files CRFile[]
+---@return { added: integer, removed: integer }
+local function stat_widths(files)
+  local at = { added = 0, removed = 0 }
+  for _, file in ipairs(files) do
+    if not file.binary then
+      at.added = math.max(at.added, #("+%d"):format(file.added))
+      at.removed = math.max(at.removed, #("-%d"):format(file.removed))
+    end
+  end
+  return at
+end
+
 ---The footer row: the reviewed tally, and a progress bar filled from the same two numbers.
 ---
 ---**The bar carries no highlight range of its own, and that is a measurement rather than a
@@ -286,6 +311,17 @@ function M.build(files, opts)
   local width = math.max(14, opts.width)
   local collapsed = opts.collapsed or {}
   local tree = M.tree(files, opts)
+
+  -- The columns every file row spends on its `+N -M`, decided once for the whole review.
+  -- Zero when no file in it has line counts to give -- a review of nothing but binary files
+  -- leaves the columns off the rows rather than blank on them, which is what the commit list
+  -- does with a commit git answered nothing for.
+  local size_at = stat_widths(files)
+  local stat_width = size_at.added > 0 and (size_at.added + 1 + size_at.removed) or 0
+  -- Each count right-aligned in a sub-column of its own, so the digits line up down the page
+  -- and the `+` and the `-` are free to move. `trim_float` spells its size columns the same
+  -- way and for the same reason.
+  local stat_format = ("%%%ds %%%ds"):format(size_at.added, size_at.removed)
 
   local lines, marks = {}, {}
   local row_file, row_dir, row_depth, file_row, file_rows = {}, {}, {}, {}, {}
@@ -388,7 +424,37 @@ function M.build(files, opts)
 
     local reviewed = node.reviewed == 1
     local icon = reviewed and icons.reviewed or (node.notes > 0 and icons.annotated or icons.unreviewed)
-    local right = node.notes > 0 and tostring(node.notes) or ""
+
+    -- **The row's `+N -M`, from the counts the file record already carries.** The same two
+    -- numbers the file's header row draws in the **review view**, in the same two groups:
+    -- one file, one set of facts, wherever the file is named. Read off the record through
+    -- `node.index` rather than off a field copied onto the node -- the index is what a file
+    -- row already is, and a fourth number totalled up the tree is one a directory row was
+    -- never asked for.
+    --
+    -- **What left to pay for it is the note count number.** The count is still produced and
+    -- still totalled onto the directory nodes; only the printing of it is gone. What mattered
+    -- about it -- which **annotation type** is waiting -- is the state mark's colour since
+    -- #244, and the mark above still says *something* is waiting. A file holding one entry
+    -- and a file holding nine now draw the same row, which the parent spec chose knowingly:
+    -- the colour answers *how bad*, and *how many* is the queue's own question.
+    --
+    -- **A binary file draws the field blank.** It has no line counts, so `+0 -0` would be a
+    -- size it never had. The file's header row spells the word `binary` there and this row
+    -- does not, on purpose: the word is six columns, so one binary file anywhere in a review
+    -- would take a column off every name in it, and a word in a column of numbers does not
+    -- answer how big a change is. Clear columns are what the commit list leaves for a commit
+    -- git answered nothing for, rather than pulling every row under it out of line.
+    local file = files[node.index]
+    local right, plus, minus = "", nil, nil
+    if stat_width > 0 then
+      if file.binary then
+        right = (" "):rep(stat_width)
+      else
+        plus, minus = ("+%d"):format(file.added), ("-%d"):format(file.removed)
+        right = stat_format:format(plus, minus)
+      end
+    end
     -- The **state** mark above stays the leftmost thing after the indent: a reviewer reads
     -- that column down the page for what they have already done, and a glyph of a width the
     -- plugin does not control put in front of it would break the one thing it is for. So the
@@ -417,6 +483,14 @@ function M.build(files, opts)
     --
     -- The fixed 2 here is the state mark and its separator, which is a different two from
     -- the directory row's chevron -- see `row_icon` for why the expression is not shared.
+    --
+    -- **And the budget is a number with conditions, never a number.** It moves with the
+    -- indent, with what the stat costs this review, and with whether a host wired a glyph:
+    -- twenty-five columns at the top of the tree against a five-column stat with nothing
+    -- wired, nineteen two levels down with a glyph beside it, seventeen if that review's
+    -- widest counts make the stat seven. `panel_spec` asserts all three with their conditions
+    -- named, because a figure quoted without them reads as a property of the panel width and
+    -- is wrong on every row but the one it was measured on.
     local name = truncate_left(node.name, width - #indent - 2 - #right - 2 - lead_width)
     -- **What the glyph starts after, spelled once**, so the string the row is built from and
     -- the offset the glyph's own mark lands at are one expression and neither can be updated
@@ -477,8 +551,27 @@ function M.build(files, opts)
     if reviewed then
       mark(row, 0, { line_hl_group = "CodeReviewFileReviewed" })
     end
-    if node.notes > 0 then
-      mark(row, #text - #right, { end_col = #text, hl_group = "CodeReviewNoteCount" })
+    -- **Each count over its own bytes, and neither its padding nor the space between them.**
+    -- That is the rule the file's header row follows, and here it keeps a background either
+    -- group may carry off the columns that hold nothing. Measured back from the end of the
+    -- row in bytes, the way the commit list places every column right of its subject: the
+    -- name between here and the indent is any number of bytes wide at a given number of
+    -- columns, and adding up what is drawn puts every mark on this side of it out by one
+    -- the first time a host's glyph or an accented name arrives.
+    --
+    -- **A reviewed row is given neither range.** `CodeReviewFileReviewed` covers the whole of
+    -- it and resolves to `Comment`, which carries a foreground, and a line-wide group replaces
+    -- every attribute it sets on the marks beneath it at every priority -- measured, and
+    -- recorded in `docs/design-notes.md`. Read again on a painted cell by `panel_spec`: a
+    -- range asking for `00ee00` on that row comes back `ee0000`, which is the row's own. So a
+    -- range here would be named by an extmark on every paint and would reach no cell on any
+    -- screen, which is a dead mark a later reader has no way of discovering is dead. The two
+    -- numbers still draw; they draw recessive, which is the statement that row is for.
+    if plus and not reviewed then
+      local at = #text - #right
+      mark(row, at + size_at.added - #plus, { end_col = at + size_at.added, hl_group = "CodeReviewStatAdd" })
+      local from = at + size_at.added + 1
+      mark(row, from + size_at.removed - #minus, { end_col = from + size_at.removed, hl_group = "CodeReviewStatDel" })
     end
     -- Where the diff cursor currently is. Painted last so it wins over the reviewed dim.
     if opts.current and node.index == opts.current then

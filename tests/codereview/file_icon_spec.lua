@@ -1233,10 +1233,19 @@ describe("a tree row whose glyph has no colour", function()
     assert.same(ranges(plain, prow), ranges(both, row))
   end)
 
-  it("carries the state mark's range and no other", function()
+  -- The state mark's range and the **stat**'s two, and nothing for the glyph -- which is what
+  -- this case is about. The stat's are found in the row the builder really drew rather than
+  -- spelled out of the arithmetic it padded with.
+  it("carries the state mark's range and the stat's, and no other", function()
     local rendered = tree({ file_icon = coloured })
-    local row = (file_row(rendered, "apps/api/src/routes/users.ts"))
-    assert.same({ { 4, 4 + #ICONS.unreviewed, "CodeReviewNoteCount" } }, ranges(rendered, row))
+    local row, line = file_row(rendered, "apps/api/src/routes/users.ts")
+    local plus_at, plus_to = line:find("%+%d+")
+    local minus_at, minus_to = line:find("%-%d+")
+    assert.same({
+      { 4, 4 + #ICONS.unreviewed, "CodeReviewNoteCount" },
+      { plus_at - 1, plus_to, "CodeReviewStatAdd" },
+      { minus_at - 1, minus_to, "CodeReviewStatDel" },
+    }, ranges(rendered, row))
   end)
 end)
 
@@ -1887,10 +1896,13 @@ describe("a panel too narrow for the name", function()
     assert.is_true(vim.fn.strdisplaywidth(line) <= NARROW, line)
   end)
 
-  it("keeps the note count against the right margin", function()
+  -- The right margin is the **stat**'s since #242, and the note count number that used to
+  -- hold it is gone. A narrow panel spends the name to keep it: what a reviewer loses first
+  -- is the head of a name, and never how big the change is.
+  it("keeps the stat against the right margin", function()
     local rendered = narrow({ notes = { ["src/very-long-handler-name.ts:n:1"] = { {}, {} } } })
     local _, line = file_row(rendered, "src/very-long-handler-name.ts", LONG)
-    assert.same("2", line:sub(-1))
+    assert.same("+1 -1", line:sub(-#"+1 -1"))
     assert.is_true(vim.fn.strdisplaywidth(line) <= NARROW, line)
   end)
 
@@ -1939,9 +1951,14 @@ describe("a file name that is not ASCII", function()
 
   -- Cut from the left in characters and not in bytes: a cut inside a multibyte character is
   -- a rendering error, and every character in this name is two bytes long.
+  --
+  -- Twenty-three columns, which is eighteen plus the five this review's `+N -M` costs: the
+  -- name's budget is what this case is about, and the stat took five columns off it when it
+  -- arrived. Spelled here rather than left as the old number, which now cuts a different
+  -- amount of the name and would make the case a weaker one quietly.
   it("is cut on a character boundary when the panel is too narrow for it", function()
     local rendered = panel.build(ACCENTED, {
-      width = 18,
+      width = 23,
       icons = ICONS,
       reviewed = {},
       notes = {},
@@ -2046,6 +2063,14 @@ local function tree_line(path)
   return vim.api.nvim_buf_get_lines(V.panel_buf, row - 1, row, false)[1]
 end
 
+---What a tree row is *named*: the row with its right margin -- the `+N -M` **stat** -- taken
+---off it, so a case about a glyph is not also a case about how big a change is.
+---@param line string
+---@return string
+local function named(line)
+  return vim.trim((line:gsub("%s+%+%d+ %-%d+%s*$", "")))
+end
+
 ---The **file tree**'s own namespace, which is not the diff's.
 local PANEL_NS = vim.api.nvim_create_namespace("codereview_panel")
 
@@ -2131,7 +2156,7 @@ describe("a review opened with no adapter wired", function()
   end)
 
   it("draws the tree row it has always drawn", function()
-    assert.same(("%s main.lua"):format(ICONS.unreviewed), vim.trim(tree_line("src/main.lua")))
+    assert.same(("%s main.lua"):format(ICONS.unreviewed), named(tree_line("src/main.lua")))
   end)
 
   view.close()
@@ -2236,7 +2261,7 @@ describe("the same glyph on the tree and on the diff", function()
   -- after the indent, then the glyph, then the name.
   it("leaves the tree's state mark first on its row", function()
     read_into("src/main.lua")
-    assert.same(("%s %s main.lua"):format(ICONS.unreviewed, LUA), vim.trim(tree_line("src/main.lua")))
+    assert.same(("%s %s main.lua"):format(ICONS.unreviewed, LUA), named(tree_line("src/main.lua")))
   end)
 end)
 
