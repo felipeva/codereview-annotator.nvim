@@ -681,7 +681,7 @@ local NOTE_START = 48
 ---Resolve the entry on the cursor's anchor in the review view, then hand it on.
 ---
 ---The one answer to "which entry does this key act on", for every key over the diff that
----acts on one entry: `x` now, the edit keys after it. One copy, so the keys cannot come to
+---acts on one entry: `x`, and `e` beside it. One copy, so the keys cannot come to
 ---disagree about which entry the cursor is on.
 ---
 ---With one entry there is nothing to choose, and `cb` runs at once: the common case costs
@@ -754,6 +754,17 @@ function M.pick_entry(prompt, cb)
     if e then
       cb(e)
     end
+  end)
+end
+
+---Edit the note of an annotation the cursor is sitting on.
+---
+---The entry comes from the lookup `x` uses, so the two keys agree about which entry the
+---cursor is on; the edit itself is the queue float's, so an entry is edited the same way
+---from either surface.
+function M.edit()
+  M.pick_entry("Edit which annotation?", function(entry)
+    M.edit_note(entry)
   end)
 end
 
