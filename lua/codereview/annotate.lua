@@ -634,14 +634,32 @@ function M.annotate_target(V, target, type_name)
   M.queue_entry(build(V, target), type_def)
 end
 
----Drop the annotation the cursor is sitting on.
-function M.drop()
+---How many display columns of a note the entry picker shows. Enough to tell two notes on
+---one line apart, which is all the row is for: the queue float is where a note is read.
+local NOTE_START = 48
+
+---Resolve the entry on the cursor's anchor in the review view, then hand it on.
+---
+---The one answer to "which entry does this key act on", for every key over the diff that
+---acts on one entry: `x` now, the edit keys after it. One copy, so the keys cannot come to
+---disagree about which entry the cursor is on.
+---
+---With one entry there is nothing to choose, and `cb` runs at once: the common case costs
+---no extra key. With more, `vim.ui.select` chooses, newest first, so `x` then `<CR>` still
+---undoes the note just written -- the only thing `x` did before an older entry was
+---reachable from the diff at all.
+---
+---Keyed through the anchor exactly as the capture was, so an entry is found on the row it
+---was made from. A hunk header resolves to the file's key, as it always has.
+---@param prompt string What the picker asks, e.g. "Drop which annotation?"
+---@param cb fun(entry: CRAnnotation) Not called when there is no entry or the picker is dismissed
+function M.pick_entry(prompt, cb)
   local view = require("codereview.view")
   local V = view.current()
   if not V then
     return
   end
-  local anchor, row = view.anchor_at_cursor()
+  local anchor = view.anchor_at_cursor()
   if not anchor then
     return
   end
@@ -659,13 +677,60 @@ function M.drop()
     info("No annotation on this line")
     return
   end
-  -- Most recent first: dropping is nearly always undoing what you just wrote.
-  local removed = queue.remove(at[#at].id)
-  view.paint()
-  view.persist()
-  if removed then
-    info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
+  if #at == 1 then
+    cb(at[1])
+    return
   end
+
+  -- `queue.at` is in capture order; the picker reads the other way.
+  local newest_first = {}
+  for i = #at, 1, -1 do
+    newest_first[#newest_first + 1] = at[i]
+  end
+
+  -- Columns, as the type picker draws them: entries on one anchor share a place, so the eye
+  -- reads down the type column and then along the note.
+  local type_w, where_w = 0, 0
+  for _, e in ipairs(newest_first) do
+    type_w = math.max(type_w, vim.fn.strdisplaywidth(e.type or "untyped"))
+    where_w = math.max(where_w, vim.fn.strdisplaywidth(M.describe(e)))
+  end
+
+  vim.ui.select(newest_first, {
+    prompt = prompt,
+    -- The entries themselves are the items, so a picker that shows a preview or matches on
+    -- more than the label has the whole entry to work with.
+    format_item = function(e)
+      -- The first line only: a note keeps its own line breaks, and a picker row has one line.
+      local first = (e.note or ""):match("[^\n]*")
+      return ("%s  %s  %s"):format(
+        render.pad(e.type or "untyped", type_w),
+        render.pad(M.describe(e), where_w),
+        render.truncate(first, NOTE_START)
+      )
+    end,
+  }, function(e)
+    -- Dismissed: nothing was chosen, so nothing is acted on.
+    if e then
+      cb(e)
+    end
+  end)
+end
+
+---Drop an annotation the cursor is sitting on.
+---
+---No confirmation, with one entry or with a picker. With one entry `x` removes at once, as
+---it always has; with more, choosing in the picker is the confirmation.
+function M.drop()
+  M.pick_entry("Drop which annotation?", function(entry)
+    local view = require("codereview.view")
+    local removed = queue.remove(entry.id)
+    view.paint()
+    view.persist()
+    if removed then
+      info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
+    end
+  end)
 end
 
 return M

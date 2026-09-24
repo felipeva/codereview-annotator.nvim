@@ -85,7 +85,7 @@ to close the review.
 | --- | --- |
 | `ab` `af` `as` `an` `ai` | Annotate as bug / fix / suggestion / nitpick / issue |
 | `aa` | Annotate. Pick the type from a menu, or decline one |
-| `x` | Drop the annotation under the cursor |
+| `x` | Drop the annotation under the cursor. With more than one on the line, pick it from a list |
 | `R` | Toggle reviewed on this file, which collapses it — under **solo**, goes on to the next unreviewed file |
 | `za` | Toggle expansion without marking the file reviewed |
 | `gs` | Cycle scope and draw again in place |
@@ -106,6 +106,11 @@ to close the review.
 | `<C-s>` | Submit the batch |
 | `<C-a>` | Submit the batch under a [preamble](#the-preamble) |
 | `q` | Close |
+
+When one line has more than one annotation, `x` opens a list of them. The newest is first,
+so `x` then `<CR>` still drops the note you just wrote. Each row shows the type (or
+`untyped`), the place, and the start of the note. With one annotation, `x` drops it at once.
+No key asks you to confirm.
 
 ### Moving around
 
