@@ -984,6 +984,7 @@ describe("the cell a reviewer's eye lands on", function()
   local current = child("current")
   local flatten = child("flatten")
   local retyped = child("retyped")
+  local ct = child("ct")
 
   it("draws the mark of a file holding a bug in the bug type's colour", function()
     assert.same('cell "●" fg=00ee00 bg=none', bug)
@@ -1014,6 +1015,11 @@ describe("the cell a reviewer's eye lands on", function()
   -- not repaint cannot pass here.
   it("follows a change of type made in the queue float", function()
     assert.same('cell "●" fg=ee0000 bg=none', retyped)
+  end)
+
+  -- The same again, with the change made by `ct` over the diff.
+  it("follows a change of type made with ct over the diff", function()
+    assert.same('cell "●" fg=ee0000 bg=none', ct)
   end)
 end)
 

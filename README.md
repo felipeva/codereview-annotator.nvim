@@ -87,6 +87,7 @@ to close the review.
 | `aa` | Annotate. Pick the type from a menu, or decline one |
 | `x` | Drop the annotation under the cursor. With more than one on the line, pick it from a list |
 | `e` | Edit the note of the annotation under the cursor. With more than one on the line, pick it from a list |
+| `ct` | Change the type of the annotation under the cursor. With more than one on the line, pick it from a list |
 | `R` | Toggle reviewed on this file, which collapses it — under **solo**, goes on to the next unreviewed file |
 | `za` | Toggle expansion without marking the file reviewed |
 | `gs` | Cycle scope and draw again in place |
@@ -117,6 +118,11 @@ No key asks you to confirm.
 Then it opens the composer with that annotation's note in it, as `e` in the queue float does.
 Press `<C-s>` and the new note replaces the old one. Dismiss the list or abandon the composer,
 and nothing changes.
+
+`ct` finds the annotation the same way, and the same list opens when there is more than one.
+Then it opens the type picker, as `t` in the queue float does. The current type is marked with
+`✓`, and `no type` is a choice. Only the type changes. The diff and the file tree's mark take
+the colour of the new type. Dismiss either picker, and nothing changes.
 
 ### Moving around
 

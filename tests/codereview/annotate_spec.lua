@@ -746,3 +746,153 @@ describe("editing a note over the diff with e", function()
   vim.ui.select = shipped_select
   config.get().compose = shipped
 end)
+
+-- `ct` over the diff: the lookup `x` uses, then the change the queue float's `t` makes.
+-- Driven by the key, so the binding is under test as well as the function it runs.
+describe("retyping an annotation over the diff with ct", function()
+  ---What each picker answers with, keyed by its prompt: an index, or nil to dismiss it.
+  ---@type table<string, fun(rows: string[]): integer|nil>
+  local choose = {}
+  local picks = {}
+  local shipped_select = vim.ui.select
+  vim.ui.select = function(items, opts, cb)
+    local rows = vim.tbl_map(opts.format_item or tostring, items)
+    picks[#picks + 1] = { prompt = opts.prompt, rows = rows }
+    local i = (choose[opts.prompt] or function() end)(rows)
+    cb(i and items[i], i)
+  end
+
+  ---A chooser that answers with the first row holding `text`.
+  ---@param text string
+  local function row_named(text)
+    return function(rows)
+      for i, row in ipairs(rows) do
+        if row:find(text, 1, true) then
+          return i
+        end
+      end
+    end
+  end
+
+  local main_row = assert(h.line_row(V, "src/main.lua"))
+
+  ---One entry on src/main.lua, then three on src/fresh.lua, so the lone entry is not last in
+  ---the queue and the chosen one is neither end of its line. No entry is a suggestion, so a
+  ---suggestion anywhere afterwards can only have come from the change.
+  local function seed()
+    queue.clear()
+    for _, c in ipairs({ { main_row, "issue" }, { add_row, "bug" }, { add_row, "fix" }, { add_row, "nitpick" } }) do
+      at(c[1])
+      annotate.annotate(c[2])
+    end
+    picks = {}
+  end
+
+  local function prompts()
+    return vim.tbl_map(function(p)
+      return p.prompt
+    end, picks)
+  end
+
+  local function types_now()
+    return vim.tbl_map(function(e)
+      return e.type or "untyped"
+    end, queue.all())
+  end
+
+  local function press_ct(row)
+    vim.api.nvim_set_current_win(V.win)
+    at(row)
+    h.feed("ct")
+  end
+
+  -- A second mapping that starts with `c` would make `ct` wait out `timeoutlen` on every
+  -- press, or be what fires when a reviewer is slow on the `t`.
+  it("is the only key of the diff that starts with c", function()
+    local lhs = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_keymap(V.buf, "n")) do
+      if m.lhs:sub(1, 1) == "c" then
+        lhs[#lhs + 1] = m.lhs
+      end
+    end
+    assert.same({ "ct" }, lhs)
+  end)
+
+  it("opens the type picker at once when the line has one entry", function()
+    seed()
+    choose = { ["Annotation type:"] = row_named(" suggestion ") }
+    press_ct(main_row)
+    assert.same({ "Annotation type:" }, prompts())
+    assert.same({ "suggestion", "bug", "fix", "nitpick" }, types_now())
+  end)
+
+  -- The current type is marked, which is what says the picker was opened for this entry
+  -- rather than for a new annotation.
+  it("marks the type the entry has now", function()
+    local marked = vim.tbl_filter(function(row)
+      return row:find("^✓") ~= nil
+    end, picks[1].rows)
+    assert.same(1, #marked)
+    assert.is_truthy(marked[1]:find(" issue ", 1, true), marked[1])
+  end)
+
+  it("lets the entry picker choose, and retypes only the entry chosen", function()
+    seed()
+    choose = {
+      ["Retype which annotation?"] = function(rows)
+        for i, row in ipairs(rows) do
+          if row:find("^fix") then
+            return i
+          end
+        end
+      end,
+      ["Annotation type:"] = row_named(" no type"),
+    }
+    press_ct(add_row)
+    assert.same({ "Retype which annotation?", "Annotation type:" }, prompts())
+    assert.same({ "issue", "bug", "untyped", "nitpick" }, types_now())
+  end)
+
+  it("changes nothing when the entry picker is dismissed", function()
+    seed()
+    choose = { ["Annotation type:"] = row_named(" suggestion ") }
+    press_ct(add_row)
+    assert.same({ "Retype which annotation?" }, prompts())
+    assert.same({ "issue", "bug", "fix", "nitpick" }, types_now())
+  end)
+
+  it("changes nothing when the type picker is dismissed", function()
+    seed()
+    choose = {}
+    press_ct(main_row)
+    assert.same(1, #picks)
+    assert.same({ "issue", "bug", "fix", "nitpick" }, types_now())
+  end)
+
+  it("says what x says when the line has no annotation", function()
+    queue.clear()
+    view.paint()
+    picks = {}
+    choose = { ["Annotation type:"] = row_named(" suggestion ") }
+    local msgs, restore = h.capture_notify()
+    press_ct(add_row)
+    restore()
+    assert.same(0, #picks)
+    assert.same(0, queue.count())
+    assert.is_true(h.notified(msgs, "No annotation on this line"), vim.inspect(msgs))
+  end)
+
+  it("repaints the diff in the new type's group", function()
+    seed()
+    view.paint()
+    local before = h.virt_groups(V)
+    choose = { ["Annotation type:"] = row_named(" suggestion ") }
+    press_ct(main_row)
+    local after = h.virt_groups(V)
+    -- From a paint that drew the issue and no suggestion, so an unrepainted diff fails both.
+    assert.same({ true, false }, { before.CodeReviewIssue == true, before.CodeReviewSuggestion == true })
+    assert.same({ false, true }, { after.CodeReviewIssue == true, after.CodeReviewSuggestion == true })
+  end)
+
+  vim.ui.select = shipped_select
+end)
