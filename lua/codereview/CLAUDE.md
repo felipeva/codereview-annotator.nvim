@@ -13,7 +13,7 @@ change there is felt through.
 
 | Module | Owns | |
 | --- | --- | --- |
-| `annotate.lua` | The review path: cursor to entry, the deleted-line and hunk inlining rules, drop, editing a queued note, grouping | stateful (queue, view) |
+| `annotate.lua` | The review path: cursor to entry, the deleted-line and hunk inlining rules, drop, editing a queued note and changing its type, grouping | stateful (queue, view) |
 | `archive.lua` | The archive read back: which batch went last, the read-only float listing it and the **preamble** it went under, and the projection of archived entries onto the diff's anchors | stateful (float) |
 | `capture.lua` | The capture path: the same entry from an ordinary buffer, no review view involved | stateful (queue, buffer) |
 | `checkout.lua` | Moving the review to another **checkout**: the listing behind the choice, the picker the plugin ships as the default `pick_checkout` adapter, and the open a **switch** ends in | stateful (view) |
@@ -30,7 +30,7 @@ change there is felt through.
 | `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies; a file row's glyph and a directory row's are both `render`'s answer — two adapters, one rule, never a second copy of it -- so drawing a tree row records that row's group in `render`'s memo | pure (reaches that memo) |
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
-| `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that edit, drop, jump, copy and submit | stateful (float) |
+| `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that edit, retype, drop, jump, copy and submit, and the one that lists them | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file and what a base revision are called wherever they are named, and how a winbar is assembled from typed segments; and one memo, of the groups a host's icon adapters answered with | stateful (one memo) |
 | `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, and the **sweep** that discards the state of checkouts that are gone | stateful (disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
@@ -90,7 +90,7 @@ fifth. All five run the view's exported actions, and all five take them as an ar
 what leaves `keymaps` a function of its arguments and the configured annotation types.
 `queue_float` reads no view state either: the one field it needs, the window a float is open
 in, stays on `view` behind two accessors, because closing a float on submit is a rule about
-the view's windows. Its edit key requires `annotate` function-locally, as `keymaps` does:
+the view's windows. Its edit keys require `annotate` function-locally, as `keymaps` does:
 an edit from the float and one from the diff are to be one path, and that path is
 `annotate`'s. `trim_float` reads none at all: what it takes beside the view is the
 repository and the commit the branch starts at, both as plain values, because a second

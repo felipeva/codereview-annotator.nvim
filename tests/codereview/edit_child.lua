@@ -5,10 +5,13 @@
 -- never reached the disk would pass. Only the session after this one can say what an edit
 -- left behind.
 --
--- Queues three entries through the capture path, edits the middle one, and exits with
--- nothing written after the edit: whatever the next session finds is what the edit wrote.
--- The middle one because an edit that re-queued would land last, and the ids are printed so
--- the parent can tell an entry that kept its id from one that took a new one.
+-- Queues three entries through the capture path, all of them bugs, edits the middle one's
+-- note, takes the type off the first and makes the last a nitpick, and exits with nothing
+-- written after that: whatever the next session finds is what the edits wrote. The middle
+-- one because an edit that re-queued would land last, and the ids are printed so the parent
+-- can tell an entry that kept its id from one that took a new one. The first one's type is
+-- taken off because an untyped entry has no `type` at all, and a field that is absent is
+-- the one a write can lose without anything failing.
 --
 -- Not named `*_spec.lua`, so PlenaryBustedDirectory does not collect it. It is spawned with
 -- XDG_STATE_HOME and FIXTURE in its environment, and it must NOT load
@@ -46,6 +49,21 @@ end, queue.all())
 note = "second, as edited"
 require("codereview.annotate").edit_note(queue.all()[2])
 assert(queue.all()[2].note == note, "the edit did not reach the queue")
+
+-- The type picker answers with the row whose label ends in `pick`.
+local pick
+vim.ui.select = function(items, _, cb)
+  for i, item in ipairs(items) do
+    if vim.endswith(item, pick) or item:find(" " .. pick .. " ", 1, true) then
+      return cb(item, i)
+    end
+  end
+end
+pick = "no type"
+require("codereview.annotate").change_type(queue.all()[1])
+pick = "nitpick"
+require("codereview.annotate").change_type(queue.all()[3])
+assert(queue.all()[1].type == nil and queue.all()[3].type == "nitpick", "the type changes did not reach the queue")
 
 -- Printed for the parent: the ids as they were before the edit, and which one was edited.
 print("ids: " .. table.concat(ids, ","))

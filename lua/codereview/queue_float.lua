@@ -218,7 +218,11 @@ end
 
 --- The float -------------------------------------------------------------------
 
----List the queued annotations, edit or drop any of them, then submit the batch.
+---What the float's footer says. Forty-seven columns with the space at each end, inside the
+---fifty the float is at its narrowest.
+local FOOTER = " e edit · t type · x drop · ^S submit · ? keys "
+
+---List the queued annotations, edit, retype or drop any of them, then submit the batch.
 ---@param view table The review view, whose exported actions these keys run.
 function M.open(view)
   ensure_queue()
@@ -285,15 +289,23 @@ function M.open(view)
     end
 
     local n, stale = queue.count(), queue.stale_count()
-    local name = delivery.target_label()
-    cfg_win.title = (" Review queue · %d annotation%s%s "):format(
+    local inner = vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or width
+    -- The target rides in the title, beside the count, because it is state and not a key:
+    -- it is what the batch will reach, and it has to be readable before `^S` sends it. Both
+    -- lines are width budgets rather than sentences -- a title or footer wider than the
+    -- border is clipped from the left, silently -- so the name gets whatever room the count
+    -- leaves, and never more than it used to.
+    local title = (" Review queue · %d annotation%s%s → "):format(
       n,
       n == 1 and "" or "s",
       stale > 0 and (" · %d stale"):format(stale) or ""
     )
-    cfg_win.footer = (" ^T %s · ⏎ jump · e edit · x drop · gy copy · ^S submit · ^A preamble · q close "):format(
-      #name > 24 and (name:sub(1, 23) .. "…") or name
-    )
+    local room = math.min(24, inner - vim.fn.strdisplaywidth(title) - 1)
+    cfg_win.title = title .. render.truncate(delivery.target_label(), math.max(2, room)) .. " "
+    -- The keys a reviewer reaches for while reading a batch, and the key that lists the rest.
+    -- It fits the fifty columns this float is at its narrowest; a key added here is paid for
+    -- by one taken off, and the one taken off is still in `?`.
+    cfg_win.footer = FOOTER
     if vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_set_config(win, cfg_win)
     end
@@ -320,6 +332,34 @@ function M.open(view)
         end
       end
     end
+  end
+
+  ---Put the cursor on an entry after it was changed in place.
+  ---
+  ---Wherever the repaint moved it: a note that wraps to more rows or fewer shifts every
+  ---entry below it, and an entry given another type moves to that type's group. Either way
+  ---the cursor's old row belongs to some other entry now.
+  ---@param id integer
+  local function land_on(id)
+    for row = 1, #painted.lines do
+      if painted.rows[row] == id then
+        vim.api.nvim_win_set_cursor(win, { row, 0 })
+        return
+      end
+    end
+  end
+
+  ---After an edit that `annotate` made: the float shows it, with the cursor on the entry.
+  ---
+  ---The composer and the type picker are open for as long as the reviewer likes, and a
+  ---submit from elsewhere closes this float in that time.
+  ---@param edited CRAnnotation
+  local function after_edit(edited)
+    if not vim.api.nvim_win_is_valid(win) then
+      return
+    end
+    paint_queue()
+    land_on(edited.id)
   end
 
   ---That entry as it sits in the queue.
@@ -372,24 +412,17 @@ function M.open(view)
     -- Required here rather than at file scope, as `keymaps.lua` does: `annotate` requires
     -- `view`, and `view` requires this module. The edit is annotate's and not the view's,
     -- because the review view's own edit key reaches the same function from the diff.
-    require("codereview.annotate").edit_note(entry, function(edited)
-      -- The composer is open for as long as the reviewer likes, and a submit from
-      -- elsewhere closes this float in that time.
-      if not vim.api.nvim_win_is_valid(win) then
-        return
-      end
-      paint_queue()
-      -- On the entry just edited, wherever the repaint moved it: a note that wraps to more
-      -- rows or fewer shifts every entry below it, and the cursor's old row belongs to one
-      -- of those now.
-      for row = 1, #painted.lines do
-        if painted.rows[row] == edited.id then
-          vim.api.nvim_win_set_cursor(win, { row, 0 })
-          return
-        end
-      end
-    end)
+    require("codereview.annotate").edit_note(entry, after_edit)
   end, { buffer = buf, desc = "Edit the note" })
+
+  -- The same edit's other half, through the same module for the same reason.
+  vim.keymap.set("n", "t", function()
+    local entry = queued(entry_at_cursor())
+    if not entry then
+      return
+    end
+    require("codereview.annotate").change_type(entry, after_edit)
+  end, { buffer = buf, desc = "Change the type" })
 
   vim.keymap.set("n", "<C-t>", function()
     view.pick_target(paint_queue)
@@ -413,6 +446,26 @@ function M.open(view)
 
   vim.keymap.set("n", "q", close, { buffer = buf, desc = "Close (keeps the queue)" })
   vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Close (keeps the queue)" })
+
+  -- Read off the keys this buffer really has, rather than off a second list of them: a key
+  -- bound above is listed here without anybody remembering to, and a key taken away stops
+  -- being promised. It changes nothing, so the float stays open on the same rows.
+  vim.keymap.set("n", "?", function()
+    local listed = {}
+    for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+      if map.desc then
+        listed[#listed + 1] = { key = map.lhs:gsub("^<C%-(%a)>$", "^%1"), desc = map.desc }
+      end
+    end
+    table.sort(listed, function(a, b)
+      return a.key < b.key
+    end)
+    local rows = { "Queue float keys:" }
+    for _, l in ipairs(listed) do
+      rows[#rows + 1] = ("  %-6s %s"):format(l.key, l.desc)
+    end
+    info(table.concat(rows, "\n"))
+  end, { buffer = buf, desc = "List these keys" })
 
   paint_queue()
 end

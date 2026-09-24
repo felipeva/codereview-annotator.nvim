@@ -163,10 +163,11 @@ describe("choosing a delivery target with no review view", function()
   it("names the chosen target in the queue float", function()
     view.review_queue()
     local win = vim.api.nvim_get_current_win()
-    local footer = vim.api.nvim_win_get_config(win).footer
-    local text = type(footer) == "table" and footer[1][1] or tostring(footer)
+    -- In the title, beside the count: the footer's fifty columns went to keys.
+    local title = vim.api.nvim_win_get_config(win).title
+    local text = type(title) == "table" and title[1][1] or tostring(title)
     vim.api.nvim_win_close(win, true)
-    assert.is_truthy(text:find("agent", 1, true), text)
+    assert.is_truthy(text:find("→ agent", 1, true), text)
   end)
 
   it("submits to it rather than to the default", function()

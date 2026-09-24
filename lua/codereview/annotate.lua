@@ -390,9 +390,16 @@ end
 ---Through `vim.ui.select`, which most configurations have already replaced: the picker
 ---should look like every other picker in the editor, and a float of the plugin's own would
 ---be a new surface with its own keys before it was an improvement.
+---
+---A type already chosen is marked, so the reviewer changing one can see what they change it
+---from. The mark is a column of its own ahead of the glyph, and every row gets it -- blank
+---where the row is not the current one -- because a mark on one row alone would move that
+---row's glyph out of the column every other row keeps.
 ---@param list CRType[]
 ---@param cb fun(type_def: CRType|nil) Untyped when nil; not called at all if dismissed
-function M.pick_type(list, cb)
+---@param current? string|false The type an entry carries now: its name, or false when it is
+---       untyped. nil marks nothing, which is a new annotation: it carries no type yet.
+function M.pick_type(list, cb, current)
   -- Measured over the configured list rather than fixed: a host whose names are longer than
   -- the shipped five would otherwise have every row's key land in a different column, which
   -- is the one thing a column buys. The untyped mark is measured with them because it shares
@@ -413,6 +420,14 @@ function M.pick_type(list, cb)
   -- every column after it: no key reaches it and it instructs nothing, so drawing those two
   -- would be two blank columns saying what their absence says better.
   labels[#labels + 1] = ("%s  no type"):format(render.pad(types.UNTYPED.icon, cols.icon))
+
+  if current ~= nil then
+    for i, label in ipairs(labels) do
+      -- The decline row is one past the list, where there is no type and so no name: it is
+      -- the current row exactly when the entry is untyped.
+      labels[i] = ((list[i] and list[i].name or false) == current and "✓ " or "  ") .. label
+    end
+  end
 
   vim.ui.select(labels, { prompt = "Annotation type:" }, function(_, index)
     if not index then
@@ -543,6 +558,47 @@ function M.edit_note(entry, on_done)
       on_done(edited)
     end
   end)
+end
+
+---Choose another annotation type for an entry already in the queue.
+---
+---`edit_note`'s twin, in the same shape, because the two are one edit split in two: a
+---reviewer usually means to change one of them, and the other then stays exactly as it was.
+---Through the same type picker a capture offers, with the entry's type marked and its way of
+---declining a type still in it -- so a typed entry can become an **untyped annotation**, and
+---an untyped one can be given a type.
+---
+---The type and nothing else. The note, anchor, range, blob and staleness stay, and so do the
+---id and the position; `queue.update` keeps those two.
+---
+---A dismissed picker changes nothing, and so does picking the type the entry already has:
+---there is no change to save or to report.
+---@param entry CRAnnotation As it sits in the queue
+---@param on_done? fun(edited: CRAnnotation) Called after a change lands, and only then
+function M.change_type(entry, on_done)
+  M.pick_type(config.get().types, function(type_def)
+    local name = type_def and type_def.name
+    if name == entry.type then
+      return
+    end
+    local edited = vim.deepcopy(entry)
+    edited.type = name
+    -- Resolved by id, as an edited note is: the picker is open for as long as the reviewer
+    -- likes, and a dispatch in that time empties the queue under it.
+    if not queue.update(entry.id, edited) then
+      warn("That annotation is no longer in the queue — nothing changed")
+      return
+    end
+    -- The paint is what moves the file tree's **leading type** mark as well as the diff's
+    -- colour: both are drawn from the queue, so there is no second copy to update.
+    local view = require("codereview.view")
+    view.paint()
+    view.persist()
+    info(("Retyped %s %s (%d in queue)"):format(edited.type or "untyped", M.describe(edited), queue.count()))
+    if on_done then
+      on_done(edited)
+    end
+  end, entry.type or false)
 end
 
 ---Collect a note for an already-built entry and deliver it on its own.

@@ -92,13 +92,15 @@ describe("opening the queue float", function()
     assert.same(qwin, V.queue_win)
   end)
 
-  local function footer()
+  -- The title, where the target rides beside the count: it is state rather than a key, and
+  -- the footer's fifty columns went to keys.
+  local function title()
     local cfg = vim.api.nvim_win_get_config(qwin)
-    return cfg.footer and tostring(cfg.footer[1][1]) or ""
+    return cfg.title and tostring(cfg.title[1][1]) or ""
   end
 
-  it("footers the local target to begin with", function()
-    assert.is_truthy(footer():find("local", 1, true))
+  it("titles the local target to begin with", function()
+    assert.is_truthy(title():find("→ local", 1, true), title())
   end)
 
   describe("routing from the float", function()
@@ -122,8 +124,8 @@ describe("opening the queue float", function()
       assert.is_true(vim.api.nvim_win_is_valid(qwin))
     end)
 
-    it("repaints the footer with the new target", function()
-      assert.is_truthy(footer():find("janus", 1, true))
+    it("repaints the title with the new target", function()
+      assert.is_truthy(title():find("→ janus", 1, true), title())
     end)
   end)
 

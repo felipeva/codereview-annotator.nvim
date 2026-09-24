@@ -983,6 +983,7 @@ describe("the cell a reviewer's eye lands on", function()
   local nitpick = child("nitpick")
   local current = child("current")
   local flatten = child("flatten")
+  local retyped = child("retyped")
 
   it("draws the mark of a file holding a bug in the bug type's colour", function()
     assert.same('cell "●" fg=00ee00 bg=none', bug)
@@ -1006,6 +1007,13 @@ describe("the cell a reviewer's eye lands on", function()
   -- choose answers it. Here so that the reading above says *why* it holds.
   it("loses it to a line-wide group that carries a foreground of its own", function()
     assert.same('cell "●" fg=eeee00 bg=0000ee', flatten)
+  end)
+
+  -- The same cell the first reading takes, after its bug was made a nitpick from the queue
+  -- float. What it read before the change is the first reading, so a tree the change did
+  -- not repaint cannot pass here.
+  it("follows a change of type made in the queue float", function()
+    assert.same('cell "●" fg=ee0000 bg=none', retyped)
   end)
 end)
 

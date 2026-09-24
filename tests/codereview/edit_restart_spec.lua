@@ -1,12 +1,13 @@
--- An edited note surviving a restart.
+-- An edited note, and a changed type, surviving a restart.
 --
 -- Two processes, because one cannot answer the question. The queue is read back once per
 -- session, so a process that edits and then restores reads its own memory, and would pass
 -- whether or not the edit reached the disk. Prior art is `state_spec` and
 -- `checkout_restart_spec`, which write in a child and read after a restart.
 --
--- What the child left is three entries captured from a buffer, the middle one edited, and
--- nothing written after the edit.
+-- What the child left is three bugs captured from a buffer, the middle one's note edited,
+-- the first one's type taken off and the last one made a nitpick, and nothing written after
+-- that.
 local h = require("tests.helpers")
 
 h.ui(110, 40)
@@ -64,6 +65,15 @@ describe("the session after it", function()
       { "first", "second, as edited", "third" },
       vim.tbl_map(function(item)
         return item.note
+      end, restored)
+    )
+  end)
+
+  it("restores the changed types: one taken off, one changed, one left alone", function()
+    assert.same(
+      { "untyped", "bug", "nitpick" },
+      vim.tbl_map(function(item)
+        return item.type or "untyped"
       end, restored)
     )
   end)

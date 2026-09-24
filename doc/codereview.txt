@@ -366,12 +366,24 @@ A set that cannot be assembled is refused with the list still open and your
 cursor still on the row. Nothing is stored, and the review behind the list is
 the review that was there.
 
-In the queue float: <CR> jumps to the annotation under the cursor, e edits its
-note, x drops an entry, gy copies the batch, <C-t> routes, <C-s> submits,
-<C-a> submits under a |codereview-preamble|, q closes and keeps the queue.
-`gy` leaves the float
-open -- it takes nothing out of the queue, so every row it is listing is
-still true.
+In the queue float:
+
+    <CR>            jump to the annotation under the cursor
+    e               edit its note
+    t               change its type
+    x               drop it
+    gy              copy the batch
+    <C-t>           choose where the batch goes
+    <C-s>           submit the batch
+    <C-a>           submit it under a |codereview-preamble|
+    q  <Esc>        close, and keep the queue
+    ?               list these keys
+
+The footer shows the keys used most while a batch is read: e, t, x, <C-s>
+and ?. `?` lists every key of the float and changes nothing in the queue.
+The title shows where the batch goes, after `→`. `gy` leaves the float open
+-- it takes nothing out of the queue, so every row it is listing is still
+true.
 
 `e` opens the composer with the note of the entry under the cursor in it,
 from any row of that entry. Submit, and the new note replaces the old one.
@@ -380,6 +392,15 @@ place in the queue, and a stale entry stays stale. Abandon the composer, or
 submit an empty note, and the entry does not change. After an edit the float
 shows the new note with the cursor on that entry, the review repaints if it
 is open, and the queue is saved. An edit reads no draft and writes none.
+
+`t` opens the type picker, from any row of the entry. The type the entry has
+now is marked with `✓`, and "no type" is a choice: a typed entry can become
+an untyped annotation, and an untyped entry can be given a type. Only the
+type changes: the note, the anchor, the range, the id and the place in the
+queue stay. Dismiss the picker, or pick the type the entry already has, and
+nothing changes. After a change the float lists the entry under its new type
+with the cursor on it, the review repaints if it is open -- the file tree's
+mark takes the colour of the new leading type -- and the queue is saved.
 
 A jump closes the float and centers the line the annotation is about,
 expanding the file first if it was collapsed. The queue is shared with the
@@ -1712,7 +1733,7 @@ require("codereview").annotate({type}, {range}, {opts})
         this one annotation on its own instead of queueing it. See
         |codereview-capture| and |codereview-immediate-send|.
 require("codereview").queue()                           *codereview.queue()*
-        Open the queue float: edit, drop, route, submit.
+        Open the queue float: edit, retype, drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*
         Submit the queued annotations as one batch. The queue is emptied
         only if |codereview-opt-send| reports it went.
