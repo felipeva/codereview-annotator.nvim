@@ -617,3 +617,132 @@ describe("editing a queued note", function()
 
   config.get().compose = shipped
 end)
+
+-- `e` over the diff: the lookup `x` uses, then the edit the queue float makes. Driven by the
+-- key, so the binding is under test as well as the function it runs.
+describe("editing a note over the diff with e", function()
+  ---@type string|false
+  local reply = false
+  local seen
+  local shipped = config.get().compose
+  config.get().compose = function(ctx, on_accept)
+    seen = ctx
+    if reply then
+      on_accept(nil, reply)
+    end
+  end
+
+  local picks = {}
+  ---@type fun(rows: string[]): integer|nil
+  local choose = function()
+    return nil
+  end
+  local shipped_select = vim.ui.select
+  vim.ui.select = function(items, opts, cb)
+    local rows = vim.tbl_map(opts.format_item or tostring, items)
+    picks[#picks + 1] = { prompt = opts.prompt, rows = rows }
+    local i = choose(rows)
+    cb(i and items[i], i)
+  end
+
+  local main_row = assert(h.line_row(V, "src/main.lua"))
+
+  ---Queue one entry on src/main.lua, then three on src/fresh.lua, so the lone entry is not
+  ---last in the queue and the chosen one is neither end of its line.
+  local function seed()
+    queue.clear()
+    for _, c in ipairs({ { main_row, "issue" }, { add_row, "bug" }, { add_row, "fix" }, { add_row, "nitpick" } }) do
+      reply = "captured as " .. c[2]
+      at(c[1])
+      annotate.annotate(c[2])
+    end
+    picks, seen = {}, nil
+  end
+
+  local function notes()
+    return vim.tbl_map(function(e)
+      return e.note
+    end, queue.all())
+  end
+
+  ---Press `e` with the cursor on `row`, answering the composer with `answer`.
+  local function press_e(row, answer)
+    reply = answer
+    vim.api.nvim_set_current_win(V.win)
+    at(row)
+    h.feed("e")
+  end
+
+  it("opens the composer with the note at once when the line has one entry", function()
+    seed()
+    press_e(main_row, "the lone note, corrected")
+    assert.same(0, #picks)
+    assert.same("captured as issue", seen and seen.text)
+    assert.same({ "the lone note, corrected", "captured as bug", "captured as fix", "captured as nitpick" }, notes())
+  end)
+
+  it("lets the picker choose, and edits only the entry chosen", function()
+    seed()
+    choose = function(rows)
+      for i, row in ipairs(rows) do
+        if row:find("^fix") then
+          return i
+        end
+      end
+    end
+    press_e(add_row, "the fix, corrected")
+    assert.same(1, #picks)
+    assert.same("Edit which annotation?", picks[1].prompt)
+    assert.same({ "captured as issue", "captured as bug", "the fix, corrected", "captured as nitpick" }, notes())
+  end)
+
+  it("changes nothing when the picker is dismissed", function()
+    seed()
+    choose = function()
+      return nil
+    end
+    press_e(add_row, "never asked for")
+    assert.same(1, #picks)
+    assert.is_nil(seen)
+    assert.same({ "captured as issue", "captured as bug", "captured as fix", "captured as nitpick" }, notes())
+  end)
+
+  it("changes nothing when the composer is abandoned", function()
+    seed()
+    press_e(main_row, false)
+    assert.same("captured as issue", seen and seen.text)
+    assert.same({ "captured as issue", "captured as bug", "captured as fix", "captured as nitpick" }, notes())
+  end)
+
+  it("says what x says when the line has no annotation", function()
+    queue.clear()
+    view.paint()
+    picks, seen = {}, nil
+    local msgs, restore = h.capture_notify()
+    press_e(add_row, "never asked for")
+    restore()
+    assert.same(0, #picks)
+    assert.is_nil(seen)
+    assert.is_true(h.notified(msgs, "No annotation on this line"), vim.inspect(msgs))
+  end)
+
+  it("repaints the diff with the new note", function()
+    seed()
+    view.paint()
+    press_e(main_row, "the repainted note")
+    local drawn = {}
+    for _, m in ipairs(h.virt_marks(V)) do
+      for _, line in ipairs(m[4].virt_lines) do
+        for _, chunk in ipairs(line) do
+          drawn[#drawn + 1] = chunk[1]
+        end
+      end
+    end
+    drawn = table.concat(drawn, "\n")
+    assert.is_truthy(drawn:find("the repainted note", 1, true), drawn)
+    assert.is_nil(drawn:find("captured as issue", 1, true), drawn)
+  end)
+
+  vim.ui.select = shipped_select
+  config.get().compose = shipped
+end)

@@ -54,6 +54,10 @@ function M.diff(buf, view)
 
   bind(buf, {
     ["x"] = { annotate.drop, "Drop the annotation here" },
+    -- `e` shadows the end-of-word motion. `E` and `ge` still reach the end of a word, and
+    -- the letter is the one the queue float edits a note with, so one key does one thing
+    -- on both surfaces.
+    ["e"] = { annotate.edit, "Edit the note of the annotation here" },
     ["]f"] = {
       function()
         view.jump("file", true)

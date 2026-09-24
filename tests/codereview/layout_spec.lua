@@ -763,7 +763,7 @@ describe("the pane a toggle rebuilt", function()
     for _, m in ipairs(vim.api.nvim_buf_get_keymap(current().before_buf, "n")) do
       lhs[vim.keycode(m.lhs)] = true
     end
-    for _, key in ipairs({ "ab", "aa", "x", "]f", "]a", "R", "za", "gp", "gl", "<C-p>", "Q" }) do
+    for _, key in ipairs({ "ab", "aa", "x", "e", "]f", "]a", "R", "za", "gp", "gl", "<C-p>", "Q" }) do
       assert.is_true(lhs[vim.keycode(key)] == true, ("%s is not bound in the rebuilt pane"):format(key))
     end
   end)
@@ -781,6 +781,26 @@ describe("the pane a toggle rebuilt", function()
     -- Keyed to the pre-image, which is what makes it the deleted line and not its
     -- replacement.
     assert.is_truthy(entry.key:find(":o:", 1, true), entry.key)
+    queue.clear()
+    view.paint()
+  end)
+
+  -- The before pane holds only the pre-image, so the entry on a deleted line is reachable
+  -- from nowhere else: a key bound on the after pane alone would leave it uneditable.
+  it("edits the note on a deleted line from it, through the keys", function()
+    in_layout("split")
+    queue.clear()
+    note_text = "as captured"
+    start_on(NEWNAME, "del")
+    h.feed("ab")
+    note_text = "as edited"
+    local _, _, win = start_on(NEWNAME, "del")
+    assert.same(current().before_win, win)
+    h.feed("e")
+    note_text = "a note"
+
+    assert.same(1, queue.count())
+    assert.same("as edited", queue.all()[1].note)
     queue.clear()
     view.paint()
   end)
