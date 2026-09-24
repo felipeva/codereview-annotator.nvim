@@ -7,18 +7,20 @@
 **Review a diff in Neovim. Annotate what needs work. Send the whole review to a coding agent
 as one message.**
 
+![Annotate, mark reviewed, submit the batch](docs/demo.gif)
+
 ```
-┌─ tree ──────────────┐┌─ branch vs origin/master · ✓2/7 · +9 -4 ──────────────────┐
-│ ▾ apps          1/4 ││ ○ ▾ apps/api/src/main.ts                 +12 -3  [3 notes]│
-│   ▾ api/src     1/2 ││ @@ -19,6 +19,8 @@ function boot()                         │
-│     ▾ routes    0/1 ││  19 │  const app = express()                              │
-│       ○ users.ts    ││ ▌20 │ -const cfg = load()                                 │
-│     ● main.ts     3 ││ ▌21 │ +const cfg = loadConfig()                          │
-│   ▾ web/src     0/2 ││ ▌   │   ✗ why the rename? no callers were updated         │
-│     ✓ index.ts      ││  22 │  app.listen(cfg.port)                               │
-│ ○ README.md         ││                                                           │
-│ 2/7 reviewed ██░░░░░││ ✓ ▸ apps/api/src/routes.ts                       +4 -0    │
-└─────────────────────┘└───────────────────────────────────────────────────────────┘
+┌─ tree ──────────────────┐┌─ branch vs origin/master · ✓2/7 · +9 -4 ──────────────┐
+│ ▾ apps              1/4 ││ ● ▾ apps/api/src/main.ts            +12 -3  [3 notes] │
+│   ▾ api/src         1/2 ││ @@ -19,6 +19,8 @@ function boot()                     │
+│     ▾ routes        0/1 ││  19 │  const app = express()                          │
+│       ○ users.ts  +8 -2 ││ ▌20 │ -const cfg = load()                             │
+│     ● main.ts    +12 -3 ││ ▌21 │ +const cfg = loadConfig()                       │
+│   ▾ web/src         0/2 ││ ▌   │   ✗ why the rename? no callers were updated     │
+│     ✓ index.ts    +2 -1 ││  22 │  app.listen(cfg.port)                           │
+│ ○ README.md       +1 -0 ││                                                       │
+│ 2/7 reviewed ██░░░░░░░░ ││ ✓ ▸ apps/api/src/routes.ts                      +4 -0 │
+└─────────────────────────┘└───────────────────────────────────────────────────────┘
 ```
 
 Unified or split layout, a file tree, reviewed-file collapsing, and a batch submit. Neovim

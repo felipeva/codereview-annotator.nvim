@@ -2,7 +2,7 @@ NVIM ?= nvim
 PLENARY := .tests/plenary.nvim
 MINIMAL := tests/minimal_init.lua
 
-.PHONY: all test test-file lint format perf hooks deps clean
+.PHONY: all test test-file lint format perf demo hooks deps clean
 
 all: lint test
 
@@ -32,6 +32,10 @@ lint:
 
 format:
 	@stylua lua/ tests/
+
+## demo  -- record docs/demo.gif, the README's quick start. Needs vhs.
+demo:
+	@vhs docs/demo/demo.tape
 
 ## perf  -- open, scroll, keystroke and repaint timings at 60 files and at 300. Only the
 ## 60-file open is budgeted; the larger tier reports. Not part of `make test`.
