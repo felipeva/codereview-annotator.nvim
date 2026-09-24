@@ -486,3 +486,134 @@ describe("grouping the queue", function()
     )
   end)
 end)
+
+--- Editing a queued note --------------------------------------------------------
+
+-- An edit changes the note and nothing else. Measured on the first of three entries, so
+-- an edit that re-queues -- a remove and an add -- lands last and shows, and from a note
+-- that differs from the new one, so an edit that did nothing cannot read as one that did.
+describe("editing a queued note", function()
+  local state = require("codereview.state")
+
+  ---The compose adapter, swapped for this block alone. `reply` is what it answers with;
+  ---false never calls back, which is how a reviewer abandoning a composer looks from here.
+  ---@type string|false
+  local reply = false
+  local seen
+  local shipped = config.get().compose
+  config.get().compose = function(ctx, on_accept)
+    seen = ctx
+    if reply then
+      on_accept(nil, reply)
+    end
+  end
+
+  queue.clear()
+  for _, t in ipairs({ "bug", "fix", "nitpick" }) do
+    reply = "the note as captured, a " .. t
+    at(add_row)
+    annotate.annotate(t)
+  end
+  local before = queue.all()
+  local target = before[1]
+  local old = target.note
+  -- By hand, because the fixture's files do not move under a running spec. What the edit
+  -- has to do with it is leave it alone, and this is a field it can only keep by copying.
+  target.stale = true
+
+  local ids = vim.tbl_map(function(e)
+    return e.id
+  end, before)
+
+  reply = "the corrected note"
+  local msgs, restore = h.capture_notify()
+  annotate.edit_note(target)
+  restore()
+  local after = queue.all()
+
+  it("hands the composer the note it holds now", function()
+    assert.same(old, seen.text)
+  end)
+
+  it("titles the composer the way a capture does", function()
+    assert.same("Bug · src/fresh.lua:1", seen.label)
+  end)
+
+  it("tells the composer which window the edit came from", function()
+    assert.same(V.win, seen.origin_win)
+  end)
+
+  it("puts the new note in place of the old one", function()
+    assert.same("the corrected note", after[1].note)
+    assert.is_false(vim.tbl_contains(
+      vim.tbl_map(function(e)
+        return e.note
+      end, after),
+      old
+    ))
+  end)
+
+  it("keeps the id and the place in the queue", function()
+    assert.same(
+      ids,
+      vim.tbl_map(function(e)
+        return e.id
+      end, after)
+    )
+    assert.same({ "bug", "fix", "nitpick" }, {
+      after[1].type,
+      after[2].type,
+      after[3].type,
+    })
+  end)
+
+  it("leaves the anchor, the range and the blob alone", function()
+    assert.same(
+      { before[1].key, before[1].kind, before[1].first, before[1].last, before[1].blob },
+      { after[1].key, after[1].kind, after[1].first, after[1].last, after[1].blob }
+    )
+  end)
+
+  it("leaves a stale entry stale", function()
+    assert.is_true(after[1].stale)
+  end)
+
+  it("repaints the diff with the new note", function()
+    local found = false
+    for _, m in ipairs(h.virt_marks(V)) do
+      for _, line in ipairs(m[4].virt_lines) do
+        for _, chunk in ipairs(line) do
+          found = found or chunk[1]:find("the corrected note", 1, true) ~= nil
+        end
+      end
+    end
+    assert.is_true(found)
+  end)
+
+  it("writes the edit to the disk", function()
+    local stored = vim.tbl_map(function(e)
+      return e.note
+    end, state.load(V.root).queue)
+    assert.is_true(vim.tbl_contains(stored, "the corrected note"), vim.inspect(stored))
+    assert.is_false(vim.tbl_contains(stored, old), vim.inspect(stored))
+  end)
+
+  it("says what it edited, the way a capture says what it queued", function()
+    assert.is_true(h.notified(msgs, "Edited bug src/fresh.lua:1 (3 in queue)"), vim.inspect(msgs))
+  end)
+
+  it("leaves the note as it was when the composer is abandoned", function()
+    reply = false
+    annotate.edit_note(queue.all()[2])
+    assert.same(before[2].note, queue.all()[2].note)
+  end)
+
+  it("leaves the note as it was when the submitted note is empty", function()
+    reply = "  \n  "
+    annotate.edit_note(queue.all()[2])
+    assert.same(before[2].note, queue.all()[2].note)
+    assert.same(3, queue.count())
+  end)
+
+  config.get().compose = shipped
+end)

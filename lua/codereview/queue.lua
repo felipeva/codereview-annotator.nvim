@@ -177,6 +177,33 @@ function M.remove(id)
   return nil
 end
 
+---Put an edited copy of an entry where that entry is.
+---
+---A whole entry rather than the fields that changed, because the one edit that clears a
+---field -- a type taken off, which makes an **untyped annotation** -- is a nil, and a table
+---of changes cannot tell a nil from a field nobody mentioned. The copy is the caller's; the
+---slot is this module's, and so are the two things an edit must not move: the id, which
+---`x` and the archive both resolve by, and the position, which is the order the **payload**
+---lists a group in. Both are kept here rather than trusted to the caller.
+---
+---Filed in whichever store already holds the entry. An edit changes a note and a type and
+---never a path, so the store an entry was filed in stays the right one.
+---@param id integer
+---@param item CRAnnotation The entry as it is to be, carrying every field it keeps
+---@return CRAnnotation|nil updated nil when no entry carries `id`
+function M.update(id, item)
+  for _, list in ipairs({ list_for(current), loose }) do
+    for i, old in ipairs(list) do
+      if old.id == id then
+        item.id = id
+        list[i] = item
+        return item
+      end
+    end
+  end
+  return nil
+end
+
 ---Empty the queue that was just submitted: this checkout's, and the loose entries with it.
 ---
 ---Never another checkout's. A **dispatch** empties the queue that went out, and the whole

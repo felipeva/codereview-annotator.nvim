@@ -989,6 +989,120 @@ describe("carrying on after a missing file picker", function()
   end)
 end)
 
+--- Editing a queued note ------------------------------------------------------
+
+-- An edit opens this composer with the note it is correcting, and a draft is filed under
+-- the same key: the file. So the draft beside an edit is the one case that can show an edit
+-- touching the store -- a draft kept for a *new* note on that file, which an edit must
+-- neither open with, overwrite on abandon, nor erase on submit.
+describe("editing a note in the shipped composer", function()
+  local function footer_of(win)
+    local cfg_win = vim.api.nvim_win_get_config(win)
+    return cfg_win.footer and tostring(cfg_win.footer[1][1]) or ""
+  end
+
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "the note as queued" })
+  h.feed("<C-s>")
+
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "a new note, put down" })
+  h.feed("q")
+
+  local key = drafts.key({ file_path = queue.all()[1].abs_path })
+  local kept = drafts.get(key)
+
+  it("starts with a draft kept for a new note on the same file", function()
+    assert.same("a new note, put down", kept)
+  end)
+
+  local msgs, restore = h.capture_notify()
+  annotate.edit_note(queue.all()[1])
+  restore()
+  local win = floating()
+  local opened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local footer = win and footer_of(win) or ""
+
+  it("opens with the note it is editing, not the draft", function()
+    assert.same({ "the note as queued" }, opened)
+  end)
+
+  it("says nothing about a draft, and offers none to discard", function()
+    assert.is_false(h.notified(msgs, "Draft restored"), vim.inspect(msgs))
+    assert.is_falsy(footer:find("^D", 1, true), footer)
+  end)
+
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "a change walked away from" })
+  h.feed("q")
+
+  it("leaves the note as it was when abandoned", function()
+    assert.same(1, queue.count())
+    assert.same("the note as queued", queue.all()[1].note)
+  end)
+
+  it("keeps the other draft when abandoned", function()
+    assert.same("a new note, put down", drafts.get(key))
+  end)
+
+  annotate.edit_note(queue.all()[1])
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "the note, corrected" })
+  h.feed("<C-s>")
+
+  it("replaces the note when submitted", function()
+    assert.same(1, queue.count())
+    assert.same("the note, corrected", queue.all()[1].note)
+  end)
+
+  it("keeps the other draft when submitted", function()
+    assert.same("a new note, put down", drafts.get(key))
+  end)
+
+  -- What the reviewer sees of the same claim: the next new note on that file still opens
+  -- with the draft kept for it.
+  annotate_line()
+  local reopened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local last = floating()
+  h.feed("q")
+
+  it("still offers that draft to the next new note on the file", function()
+    assert.same({ "a new note, put down" }, reopened)
+  end)
+
+  if last and vim.api.nvim_win_is_valid(last) then
+    vim.api.nvim_win_close(last, true)
+  end
+end)
+
+describe("an abandoned edit with no draft beside it", function()
+  reset()
+  annotate_line()
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "the note as queued" })
+  h.feed("<C-s>")
+  local key = drafts.key({ file_path = queue.all()[1].abs_path })
+
+  annotate.edit_note(queue.all()[1])
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "second thoughts" })
+  h.feed("q")
+
+  it("writes no draft", function()
+    assert.is_nil(drafts.get(key))
+  end)
+
+  annotate_line()
+  local reopened = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local win = floating()
+  h.feed("q")
+
+  it("leaves the next new note on the file to open empty", function()
+    assert.same({ "" }, reopened)
+  end)
+
+  if win and vim.api.nvim_win_is_valid(win) then
+    vim.api.nvim_win_close(win, true)
+  end
+end)
+
 -- Comes last: it reconfigures the plugin. The guarantee is that shipping a composer took
 -- nothing away from a host that already had one.
 describe("with a composer wired", function()

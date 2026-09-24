@@ -218,7 +218,7 @@ end
 
 --- The float -------------------------------------------------------------------
 
----List the queued annotations, drop any of them, then submit the batch.
+---List the queued annotations, edit or drop any of them, then submit the batch.
 ---@param view table The review view, whose exported actions these keys run.
 function M.open(view)
   ensure_queue()
@@ -291,7 +291,7 @@ function M.open(view)
       n == 1 and "" or "s",
       stale > 0 and (" · %d stale"):format(stale) or ""
     )
-    cfg_win.footer = (" ^T %s · ⏎ jump · x drop · gy copy · ^S submit · ^A preamble · q close "):format(
+    cfg_win.footer = (" ^T %s · ⏎ jump · e edit · x drop · gy copy · ^S submit · ^A preamble · q close "):format(
       #name > 24 and (name:sub(1, 23) .. "…") or name
     )
     if vim.api.nvim_win_is_valid(win) then
@@ -363,6 +363,33 @@ function M.open(view)
     paint_queue()
     settle_cursor()
   end, { buffer = buf, desc = "Drop annotation" })
+
+  vim.keymap.set("n", "e", function()
+    local entry = queued(entry_at_cursor())
+    if not entry then
+      return
+    end
+    -- Required here rather than at file scope, as `keymaps.lua` does: `annotate` requires
+    -- `view`, and `view` requires this module. The edit is annotate's and not the view's,
+    -- because the review view's own edit key reaches the same function from the diff.
+    require("codereview.annotate").edit_note(entry, function(edited)
+      -- The composer is open for as long as the reviewer likes, and a submit from
+      -- elsewhere closes this float in that time.
+      if not vim.api.nvim_win_is_valid(win) then
+        return
+      end
+      paint_queue()
+      -- On the entry just edited, wherever the repaint moved it: a note that wraps to more
+      -- rows or fewer shifts every entry below it, and the cursor's old row belongs to one
+      -- of those now.
+      for row = 1, #painted.lines do
+        if painted.rows[row] == edited.id then
+          vim.api.nvim_win_set_cursor(win, { row, 0 })
+          return
+        end
+      end
+    end)
+  end, { buffer = buf, desc = "Edit the note" })
 
   vim.keymap.set("n", "<C-t>", function()
     view.pick_target(paint_queue)
