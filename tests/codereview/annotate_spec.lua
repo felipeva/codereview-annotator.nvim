@@ -297,6 +297,30 @@ describe("a file-level note on a collapsed file", function()
 end)
 
 describe("dropping annotations", function()
+  ---Stand in for `vim.ui.select` until `restore` is called. `choose` gets the rows as the
+  ---picker would draw them and answers with an index, or nil to dismiss.
+  ---@param choose fun(rows: string[]): integer|nil
+  ---@return { rows: string[] }[] calls, fun() restore
+  local function stub_select(choose)
+    local calls = {}
+    local orig = vim.ui.select
+    vim.ui.select = function(items, opts, cb)
+      local rows = vim.tbl_map(opts.format_item or tostring, items)
+      calls[#calls + 1] = { rows = rows }
+      local i = choose(rows)
+      cb(i and items[i], i)
+    end
+    return calls, function()
+      vim.ui.select = orig
+    end
+  end
+
+  local function types_left()
+    return vim.tbl_map(function(e)
+      return e.type
+    end, queue.all())
+  end
+
   queue.clear()
   at(add_row)
   annotate.annotate("bug")
@@ -306,17 +330,84 @@ describe("dropping annotations", function()
     assert.same(2, queue.count())
   end)
 
-  it("drops the most recent first", function()
+  -- `x` then `<CR>` is still "undo the note I just wrote": the newest entry is the one the
+  -- picker opens on.
+  it("offers the most recent first", function()
+    local calls, restore = stub_select(function()
+      return 1
+    end)
     at(add_row)
     annotate.drop()
-    assert.same(1, queue.count())
-    assert.same("bug", queue.all()[1].type)
+    restore()
+    assert.same(1, #calls)
+    assert.same({ "bug" }, types_left())
   end)
 
-  it("empties the line when dropped again", function()
+  it("drops the last one at once, with no picker", function()
+    local calls, restore = stub_select(function()
+      return 1
+    end)
     at(add_row)
     annotate.drop()
+    restore()
+    assert.same(0, #calls)
     assert.same(0, queue.count())
+  end)
+
+  it("names each entry by type, place and the start of its note, newest first", function()
+    queue.clear()
+    at(add_row)
+    annotate.annotate("bug")
+    annotate.annotate("nitpick")
+    local calls, restore = stub_select(function()
+      return nil
+    end)
+    at(add_row)
+    annotate.drop()
+    restore()
+    local rows = calls[1].rows
+    assert.same(2, #rows)
+    -- Capture order is bug then nitpick; the picker reads the other way.
+    assert.is_truthy(rows[1]:find("^nitpick%s+src/fresh%.lua:1%s+note about Nitpick"), rows[1])
+    assert.is_truthy(rows[2]:find("^bug%s+src/fresh%.lua:1%s+note about Bug"), rows[2])
+  end)
+
+  it("drops nothing when the picker is dismissed", function()
+    assert.same({ "bug", "nitpick" }, types_left())
+  end)
+
+  -- Neither end of the queue, so neither "newest" nor "oldest" can pass by accident.
+  it("drops the older entry chosen and leaves the rest", function()
+    queue.clear()
+    at(add_row)
+    for _, t in ipairs({ "bug", "fix", "nitpick" }) do
+      annotate.annotate(t)
+    end
+    local _, restore = stub_select(function(rows)
+      for i, row in ipairs(rows) do
+        if row:find("^fix") then
+          return i
+        end
+      end
+    end)
+    at(add_row)
+    annotate.drop()
+    restore()
+    assert.same({ "bug", "nitpick" }, types_left())
+  end)
+
+  it("says so when the line has no annotation", function()
+    queue.clear()
+    local calls, restore_select = stub_select(function()
+      return 1
+    end)
+    local msgs, restore = h.capture_notify()
+    at(add_row)
+    annotate.drop()
+    restore()
+    restore_select()
+    assert.same(0, #calls)
+    assert.is_true(h.notified(msgs, "No annotation on this line"), vim.inspect(msgs))
   end)
 end)
 

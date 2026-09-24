@@ -157,7 +157,9 @@ Buffer-local, inside the review view:
     ab af as an ai   Annotate as bug / fix / suggestion / nitpick / issue
     aa               Annotate, picking the type from a menu that names each
                      type's key and directive
-    x                Drop the annotation under the cursor
+    x                Drop the annotation under the cursor -- with more
+                     than one on the line, pick it from a list, see
+                     |codereview-drop|
     R                Toggle reviewed on this file (collapses it); under
                      |codereview-solo|, go on to the next unreviewed file
     za               Toggle expansion without marking reviewed
@@ -186,6 +188,14 @@ Buffer-local, inside the review view:
     <C-s>            Submit the batch
     <C-a>            Submit the batch under a |codereview-preamble|
     q                Close the review
+
+                                                          *codereview-drop*
+When the line under the cursor has more than one annotation, `x` opens a list
+of them through |vim.ui.select()|. The newest is first, so `x` then <CR> still
+drops the note you just wrote. Each row shows the type (or "untyped"), the
+place, and the start of the note. A dismissed list drops nothing. With one
+annotation, `x` drops it at once. No key asks you to confirm. `x` in the queue
+float does not change: it drops the entry under the cursor.
 
 Navigation:                                          *codereview-navigation*
 
