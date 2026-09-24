@@ -104,6 +104,19 @@ local function footer(win)
   return cfg.footer and tostring(cfg.footer[1][1]) or ""
 end
 
+---What `?` lists in the focused float, read off the notification it raises.
+---@return string
+local function key_listing()
+  local listing
+  local notify = vim.notify
+  vim.notify = function(msg)
+    listing = msg
+  end
+  h.feed("?")
+  vim.notify = notify
+  return listing or ""
+end
+
 ---What each unavailable case said, in the order the cases run.
 local said = {}
 
@@ -257,12 +270,14 @@ end)
 
 describe("the keys the float already had", function()
   -- `<C-t>` and `<C-s>` are focus_spec's, which drives both across the asynchronous
-  -- picker; what is left to pin here is that neither has lost its place in the footer.
+  -- picker; what is left to pin here is that none of them has stopped being advertised.
+  -- The footer holds the few a reviewer reaches for, and `?` lists every one.
   fresh_queue()
   annotate_row(row_of("line"))
   annotate_row(row_of("line", nil, true))
   local win = open_float()
   local advertised = footer(win)
+  local listing = key_listing()
 
   cursor_on(win, 2)
   h.feed("x")
@@ -271,9 +286,13 @@ describe("the keys the float already had", function()
   h.feed("q")
 
   it("advertises the jump alongside them", function()
-    for _, key in ipairs({ "^T", "jump", "x drop", "^S submit", "q close" }) do
+    for _, key in ipairs({ "x drop", "^S submit", "? keys" }) do
       assert.is_truthy(advertised:find(key, 1, true), advertised)
     end
+    for _, key in ipairs({ "^T ", "<CR> ", "x ", "^S ", "q " }) do
+      assert.is_truthy(listing:find("  " .. key, 1, true), listing)
+    end
+    assert.is_truthy(listing:find("Jump", 1, true), listing)
   end)
 
   it("still drops the entry under the cursor", function()

@@ -165,12 +165,18 @@ asked to look at it.
 | --- | --- |
 | `<CR>` | Jump to the annotation under the cursor |
 | `e` | Edit its note |
+| `t` | Change its type |
 | `x` | Drop it |
 | `gy` | Copy the batch to the `+` register, without submitting it |
 | `<C-t>` | Choose the delivery target |
 | `<C-s>` | Submit the batch |
 | `<C-a>` | Submit the batch under a [preamble](#the-preamble) |
 | `q` / `<Esc>` | Close. Keep the queue |
+| `?` | List these keys |
+
+The footer shows the keys you use most while you read a batch: `e`, `t`, `x`, `<C-s>` and
+`?`. Press `?` to list every key of the float. It changes nothing in the queue. The title
+shows where the batch goes, after `→`.
 
 `gy` leaves the float open, because it takes nothing out of the queue.
 
@@ -179,6 +185,13 @@ new note replaces the old one. Only the note changes: the entry keeps its id, it
 place in the queue, and a stale entry stays stale. Abandon the composer, or submit an empty
 note, and the entry does not change. An edit does not read or write a draft, so a draft you
 kept for a new note on the same file stays as it was.
+
+`t` opens the type picker. The type the entry has now is marked with `✓`, and `no type` is a
+choice, so you can make a typed entry an untyped annotation, or give an untyped entry a
+type. Only the type changes: the note, the anchor, the id and the place in the queue stay.
+Dismiss the picker and the entry does not change. After the change the float lists the entry
+under its new type with the cursor on it, the review repaints (the file tree's mark takes the
+colour of the new leading type), and the queue is saved.
 
 **In the last-batch float**
 

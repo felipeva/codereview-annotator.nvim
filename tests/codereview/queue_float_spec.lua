@@ -145,6 +145,27 @@ local function fresh()
   queue.clear()
 end
 
+---@param win integer
+---@param field "title"|"footer"
+---@return string
+local function chrome(win, field)
+  local cfg = vim.api.nvim_win_get_config(win)
+  return cfg[field] and tostring(cfg[field][1][1]) or ""
+end
+
+---What `?` lists in the focused float, read off the notification it raises.
+---@return string
+local function key_listing()
+  local listing
+  local notify = vim.notify
+  vim.notify = function(msg)
+    listing = msg
+  end
+  h.feed("?")
+  vim.notify = notify
+  return listing or ""
+end
+
 --- One entry, drawn as a run of rows ------------------------------------------
 
 describe("an entry with an inlined diff block and a multi-line note", function()
@@ -584,11 +605,14 @@ describe("copying from the float", function()
     assert.same(rows, #lines(buf))
   end)
 
-  it("advertises the key in the footer, beside the ones already there", function()
-    local footer = vim.api.nvim_win_get_config(win).footer
-    footer = footer and tostring(footer[1][1]) or ""
-    assert.is_truthy(footer:find("gy copy", 1, true), footer)
+  -- Listed under `?` rather than in the footer, which went to the keys that act on one entry:
+  -- a copy is asked for once a batch, if at all. The footer still says where to look.
+  it("advertises the key under ?, beside the ones already there", function()
+    local footer = chrome(win, "footer")
+    local listing = key_listing()
+    assert.is_truthy(listing:find("  gy ", 1, true), listing)
     assert.is_truthy(footer:find("^S submit", 1, true), footer)
+    assert.is_truthy(footer:find("? keys", 1, true), footer)
   end)
 end)
 
@@ -786,4 +810,284 @@ describe("editing an entry from the capture path, and a bare note", function()
   end)
 
   config.get().compose = shipped
+end)
+
+--- Changing the type from the float ------------------------------------------
+
+-- `t` resolves the cursor exactly as `e` and `x` do, so the same rows are tried. The entry
+-- changed is the first of two and the float groups by type, so a change that re-queued
+-- would land last in the queue, and one that landed would move the entry to another group
+-- in the float -- the cursor's old row then belongs to the other entry.
+describe("changing the type from anywhere inside an entry", function()
+  ---What the stub picker answers with: the row whose label ends in this text, or false to
+  ---dismiss it. `offered` is what it was handed, nil when no picker opened.
+  ---@type string|false
+  local answer = false
+  local offered
+  local select = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    offered = items
+    for i, item in ipairs(items) do
+      if answer and item:find(answer, 1, true) then
+        return cb(item, i)
+      end
+    end
+    cb(nil, nil)
+  end
+
+  ---@param first_type string|false The first entry's type; false queues it untyped
+  local function two(first_type)
+    fresh()
+    offered = nil
+    -- Set after the fact rather than passed in: `queued` fills in a type wherever it is
+    -- handed none, and a nil in its table of fields is no field at all.
+    queued({ note = "first\n\nnote", inline = true, lines = { "+one", "+two" } }).type = first_type or nil
+    queued({ type = "nitpick", note = "second" })
+  end
+
+  ---@return { type: string|false, note: string, id: integer }[]
+  local function snapshot()
+    return vim.tbl_map(function(item)
+      return { type = item.type or false, note = item.note, id = item.id }
+    end, queue.all())
+  end
+
+  ---Press `t` with the cursor on `row`, answering the picker with `pick`.
+  ---@return integer win, integer buf
+  local function retype_at(row, pick)
+    answer = pick
+    local win, buf = open_float()
+    vim.api.nvim_win_set_cursor(win, { row, 0 })
+    h.feed("t")
+    return win, buf
+  end
+
+  local function close(win)
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+
+  two("bug")
+  local win, buf = open_float()
+  local first, last = extent(buf, 1)
+  local second = extent(buf, 2)
+  local footer = chrome(win, "footer")
+  vim.api.nvim_win_close(win, true)
+
+  for name, row in pairs({ ["first row"] = first, ["middle row"] = first + 1, ["last row"] = last }) do
+    it(("changes it from its %s, in place and under the same id"):format(name), function()
+      two("bug")
+      local before = snapshot()
+      close(retype_at(row, "suggestion"))
+      before[1].type = "suggestion"
+      assert.same(before, snapshot())
+    end)
+  end
+
+  it("marks the current type in the picker, and only that one", function()
+    two("bug")
+    close(retype_at(first, false))
+    local marked = vim.tbl_filter(function(item)
+      return vim.startswith(item, "✓ ")
+    end, offered or {})
+    assert.same(1, #marked, vim.inspect(offered))
+    assert.is_truthy(marked[1]:find(" bug ", 1, true), marked[1])
+  end)
+
+  it("offers no type as a choice", function()
+    two("bug")
+    close(retype_at(first, false))
+    assert.is_truthy(offered and offered[#offered]:find("no type", 1, true), vim.inspect(offered))
+  end)
+
+  it("makes a typed entry untyped", function()
+    two("bug")
+    local before = snapshot()
+    close(retype_at(first, "no type"))
+    before[1].type = false
+    assert.same(before, snapshot())
+  end)
+
+  it("marks no type as current on an untyped entry, and gives it a type", function()
+    two(false)
+    local before = snapshot()
+    answer = "bug"
+    local w, b = open_float()
+    -- Second in the float, though first in the queue: the untyped group is listed after
+    -- every configured one.
+    vim.api.nvim_win_set_cursor(w, { extent(b, 2), 0 })
+    h.feed("t")
+    close(w)
+    assert.is_truthy(offered and vim.startswith(offered[#offered], "✓ "), vim.inspect(offered))
+    before[1].type = "bug"
+    assert.same(before, snapshot())
+  end)
+
+  it("changes the second entry from its own row, not the first one", function()
+    two("bug")
+    local before = snapshot()
+    close(retype_at(second, "issue"))
+    before[2].type = "issue"
+    assert.same(before, snapshot())
+  end)
+
+  it("changes nothing when the picker is dismissed, and keeps the float open", function()
+    two("bug")
+    local before = snapshot()
+    local w = retype_at(first, false)
+    local open = vim.api.nvim_win_is_valid(w)
+    close(w)
+    assert.is_true(open)
+    assert.is_truthy(offered)
+    assert.same(before, snapshot())
+  end)
+
+  it("opens no picker from the row between two entries", function()
+    two("bug")
+    local before = snapshot()
+    close(retype_at(last + 1, "issue"))
+    assert.is_nil(offered)
+    assert.same(before, snapshot())
+  end)
+
+  it("opens no picker from a group heading", function()
+    two("bug")
+    local before = snapshot()
+    close(retype_at(1, "issue"))
+    assert.is_nil(offered)
+    assert.same(before, snapshot())
+  end)
+
+  it("advertises the key in the footer, beside the ones already there", function()
+    assert.is_truthy(footer:find("t type", 1, true), footer)
+    assert.is_truthy(footer:find("e edit", 1, true), footer)
+  end)
+
+  vim.ui.select = select
+end)
+
+describe("the float after a change of type", function()
+  local select = vim.ui.select
+  vim.ui.select = function(items, _, cb)
+    for i, item in ipairs(items) do
+      if item:find("no type", 1, true) then
+        return cb(item, i)
+      end
+    end
+  end
+
+  -- The bug is listed above the nitpick, and untyped entries are listed last, so the bug
+  -- moves from the top of the float to the bottom: the row the cursor was on belongs to the
+  -- nitpick afterwards. A float that left the cursor where it was would be on the wrong entry.
+  fresh()
+  local bug = queued({ note = "was a bug" })
+  queued({ type = "nitpick", note = "a nitpick" })
+  local win, buf = open_float()
+  vim.api.nvim_win_set_cursor(win, { extent(buf, 1), 0 })
+  h.feed("t")
+  local landed = vim.api.nvim_win_get_cursor(win)[1]
+  local text = lines(buf)
+  local from, to = extent(buf, 2)
+
+  it("lists the entry under its new type", function()
+    assert.same("## Untyped", text[from - 1], table.concat(text, "\n"))
+    assert.same(GUTTER .. BAR .. "   was a bug", text[to], table.concat(text, "\n"))
+  end)
+
+  it("draws its bar in the new type's group", function()
+    assert.same("CodeReviewNote", bar_group(buf, from))
+  end)
+
+  it("leaves the cursor on the entry it changed", function()
+    assert.is_true(landed >= from and landed <= to, ("row %d is outside %d..%d"):format(landed, from, to))
+    assert.same(bug.id, queue.all()[1].id)
+  end)
+
+  vim.api.nvim_win_close(win, true)
+  vim.ui.select = select
+end)
+
+--- Every key, under `?` ----------------------------------------------------------
+
+-- The footer holds the keys a reviewer reaches for while reading; `?` holds all of them.
+-- The list below is written out rather than read off the buffer, because reading it off the
+-- buffer is what `?` itself does and a check made the same way cannot disagree with it.
+describe("listing the keys", function()
+  fresh()
+  queued({ note = "first" })
+  queued({ type = "nitpick", note = "second" })
+  local before = vim.tbl_map(function(item)
+    return item.note
+  end, queue.all())
+  local win, buf = open_float()
+  local rows = lines(buf)
+  local listing = key_listing()
+
+  it("lists every key the float binds", function()
+    for _, key in ipairs({ "<CR>", "e", "t", "x", "gy", "^T", "^S", "^A", "q", "<Esc>", "?" }) do
+      assert.is_truthy(listing:find("\n  " .. key .. " ", 1, true), key .. " is missing:\n" .. listing)
+    end
+  end)
+
+  it("says what each one does", function()
+    assert.is_truthy(listing:find("Change the type", 1, true), listing)
+    assert.is_truthy(listing:find("Edit the note", 1, true), listing)
+  end)
+
+  it("changes nothing in the queue, and leaves the float open on the same rows", function()
+    assert.same(
+      before,
+      vim.tbl_map(function(item)
+        return item.note
+      end, queue.all())
+    )
+    assert.is_true(vim.api.nvim_win_is_valid(win))
+    assert.same(rows, lines(buf))
+  end)
+
+  it("is advertised in the footer", function()
+    assert.is_truthy(chrome(win, "footer"):find("? keys", 1, true), chrome(win, "footer"))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+-- A title or a footer wider than the border is clipped from the left, silently, and what is
+-- cut goes with it. Measured at the narrowest the float is drawn, with a long target name and
+-- a stale entry, which is the widest either line gets.
+describe("the float at its narrowest", function()
+  local delivery = require("codereview.delivery")
+  local label = delivery.target_label
+  delivery.target_label = function()
+    return "janus · Analyze RUM patterns across every service"
+  end
+  -- Sixty-two columns is the widest terminal the float is still fifty wide in: its width is
+  -- four fifths of the editor's, floored at fifty.
+  local columns = vim.o.columns
+  vim.o.columns = 62
+
+  fresh()
+  for i = 1, 12 do
+    queued({ note = "entry " .. i, stale = i == 1 })
+  end
+  local win = open_float()
+  local width = vim.api.nvim_win_get_width(win)
+  local title, footer = chrome(win, "title"), chrome(win, "footer")
+  vim.api.nvim_win_close(win, true)
+  vim.o.columns = columns
+  delivery.target_label = label
+
+  it("is fifty columns wide", function()
+    assert.same(50, width)
+  end)
+
+  it("fits its footer inside the border", function()
+    assert.is_true(vim.fn.strdisplaywidth(footer) <= width, ("%d: %s"):format(vim.fn.strdisplaywidth(footer), footer))
+  end)
+
+  it("fits its title inside the border, target and all", function()
+    assert.is_true(vim.fn.strdisplaywidth(title) <= width, ("%d: %s"):format(vim.fn.strdisplaywidth(title), title))
+    assert.is_truthy(title:find("12 annotations · 1 stale → janus", 1, true), title)
+  end)
 end)
