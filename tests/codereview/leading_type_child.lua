@@ -7,7 +7,7 @@
 -- the marks beneath it. So a foreground can be named by an extmark on every paint and be
 -- invisible on exactly the row that matters, and no assertion about that extmark can see it.
 --
--- Five readings, one per process, chosen so that each answers one thing:
+-- Six readings, one per process, chosen so that each answers one thing:
 --
 --   bug      the mark on a file holding a bug, on no line-wide group at all
 --   nitpick  the mark on a file holding only a nitpick -- a different colour on the screen,
@@ -24,6 +24,9 @@
 --   retyped  the cell `bug` reads, after the bug on that file is made a nitpick with `t` in
 --            the queue float. `bug` is what the cell said before the change, so a tree the
 --            change never repainted reads as `bug` does, and cannot pass for this one.
+--   ct       the same cell again, after the same change is made with `ct` over the diff
+--            instead. The two keys share the change but not the surface it starts from, so
+--            each needs a reading of its own.
 --
 -- The colours are set here rather than taken from whatever theme a runner has, so each
 -- reading is an absolute number.
@@ -103,8 +106,9 @@ end
 annotate(BUG_FILE, "bug")
 annotate(NIT_FILE, "nitpick")
 
-if mode == "retyped" then
-  -- The type picker answers with the nitpick row.
+if mode == "retyped" or mode == "ct" then
+  -- The type picker answers with the nitpick row. The bug is the only entry on its line, so
+  -- `ct` opens no entry picker first.
   vim.ui.select = function(items, _, cb)
     for i, item in ipairs(items) do
       if item:find(" nitpick ", 1, true) then
@@ -112,6 +116,19 @@ if mode == "retyped" then
       end
     end
   end
+end
+
+if mode == "ct" then
+  vim.api.nvim_set_current_win(V.win)
+  vim.api.nvim_win_set_cursor(V.win, { line_row(BUG_FILE), 0 })
+  vim.api.nvim_feedkeys("ct", "x", false)
+  local types = vim.tbl_map(function(item)
+    return item.type
+  end, require("codereview.queue").all())
+  assert(vim.deep_equal(types, { "nitpick", "nitpick" }), "the bug was not retyped: " .. vim.inspect(types))
+end
+
+if mode == "retyped" then
   view.review_queue()
   -- The bugs are listed first, under their heading, so the second row is the bug's.
   vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -161,12 +178,12 @@ local function mark_at(path, group)
 end
 
 local path = mode == "nitpick" and NIT_FILE or BUG_FILE
-local group = (mode == "nitpick" or mode == "retyped") and "CodeReviewNitpick" or "CodeReviewBug"
+local group = (mode == "nitpick" or mode == "retyped" or mode == "ct") and "CodeReviewNitpick" or "CodeReviewBug"
 local row, col = mark_at(path, group)
 
 -- The two readings that must answer for no line-wide group at all: the tree follows the diff
 -- cursor, so the row it lights is the parked file's and never this one.
-if mode == "bug" or mode == "nitpick" or mode == "retyped" then
+if mode == "bug" or mode == "nitpick" or mode == "retyped" or mode == "ct" then
   assert(vim.api.nvim_win_get_cursor(V.panel_win)[1] ~= row, "the tree's cursor is on the row under test")
 end
 

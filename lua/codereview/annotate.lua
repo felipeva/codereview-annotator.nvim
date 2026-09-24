@@ -737,7 +737,7 @@ local NOTE_START = 48
 ---Resolve the entry on the cursor's anchor in the review view, then hand it on.
 ---
 ---The one answer to "which entry does this key act on", for every key over the diff that
----acts on one entry: `x`, and `e` beside it. One copy, so the keys cannot come to
+---acts on one entry: `x`, `e` and `ct`. One copy, so the three keys cannot come to
 ---disagree about which entry the cursor is on.
 ---
 ---With one entry there is nothing to choose, and `cb` runs at once: the common case costs
@@ -837,6 +837,18 @@ function M.drop()
     if removed then
       info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
     end
+  end)
+end
+
+---Change the type of an annotation the cursor is sitting on.
+---
+---The entry comes from the lookup `x` uses, so the two keys agree about which entry the
+---cursor is on; the change itself is the queue float's `t`, so an entry is retyped the same
+---way from either surface. That path repaints, which moves the file tree's **leading type**
+---mark as well as the diff's colour.
+function M.retype()
+  M.pick_entry("Retype which annotation?", function(entry)
+    M.change_type(entry)
   end)
 end
 

@@ -58,6 +58,10 @@ function M.diff(buf, view)
     -- the letter is the one the queue float edits a note with, so one key does one thing
     -- on both surfaces.
     ["e"] = { annotate.edit, "Edit the note of the annotation here" },
+    -- `ct` for **change type**, the `t` the queue float retypes with behind `c`. The change
+    -- operator is dead in a nomodifiable buffer for the reason `a` became the annotation
+    -- prefix, and nothing else here starts with `c`, so the key waits on no `timeoutlen`.
+    ["ct"] = { annotate.retype, "Change the type of the annotation here" },
     ["]f"] = {
       function()
         view.jump("file", true)

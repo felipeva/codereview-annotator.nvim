@@ -763,7 +763,7 @@ describe("the pane a toggle rebuilt", function()
     for _, m in ipairs(vim.api.nvim_buf_get_keymap(current().before_buf, "n")) do
       lhs[vim.keycode(m.lhs)] = true
     end
-    for _, key in ipairs({ "ab", "aa", "x", "e", "]f", "]a", "R", "za", "gp", "gl", "<C-p>", "Q" }) do
+    for _, key in ipairs({ "ab", "aa", "x", "e", "ct", "]f", "]a", "R", "za", "gp", "gl", "<C-p>", "Q" }) do
       assert.is_true(lhs[vim.keycode(key)] == true, ("%s is not bound in the rebuilt pane"):format(key))
     end
   end)
@@ -801,6 +801,36 @@ describe("the pane a toggle rebuilt", function()
 
     assert.same(1, queue.count())
     assert.same("as edited", queue.all()[1].note)
+    queue.clear()
+    view.paint()
+  end)
+
+  -- The before pane holds only the pre-image, so the entry on a deleted line is reachable
+  -- from nowhere else: a key bound on the after pane alone would leave it unretypeable.
+  it("retypes the entry on a deleted line from it, through the keys", function()
+    in_layout("split")
+    queue.clear()
+    start_on(NEWNAME, "del")
+    h.feed("ab")
+    local shipped_select = vim.ui.select
+    vim.ui.select = function(items, _, cb)
+      for i, item in ipairs(items) do
+        if item:find(" nitpick ", 1, true) then
+          return cb(item, i)
+        end
+      end
+    end
+    local _, _, win = start_on(NEWNAME, "del")
+    assert.same(current().before_win, win)
+    h.feed("ct")
+    vim.ui.select = shipped_select
+
+    assert.same(
+      { "nitpick" },
+      vim.tbl_map(function(e)
+        return e.type
+      end, queue.all())
+    )
     queue.clear()
     view.paint()
   end)

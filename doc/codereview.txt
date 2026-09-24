@@ -163,6 +163,9 @@ Buffer-local, inside the review view:
     e                Edit the note of the annotation under the cursor --
                      with more than one on the line, pick it from a list,
                      see |codereview-drop|
+    ct               Change the type of the annotation under the cursor --
+                     with more than one on the line, pick it from a list,
+                     see |codereview-drop|
     R                Toggle reviewed on this file (collapses it); under
                      |codereview-solo|, go on to the next unreviewed file
     za               Toggle expansion without marking reviewed
@@ -204,6 +207,12 @@ float does not change: it drops the entry under the cursor.
 more than one. Then it opens the composer with that annotation's note in it,
 as `e` in the queue float does: submit, and the new note replaces the old
 one. A dismissed list or an abandoned composer changes nothing.
+
+`ct` finds the annotation the same way, and opens the same list when there is
+more than one. Then it opens the type picker, as `t` in the queue float does:
+the current type is marked with `✓`, and "no type" is a choice. Only the type
+changes. The diff and the file tree's mark take the colour of the new type,
+and the queue is saved. A dismissed list or type picker changes nothing.
 
 Navigation:                                          *codereview-navigation*
 
