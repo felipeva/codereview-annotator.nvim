@@ -18,8 +18,14 @@ function M.open(ctx, on_accept, label)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "markdown"
 
+  -- An edit brings its own starting text, and a draft has nothing to say about it. A draft
+  -- is a *new* note abandoned on this file, and the key cannot tell that note from this
+  -- edit: reading one would put unsent text in place of the note being corrected, and
+  -- writing one -- on abandon, or clearing it on submit -- would overwrite or erase a draft
+  -- the reviewer kept for a new annotation on the same file.
+  local editing = ctx.text ~= nil
   local draft_key = drafts.key(ctx)
-  local restored = drafts.get(draft_key)
+  local restored = not editing and drafts.get(draft_key) or nil
 
   -- The batch's routing by default, because a note written here joins the batch. An
   -- immediate send hands its own on the context: that note has a target of its own, and
@@ -69,7 +75,7 @@ function M.open(ctx, on_accept, label)
   ---@param keep_draft boolean Stash what is written for next time
   local function close(keep_draft)
     -- Read before the window goes: `bufhidden = "wipe"` takes the buffer with it.
-    if keep_draft and vim.api.nvim_buf_is_valid(buf) then
+    if keep_draft and not editing and vim.api.nvim_buf_is_valid(buf) then
       drafts.set(draft_key, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n"))
     end
     if vim.api.nvim_win_is_valid(win) then
@@ -97,7 +103,9 @@ function M.open(ctx, on_accept, label)
     -- its buffer wiped, so the caller writes the note back under this same key rather
     -- than losing it. Clearing here is still right: it is the caller's business whether
     -- there is anything left to keep.
-    drafts.set(draft_key, nil)
+    if not editing then
+      drafts.set(draft_key, nil)
+    end
     -- The target argument is the adapter contract's, not this composer's: routing is a
     -- property of the batch and the plugin already holds it.
     on_accept(nil, text)
@@ -224,15 +232,20 @@ function M.open(ctx, on_accept, label)
   vim.keymap.set("n", "q", abandon, { buffer = buf, desc = "Abandon (keeps a draft)" })
   vim.keymap.set("n", "<Esc>", abandon, { buffer = buf, desc = "Abandon (keeps a draft)" })
 
-  if restored then
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(restored, "\n"))
+  -- Whichever text this composer starts from. The two never meet: an edit reads no draft.
+  local start = editing and ctx.text or restored
+  if start then
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(start, "\n"))
     -- The end of the draft, not the start of its last line. A draft comes back to be
     -- carried on with, and column zero puts the next word before the reviewer's own words
     -- rather than after them.
     local last = vim.api.nvim_buf_line_count(buf)
     vim.api.nvim_win_set_cursor(win, { last, #vim.api.nvim_buf_get_lines(buf, last - 1, last, false)[1] })
+  end
+  if restored then
     -- Said out loud, because text you did not just type appearing in a buffer you are about
-    -- to write in is otherwise a small mystery.
+    -- to write in is otherwise a small mystery. Not said of an edit's text: the reviewer
+    -- asked for that note by name.
     vim.notify("Draft restored — ^D to discard", vim.log.levels.INFO, { title = "Code review" })
   end
 

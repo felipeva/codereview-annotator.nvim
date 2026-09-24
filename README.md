@@ -122,7 +122,7 @@ to close the review.
 
 | Key | Action |
 | --- | --- |
-| `<C-s>` | Queue the note and close, or send it on an [immediate send](#send-one-annotation-now) |
+| `<C-s>` | Queue the note and close, or send it on an [immediate send](#send-one-annotation-now), or save an edit |
 | `<C-t>` | Choose where this note goes |
 | `@` | Reference another file ([`pick_file`](#adapters) only) |
 | `<C-d>` | Discard a restored draft |
@@ -159,6 +159,7 @@ asked to look at it.
 | Key | Action |
 | --- | --- |
 | `<CR>` | Jump to the annotation under the cursor |
+| `e` | Edit its note |
 | `x` | Drop it |
 | `gy` | Copy the batch to the `+` register, without submitting it |
 | `<C-t>` | Choose the delivery target |
@@ -167,6 +168,12 @@ asked to look at it.
 | `q` / `<Esc>` | Close. Keep the queue |
 
 `gy` leaves the float open, because it takes nothing out of the queue.
+
+`e` opens the composer with the note of the entry under the cursor in it. Press `<C-s>` and the
+new note replaces the old one. Only the note changes: the entry keeps its id, its anchor and its
+place in the queue, and a stale entry stays stale. Abandon the composer, or submit an empty
+note, and the entry does not change. An edit does not read or write a draft, so a draft you
+kept for a new note on the same file stays as it was.
 
 **In the last-batch float**
 
@@ -992,6 +999,10 @@ opts = {
   -- and `origin_win` -- the window the annotation was started from. Focus goes back there
   -- once `on_accept` runs. A composer the user can *cancel* never calls it, so that path
   -- is the composer's to restore.
+  --
+  -- When the reviewer edits a queued note, `ctx.text` is the note to start with. Put it in
+  -- the buffer, and do not read or write a draft for it: a draft on that file belongs to a
+  -- new note. A composer that ignores `text` opens empty, and the note must be typed again.
   --
   -- On an immediate send `ctx.routing` is also there -- `{ label(), pick(on_done) }` for
   -- the target *this note* will reach. Name it, and change it with `pick`. It is absent

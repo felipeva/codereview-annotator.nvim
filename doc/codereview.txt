@@ -356,11 +356,20 @@ A set that cannot be assembled is refused with the list still open and your
 cursor still on the row. Nothing is stored, and the review behind the list is
 the review that was there.
 
-In the queue float: <CR> jumps to the annotation under the cursor, x drops an
-entry, gy copies the batch, <C-t> routes, <C-s> submits, <C-a> submits under a
-|codereview-preamble|, q closes and keeps the queue. `gy` leaves the float
+In the queue float: <CR> jumps to the annotation under the cursor, e edits its
+note, x drops an entry, gy copies the batch, <C-t> routes, <C-s> submits,
+<C-a> submits under a |codereview-preamble|, q closes and keeps the queue.
+`gy` leaves the float
 open -- it takes nothing out of the queue, so every row it is listing is
 still true.
+
+`e` opens the composer with the note of the entry under the cursor in it,
+from any row of that entry. Submit, and the new note replaces the old one.
+Only the note changes: the entry keeps its id, its anchor, its range and its
+place in the queue, and a stale entry stays stale. Abandon the composer, or
+submit an empty note, and the entry does not change. After an edit the float
+shows the new note with the cursor on that entry, the review repaints if it
+is open, and the queue is saved. An edit reads no draft and writes none.
 
 A jump closes the float and centers the line the annotation is about,
 expanding the file first if it was collapsed. The queue is shared with the
@@ -874,7 +883,8 @@ Annotating opens a floating buffer to write the note in, titled with the type
 and what is being annotated:
 
     ^S              queue the note and close (or send it, on an immediate
-                    send -- the footer names the verb it will use)
+                    send, or save an edit -- the footer names the verb it
+                    will use)
     ^T              choose where it goes
     @               reference another file (|codereview-opt-pick_file|)
     ^D              discard a restored draft
@@ -922,6 +932,10 @@ closed by then and a batch of one has no queue to wait in.
 
 A restored draft leaves the cursor at its end, so your next word continues the
 sentence rather than preceding it.
+
+An edit of a queued note reads no draft and writes none. It opens with the
+note it edits, and a draft you kept for a new note on the same file stays as
+it was.
 
 Drafts are keyed by the file the note is about, not by the window it was
 started in: annotating a file in the review and capturing it from an ordinary
@@ -1229,6 +1243,8 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
                         the batch rather than a note about code
             root        repository the batch is going out of; nil outside a
                         checkout. Preambles only
+            text        the note to start with, when a queued note is
+                        edited; nil for a new note
 <
         A preamble is about a batch, so it names no file at all: both
         paths above are nil and `root` is what a draft of it is keyed by. A
@@ -1242,6 +1258,13 @@ compose({ctx}, {on_accept}, {label})                  *codereview-opt-compose*
         note joining the queue, which is routed by the batch it joins -- so a
         composer that ignores it entirely still works, it just cannot name or
         change where an |codereview-immediate-send| is going.
+
+        `text` is there when the reviewer edits a queued note. Host
+        composers are expected to use it: put it in the buffer, and do not
+        read or write a draft while it is set. The draft key is the file, and
+        a draft on that file belongs to a new note, which an edit must not
+        replace. A composer that ignores `text` still works, but it opens
+        empty and the reviewer must type the note again.
 
         `origin_win` is there for composers that can be dismissed. Once
         {on_accept} is called the plugin puts focus back there itself, so a
@@ -1679,7 +1702,7 @@ require("codereview").annotate({type}, {range}, {opts})
         this one annotation on its own instead of queueing it. See
         |codereview-capture| and |codereview-immediate-send|.
 require("codereview").queue()                           *codereview.queue()*
-        Open the queue float: drop, route, submit.
+        Open the queue float: edit, drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*
         Submit the queued annotations as one batch. The queue is emptied
         only if |codereview-opt-send| reports it went.

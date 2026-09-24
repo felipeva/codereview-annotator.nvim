@@ -591,3 +591,199 @@ describe("copying from the float", function()
     assert.is_truthy(footer:find("^S submit", 1, true), footer)
   end)
 end)
+
+--- Editing from the float -----------------------------------------------------
+
+-- `e` resolves the cursor exactly as `x` does, so the same rows are tried: the first, a
+-- middle and the last row of an entry several rows tall, and the rows that belong to no
+-- entry. The entry edited is the first of two, so an edit that re-queued would land last.
+describe("editing from anywhere inside an entry", function()
+  ---The compose adapter, swapped for this block alone. `reply` is what it answers with;
+  ---false never calls back, which is how an abandoned composer looks from here.
+  ---@type string|false
+  local reply = false
+  local seen
+  local shipped = config.get().compose
+  config.get().compose = function(ctx, on_accept)
+    seen = ctx
+    if reply then
+      on_accept(nil, reply)
+    end
+  end
+
+  local function two()
+    fresh()
+    seen = nil
+    queued({ note = "first\n\nnote", inline = true, lines = { "+one", "+two" } })
+    queued({ type = "nitpick", note = "second" })
+  end
+
+  ---Press `e` with the cursor on `row`, answering the composer with `text`.
+  ---@return string[] notes, integer[] ids, integer win
+  local function edit_at(row, text)
+    reply = text
+    local win = select(1, open_float())
+    vim.api.nvim_win_set_cursor(win, { row, 0 })
+    h.feed("e")
+    local notes, ids = {}, {}
+    for _, item in ipairs(queue.all()) do
+      notes[#notes + 1] = item.note
+      ids[#ids + 1] = item.id
+    end
+    return notes, ids, win
+  end
+
+  local function close(win)
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+  end
+
+  two()
+  local win, buf = open_float()
+  local first, last = extent(buf, 1)
+  local second = extent(buf, 2)
+  local footer = vim.api.nvim_win_get_config(win).footer
+  footer = footer and tostring(footer[1][1]) or ""
+  vim.api.nvim_win_close(win, true)
+
+  it("has an entry several rows tall to act on", function()
+    assert.is_true(last > first + 1, ("rows %d..%d"):format(first, last))
+  end)
+
+  for name, row in pairs({ ["first row"] = first, ["middle row"] = first + 1, ["last row"] = last }) do
+    it(("edits it from its %s, in place and under the same id"):format(name), function()
+      two()
+      local ids = vim.tbl_map(function(item)
+        return item.id
+      end, queue.all())
+      local notes, after, w = edit_at(row, "first, edited")
+      close(w)
+      assert.same("first\n\nnote", seen and seen.text)
+      assert.same({ "first, edited", "second" }, notes)
+      assert.same(ids, after)
+    end)
+  end
+
+  it("edits the second entry from its own row, not the first one", function()
+    two()
+    local notes, _, w = edit_at(second, "second, edited")
+    close(w)
+    assert.same("second", seen and seen.text)
+    assert.same({ "first\n\nnote", "second, edited" }, notes)
+  end)
+
+  it("opens no composer from the row between two entries", function()
+    two()
+    local notes, _, w = edit_at(last + 1, "never asked for")
+    close(w)
+    assert.is_nil(seen)
+    assert.same({ "first\n\nnote", "second" }, notes)
+  end)
+
+  it("opens no composer from a group heading", function()
+    two()
+    local notes, _, w = edit_at(1, "never asked for")
+    close(w)
+    assert.is_nil(seen)
+    assert.same({ "first\n\nnote", "second" }, notes)
+  end)
+
+  it("changes nothing when the composer is abandoned, and keeps the float open", function()
+    two()
+    local notes, _, w = edit_at(first, false)
+    local open = vim.api.nvim_win_is_valid(w)
+    close(w)
+    assert.is_true(open)
+    assert.same({ "first\n\nnote", "second" }, notes)
+  end)
+
+  it("advertises the key in the footer, beside the ones already there", function()
+    assert.is_truthy(footer:find("e edit", 1, true), footer)
+    assert.is_truthy(footer:find("x drop", 1, true), footer)
+  end)
+
+  config.get().compose = shipped
+end)
+
+describe("the float after an edit", function()
+  local shipped = config.get().compose
+  config.get().compose = function(_, on_accept)
+    on_accept(nil, "shorter now")
+  end
+
+  -- The middle entry shrinks from four note rows to one, so every row below it moves up
+  -- three, and the row the cursor was on belongs to the third entry afterwards. A float that
+  -- left the cursor where it was would be on the wrong entry.
+  fresh()
+  queued({ note = "above" })
+  queued({ note = "one\ntwo\nthree\nfour" })
+  queued({ note = "below\nand more\nand more\nand more" })
+  local win, buf = open_float()
+  local _, last = extent(buf, 2)
+  vim.api.nvim_win_set_cursor(win, { last, 0 })
+  h.feed("e")
+  local landed = vim.api.nvim_win_get_cursor(win)[1]
+  local from, to = extent(buf, 2)
+  local text = lines(buf)
+
+  it("shows the new note in the float", function()
+    assert.is_truthy(vim.tbl_contains(text, GUTTER .. BAR .. "   shorter now"), table.concat(text, "\n"))
+    assert.is_false(vim.tbl_contains(text, GUTTER .. BAR .. "   four"), table.concat(text, "\n"))
+  end)
+
+  it("leaves the cursor on the entry it edited", function()
+    assert.is_true(landed >= from and landed <= to, ("row %d is outside %d..%d"):format(landed, from, to))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+  config.get().compose = shipped
+end)
+
+-- ADR-0002: an entry never records which path captured it, so neither can an edit. The
+-- capture path's entry comes through the public entry point from an ordinary buffer, and a
+-- **bare note** has no file behind it and sits in the store that belongs to no checkout.
+describe("editing an entry from the capture path, and a bare note", function()
+  local shipped = config.get().compose
+  local reply = "as captured"
+  config.get().compose = function(_, on_accept)
+    on_accept(nil, reply)
+  end
+
+  fresh()
+  vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(root, "src/main.lua")))
+  require("codereview").annotate("bug")
+  queue.add({ type = "nitpick", kind = "note", key = "(no file)", inline = false, note = "a bare thought" })
+  local ids = vim.tbl_map(function(item)
+    return item.id
+  end, queue.all())
+
+  local win, buf = open_float()
+  reply = "captured, then edited"
+  vim.api.nvim_win_set_cursor(win, { extent(buf, 1), 0 })
+  h.feed("e")
+  reply = "a bare thought, edited"
+  vim.api.nvim_win_set_cursor(win, { extent(buf, 2), 0 })
+  h.feed("e")
+  vim.api.nvim_win_close(win, true)
+
+  it("edits both, each in its place", function()
+    assert.same(
+      { "captured, then edited", "a bare thought, edited" },
+      vim.tbl_map(function(item)
+        return item.note
+      end, queue.all())
+    )
+  end)
+
+  it("keeps both ids", function()
+    assert.same(
+      ids,
+      vim.tbl_map(function(item)
+        return item.id
+      end, queue.all())
+    )
+  end)
+
+  config.get().compose = shipped
+end)

@@ -505,6 +505,46 @@ function M.queue_entry(entry, type_def, opts)
   end)
 end
 
+---Collect a new note for an entry already in the queue, and put it in place of the old one.
+---
+---Through the same composer, the same collection and the same context as a capture, with
+---the note to start from added, so focus, insert mode and the title are what a capture
+---gives: an entry is edited the same way whichever path captured it (ADR-0002), and a host
+---composer gets no second contract to meet (ADR-0003).
+---
+---The note and nothing else. The copy keeps the anchor, range, blob and staleness it had:
+---the file under the note is what it was, so an entry that was stale is stale still, and
+---saying otherwise would hide that the code changed under it.
+---
+---Abandoning and submitting an empty note both leave the entry as it was: an entry with
+---no note says nothing, and `collect` calls back for neither.
+---@param entry CRAnnotation As it sits in the queue
+---@param on_done? fun(edited: CRAnnotation) Called after an edit lands, and only then
+function M.edit_note(entry, on_done)
+  local type_def = entry.type and types.get(config.get().types, entry.type)
+  local ctx = compose_ctx(entry, type_def)
+  -- What the composer opens with. The note as stored, whatever rode along under it on the
+  -- way in -- a capture's diagnostics are part of the note now, and editable like the rest.
+  ctx.text = entry.note
+  collect(ctx, "save", function(text)
+    local edited = vim.deepcopy(entry)
+    edited.note = text
+    -- Resolved by id rather than trusted to still be there: the composer is open for as
+    -- long as the reviewer likes, and a dispatch in that time empties the queue under it.
+    if not queue.update(entry.id, edited) then
+      warn("That annotation is no longer in the queue — nothing edited")
+      return
+    end
+    local view = require("codereview.view")
+    view.paint()
+    view.persist()
+    info(("Edited %s %s (%d in queue)"):format(edited.type or "untyped", M.describe(edited), queue.count()))
+    if on_done then
+      on_done(edited)
+    end
+  end)
+end
+
 ---Collect a note for an already-built entry and deliver it on its own.
 ---
 ---The queued path's twin, and deliberately the same shape: the same composer context, the
