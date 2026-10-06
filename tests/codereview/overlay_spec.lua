@@ -28,10 +28,16 @@ do
 end
 
 local NOTE = "queued from the buffer"
+-- Every submit here goes through this stub, which reports a dispatch, so the queue empties.
+local sent = {}
 require("codereview").setup({
   syntax = false,
   compose = function(_, on_accept)
     on_accept(nil, NOTE)
+  end,
+  send = function(text)
+    sent[#sent + 1] = text
+    return true
   end,
 })
 
@@ -584,6 +590,26 @@ describe("a capture from the buffer", function()
     annotate.pick_entry = pick
     assert.is_nil(row_of(margin().buf, BAR .. " to drop"))
     off()
+  end)
+end)
+
+describe("a submit", function()
+  after_each(off)
+
+  -- Through `delivery.submit`, which is where the review view's `<C-s>` and `<C-a>` and the
+  -- float's end: none of them passes through `codereview.submit()`.
+  it("takes the cards of the batch that went out of the margin", function()
+    clear_queue()
+    code_window()
+    queued({ first = 4, note = "goes out" })
+    on()
+    assert.equal(4, row_of(margin().buf, BAR .. " ✗ bug 4"))
+    local before = #sent
+    assert.is_true(require("codereview.delivery").submit())
+    assert.equal(before + 1, #sent)
+    assert.equal(0, #queue.all())
+    assert.same({}, marks(margin().buf))
+    assert.same({}, signs(vim.api.nvim_get_current_buf()))
   end)
 end)
 

@@ -1233,7 +1233,7 @@ not drawn. A range that mixes deleted and added lines is drawn at the lines it
 recorded.
 
 The overlay repaints when you scroll or resize the window, after a capture,
-after an edit or a retype, and after |codereview.submit()|. A capture made
+after an edit or a retype, and after a submit. A capture made
 while the overlay is off does not turn it on.
 
 Like |codereview-solo|, the overlay is a way of reading and nothing more. The

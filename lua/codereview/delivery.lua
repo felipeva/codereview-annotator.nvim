@@ -331,6 +331,12 @@ function M.submit(ctx)
   -- nothing about the reviewed marks stored beside it.
   local state = require("codereview.state")
   state.persist_queue(ctx.root or state.current_checkout())
+  -- The **overlay** draws the queue that just emptied. Here rather than in the view's
+  -- submit, because every submit -- the review's keys, the float's, the preamble's and the
+  -- Lua function's -- ends in this line, and only the overlay's own module is loaded when on.
+  if config.overlay() then
+    require("codereview.overlay").paint()
+  end
 
   info(
     ("Submitted %d annotation%s to %s"):format(

@@ -161,10 +161,6 @@ end
 ---Submit the queued annotations as one batch.
 function M.submit()
   require("codereview.view").submit()
-  -- A dispatch empties the queue, and the **overlay** is a drawing of it.
-  if config.overlay() then
-    require("codereview.overlay").paint()
-  end
 end
 
 ---Copy the batch to the `+` register, without submitting it.
