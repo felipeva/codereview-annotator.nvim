@@ -1972,6 +1972,20 @@ anything but the plugin is marked dismissed at once -- the `WinEnter` the close 
 not reopen it -- and the toggle goes off on the next tick only if the tab page is still
 there.
 
+**A float closing over the margin cannot be told by `winnr("#")`.** Entering the margin puts
+the cursor on the card nearest the code window's line, and that must not happen when the
+composer of `e` or the picker of `t` closes and hands the cursor back: the edit has already
+put it on the edited card. Measured: when a float closes, its `WinLeave` fires while it is
+still a float (`relative` set), and in the `WinEnter` that follows, `winnr("#")` names the
+window just entered, not the float. So the margin records, on every `WinLeave`, whether the
+window left was a float, and lands only when it was not.
+
+**A session configured with the overlay on loads the review view at `setup()`.** `start` is
+handed the view, as `toggle` is, because the margin's batch keys run its actions; so
+`overlay.enabled = true` loads `view.lua` and what it requires at startup, where only
+`overlay.lua` loaded before. Accepted, not an accident: requiring `view` lazily inside the
+keys would close a cycle through `delivery`, which repaints the overlay. Not measured.
+
 **Which buffer is a file is its own question, not `file_of`'s.** A file of another checkout,
 of no checkout, or not yet written keeps the margin up with its empty line; only a
 `buftype` or a name with a scheme (`term://`, `codereview://`, a plugin's `oil://`) closes

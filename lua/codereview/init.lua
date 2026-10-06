@@ -89,7 +89,7 @@ function M.setup(opts)
   -- A session configured with the overlay on opens with the margin up, as one configured
   -- for solo opens soloed. Asked here first, so a session with it off loads none of it.
   if config.overlay() then
-    require("codereview.overlay").start()
+    require("codereview.overlay").start(require("codereview.view"))
   end
 end
 
@@ -150,7 +150,7 @@ end
 ---archive and the payload are what they were (ADR-0010).
 ---@return boolean on Whether the overlay is now on
 function M.overlay()
-  return require("codereview.overlay").toggle()
+  return require("codereview.overlay").toggle(require("codereview.view"))
 end
 
 ---Open the queue for review, with drop / route / submit.

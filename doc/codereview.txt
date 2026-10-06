@@ -1237,8 +1237,8 @@ window, and it shows the file in that window:
 - When you open another file in that window, the margin shows that file.
 - When you move the cursor into another split that holds a file, the margin
   moves to the right of that split.
-- A floating window does not move it. You can move the cursor into the margin;
-  that changes nothing.
+- A floating window does not move it. You can move the cursor into the margin
+  (|codereview-overlay-keys|); that does not move it either.
 - A file you open from the review with `<CR>` (|codereview-mappings|) opens in a
   new tab, and that tab gets a margin. The review's own windows get none.
 The first time the margin draws a file of a checkout, it reads that
@@ -1261,6 +1261,38 @@ is its margin closes the tab page (or Neovim) as it would without the margin.
 `:close` or `<C-w>c` there leaves the margin alone in the tab page, empty,
 until you close it with `:q`, which turns the overlay off.
 
+                                                *codereview-overlay-keys*
+Move the cursor into the margin with the usual window keys (`<C-w>l`). The
+cursor lands on the card of the line you came from, or, between two cards, on
+the card whose line is nearer. When you return from a float that opened over
+the margin (the composer, the type picker), the cursor stays where it was.
+
+In the margin, the queue float's keys act on the card under the cursor, from
+any row of it:
+
+    <CR>            go to the card's line in the code window
+    e               edit its note
+    t               change its type
+    x               drop it
+    gy              copy the batch
+    <C-t>           choose where the batch goes
+    <C-s>           submit the batch
+    <C-a>           submit it under a |codereview-preamble|
+    q               turn the overlay off
+    ?               list these keys
+
+They do what they do in the queue float, through the same edit, drop and
+submit, and need no review open. A drop is saved at once. The margin shows the
+change after each key. The differences:
+- `<CR>` goes to the line the card is on now, which moves when you edit above
+  it. The overlay stays on. On a whole-file card it goes to the code window
+  and does not move the cursor.
+- `q` turns the overlay off, as |:CodeReviewOverlay| does. There is no
+  `<Esc>`: the margin is not a dialog.
+These keys are bound on the margin's own buffer only. `e`, `t` and `x` hide
+no motion of yours, because the margin is not a buffer you edit, and the
+code window keeps every key it had.
+
 What is drawn: the annotations queued in the checkout you are in, about the
 file in the window, whichever path captured them. What is not drawn:
 - an annotation on a deleted line, which has no line in the file on disk;
@@ -1272,8 +1304,8 @@ not drawn. A range that mixes deleted and added lines is drawn at the lines it
 recorded.
 
 The overlay repaints when you scroll or resize the window, when the margin
-moves or the file in its window changes, after a capture, after an edit, a
-retype or a drop, and after a submit. A capture made
+moves or the file in its window changes, when you move the cursor into it,
+after a capture, after an edit, a retype or a drop, and after a submit. A capture made
 while the overlay is off does not turn it on.
 
 Like |codereview-solo|, the overlay is a way of reading and nothing more. The
