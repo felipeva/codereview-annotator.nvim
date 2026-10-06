@@ -198,7 +198,10 @@ local function lines_label(entry)
   return ("%d–%d"):format(entry.first, entry.last)
 end
 
----What a card is drawn in: its type's group and icon, and the name its header gives it.
+---What a card or a caption is drawn in: its type's group and icon, and the name a card's
+---header gives it. The group covers the note as well as the glyph, because the type is the
+---one thing about an entry that changes what the agent is told to do, and a note in grey
+---left a reviewer reading every glyph to sort the bugs from the nitpicks.
 ---
 ---An untyped entry carries no type, so its header carries no name; the untyped mark and the
 ---note group stand in, as they do wherever the queue is drawn. A type the configuration no
@@ -252,7 +255,7 @@ local function card(entry, width)
   for _, line in ipairs(render.wrap(entry.note or "", budget)) do
     r = row(line)
     if line ~= "" then
-      marks[#marks + 1] = { row = r, col = #prefix, end_col = #prefix + #line, hl = "CodeReviewNote" }
+      marks[#marks + 1] = { row = r, col = #prefix, end_col = #prefix + #line, hl = look_.hl }
     end
   end
   return { lines = lines, marks = marks }
@@ -262,8 +265,9 @@ end
 
 ---A caption's rows, as `virt_lines` chunks.
 ---
----The first row is the connector and the icon in the type's group, the stale flag when it is
----set, and the note's first line; the rest of the note follows under that line. The budget
+---The first row is the connector, the icon and the note's first line in the type's group,
+---with the stale flag in its own group between them when it is set; the rest of the note
+---follows under that line, in the type's group too. The budget
 ---the note wraps to and the indent of its continuation rows come from one `strdisplaywidth`
 ---of everything before the note, so the two cannot disagree: the connector is a two-column
 ---glyph of six bytes, and a byte count would push every continuation row past the edge.
@@ -285,10 +289,10 @@ local function caption(entry, width)
       if stale then
         row[#row + 1] = { stale, "CodeReviewStale" }
       end
-      row[#row + 1] = { line, "CodeReviewNote" }
+      row[#row + 1] = { line, look_.hl }
       rows[1] = row
     else
-      rows[n] = { { (" "):rep(indent) }, { line, "CodeReviewNote" } }
+      rows[n] = { { (" "):rep(indent) }, { line, look_.hl } }
     end
   end
   return rows

@@ -206,6 +206,12 @@ types = {
 
 Start from `require("codereview.types").defaults`. See `:help codereview-annotations`.
 
+A note is in its type's colour everywhere it is drawn: under a diff line, on a card and in a
+caption. The default colours link to the diagnostic groups, so a bug reads like an error and a
+nitpick like a hint. `⚠ stale` keeps its own colour. An untyped note stays grey, because it
+gives the agent no instruction. To change a type's colour, set its `hl`; the glyph and the note
+change together. See `:help codereview-note-colour`.
+
 ### Annotate from any buffer
 
 No review is necessary. Normal mode captures the file; a visual selection or a range captures
@@ -240,9 +246,10 @@ each queued annotation of the file, on the screen row of its first line:
 ▌ why is this branch unreachable?
 ```
 
-The header has the type's icon, name and lines, in the type's colour. Cards move with the code
-when you scroll or edit. A card that would cover the next one pushes it down. A whole-file card
-stays at the top. Each covered line gets a sign in the type's colour.
+The header has the type's icon, name and lines. The header and the note are in the type's
+colour. Cards move with the code when you scroll or edit. A card that would cover the next one
+pushes it down. A whole-file card stays at the top. Each covered line gets a sign in the
+type's colour.
 
 The margin follows you. It is beside one window per tab page. When you open another file in
 that window, or move the cursor into another split that holds a file, the margin shows that
@@ -283,8 +290,8 @@ each annotated line, at the column where the code starts:
 12 if mode == "split" then
 ```
 
-The connector and the icon are in the type's colour, then `⚠ stale` when it applies, then the
-full note. The note wraps to the window's width, less the number, sign and fold columns, and
+The connector, the icon and the full note are in the type's colour, with `⚠ stale` between them
+when it applies. The note wraps to the window's width, less the number, sign and fold columns, and
 it wraps again when you resize the window. A whole-file annotation's caption is above line 1.
 Several annotations on one line stack in queue order. The covered lines get the same signs as
 in the margin. A caption moves with the code when you edit above it.

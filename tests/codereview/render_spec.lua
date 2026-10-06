@@ -333,6 +333,15 @@ describe("archived entries", function()
     assert.same("CodeReviewArchived", archived_marker[2])
   end)
 
+  -- The same two bugs again, now the prose: the queued note says what kind of remark it is,
+  -- and the archived one has given that up with its glyph's color.
+  it("draws the queued note in its type's group and the archived one in the archive's", function()
+    local virt = assert(virt_at(header))
+    local queued_note, archived_note = virt[1][#virt[1]], virt[2][#virt[2]]
+    assert.same({ "still to send", "CodeReviewBug" }, queued_note)
+    assert.same({ "whole file, already sent", "CodeReviewArchivedNote" }, archived_note)
+  end)
+
   -- Not merely "nothing archived is drawn": with the flag off the render has to be the one
   -- this repository produced before an archive existed, mark for mark.
   queue.clear()

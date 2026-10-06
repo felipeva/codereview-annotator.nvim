@@ -319,7 +319,7 @@ describe("the margin's keys", function()
     assert.equal("nitpick", queue.all()[1].type)
     local row = assert(header_row(m.buf, "nitpick 4"))
     assert.same({ nitpick, nitpick }, groups_on(m.buf, row))
-    assert.same({ nitpick, "CodeReviewNote" }, groups_on(m.buf, row + 1))
+    assert.same({ nitpick, nitpick }, groups_on(m.buf, row + 1))
   end)
 
   -- Read against what the send adapter is handed for the same batch, as delivery_spec reads
