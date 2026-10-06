@@ -458,6 +458,17 @@ function M.annotate_pick()
   end)
 end
 
+---Repaint the **overlay** after the queue changed.
+---
+---Beside every `view.paint()` that follows a queue change, because the review view and the
+---overlay are two drawings of one queue and neither knows the other is up. Required here
+---rather than at file scope, so a session with the overlay off never loads it.
+local function repaint_overlay()
+  if config.overlay() then
+    require("codereview.overlay").paint()
+  end
+end
+
 ---The note as it reaches an entry: what was written, plus whatever rides along under it.
 ---@param text string
 ---@param opts { note_suffix?: string }|nil
@@ -516,6 +527,7 @@ function M.queue_entry(entry, type_def, opts)
     local view = require("codereview.view")
     view.paint()
     view.persist()
+    repaint_overlay()
     info(("Queued %s %s (%d in queue)"):format(entry.type or "untyped", M.describe(entry), queue.count()))
   end)
 end
@@ -553,6 +565,7 @@ function M.edit_note(entry, on_done)
     local view = require("codereview.view")
     view.paint()
     view.persist()
+    repaint_overlay()
     info(("Edited %s %s (%d in queue)"):format(edited.type or "untyped", M.describe(edited), queue.count()))
     if on_done then
       on_done(edited)
@@ -594,6 +607,7 @@ function M.change_type(entry, on_done)
     local view = require("codereview.view")
     view.paint()
     view.persist()
+    repaint_overlay()
     info(("Retyped %s %s (%d in queue)"):format(edited.type or "untyped", M.describe(edited), queue.count()))
     if on_done then
       on_done(edited)
@@ -614,6 +628,7 @@ function M.drop_entry(entry)
   local view = require("codereview.view")
   view.paint()
   view.persist()
+  repaint_overlay()
   if removed then
     info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
   end

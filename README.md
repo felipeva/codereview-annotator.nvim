@@ -51,6 +51,7 @@ With no [`send`](#adapters) adapter, the batch goes to the `+` register and stay
 | `:CodeReviewLastBatch` | Show the last batch you sent |
 | `:CodeReviewSwitch` | Move the review to another checkout (worktree) of this repo |
 | `:CodeReviewBack` | Go back to the previous checkout |
+| `:CodeReviewOverlay` | Show or hide the queued annotations beside the current file |
 
 Scopes:
 
@@ -229,6 +230,32 @@ end, { desc = "Send a bug now" })
 :12,20CodeReviewAnnotate bug
 ```
 
+### The overlay
+
+`:CodeReviewOverlay` opens a margin to the right of the current window. It shows one card for
+each queued annotation of the file, on the screen row of its first line:
+
+```
+▌ ✗ bug 12–15 ⚠ stale
+▌ why is this branch unreachable?
+```
+
+The header has the type's icon, name and lines, in the type's colour. Cards move with the code
+when you scroll or edit. A card that would cover the next one pushes it down. A whole-file card
+stays at the top. Each covered line gets a sign in the type's colour.
+
+Not drawn: annotations on deleted lines or past the end of the file (the toggle tells you how
+many), sent annotations, bare notes, and other checkouts' annotations. Nothing is stored and
+the buffer is not changed.
+
+```lua
+vim.keymap.set("n", "<leader>ao", function()
+  require("codereview").overlay()  -- returns true when it is now on
+end, { desc = "Toggle the review overlay" })
+```
+
+See `:help codereview-overlay`.
+
 ## The payload
 
 Annotations are grouped by type, in the configured order. An optional preamble (`<C-a>`)
@@ -281,6 +308,7 @@ opts = {
   faded = { enabled = true, strength = 0.35 },        -- dim the files you are not in
   counterpart = { enabled = true, strength = 0.25 },  -- mark the opposite row in split
   panel = { enabled = true, width = 34, position = "left" },
+  overlay = { enabled = false, width = 40 },           -- (:CodeReviewOverlay)
   icons = {
     reviewed = "✓", annotated = "●", unreviewed = "○",
     collapsed = "▸", expanded = "▾", change_bar = "▌",

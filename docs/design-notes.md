@@ -1888,3 +1888,52 @@ sitting inside one. It resolves through `state.current_checkout` now, which alre
 that fall-through. Note what this does *not* buy: with a review open, `current_checkout`
 answers that review's root, so reopening cannot rescue a review whose own checkout is the
 one that went. The switch is the gesture for that; this is for the tab afterwards.
+
+## The overlay
+
+**`strdisplaywidth` measures in the current window, and the paint can run in any of them.**
+In a window with `wrap` on, a double-width character that crosses the right edge costs one
+cell more than it draws, because Neovim pads it onto the next screen row. So a note wrapped
+while a narrow code window was current measures a character wider than it is, and the wrap
+breaks it one character early. Measured: a row of nineteen two-column characters behind the
+rule, 40 columns, reads 41 with the 39-column code window current and 40 with the margin
+current. The cards are built inside `nvim_win_call` on the margin, which never wraps, so the
+answer does not depend on where the cursor is when a capture or a scroll repaints.
+`render.wrap` measures this way wherever it is called; whether its other callers can meet
+the case has not been measured.
+
+**The scroll and resize events fire from the main loop, and a spec case never reaches it.**
+`WinScrolled` and `WinResized` are raised in the check the main loop makes between two
+inputs. Fed keys with `x`, `:redraw` and `vim.wait` all scroll or draw without making that
+check, so in a spec case the window moves and nothing fires -- measured, zero events after
+each. A margin that never listened passes every in-process scroll case. The events are read
+in a child started with `--headless -c luafile` and driven by timers, where the loop turns
+between steps. Not `-l`: it exits when the script ends, so no timer runs.
+
+**`-l` has already entered, and `-c luafile` has not.** Under `-l` the script runs with
+`v:vim_did_enter` at 1 and `VimEnter` never fires; under `-c` it runs at 0 and `VimEnter`
+fires after it. So a session configured with the overlay on opens the margin at once when
+startup has finished and on `VimEnter` otherwise. Waiting for the event alone would leave
+every host that loads the plugin late, and every `-l` child, with no margin.
+
+**A pre-image key does not make a pure deletion.** A range is keyed on its first line, and a
+change whose first line is a deleted one keys on the pre-image even though most of its lines
+are post-image. `render.is_before_key` alone would skip it. The tag the review path records
+is what says the range has no post-image line at all: `deleted`, and never `change`.
+
+**The anchors live in a namespace of their own.** Every paint clears the signs and draws them
+again, and an anchor recreated on every paint would sit on the recorded line again, so the
+card would stop following an edit. The anchors are kept across paints, and across the
+overlay being off as well: an edit made then still moves them, and the card comes back
+beside the code it was about.
+
+**A card's row is read off the screen, from each window's own text top.** `screenpos` already
+knows about wrapped lines, closed folds and filler, which is the reason scrollbind could not
+be used (ADR-0010). Its row is screen-absolute, so it is taken relative to the margin's first
+text row rather than the code window's: a winbar on one window and not the other would
+otherwise put every card a row off.
+
+**The margin is a split beside the window, not at the edge of the tab.** The file tree's
+`botright vsplit` puts a window at the far right of the whole tab page, full height, and with
+another vertical split open that is not beside the window being read. `nvim_open_win` with
+`split = "right"` and the window named splits that one window and leaves focus where it was.

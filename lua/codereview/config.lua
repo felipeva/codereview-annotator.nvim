@@ -133,6 +133,20 @@ M.defaults = {
   ---stay visible inside a window everything else in it is being pulled toward the
   ---background, and it must still read as secondary to the row the pane with focus lights.
   counterpart = { enabled = true, strength = 0.25 }, ---@type { enabled: boolean, strength: number }
+  ---Draw the **queue** beside the lines of an ordinary file buffer: the **overlay**. A
+  ---**margin** opens to the right of the window, holding one **card** per **entry** of the
+  ---file at the screen row of its anchor, and each covered line carries a sign in the
+  ---annotation type's group. `:CodeReviewOverlay` and `overlay()` turn it on and off for
+  ---the rest of the session, and never write here -- see `M.overlay` below.
+  ---
+  ---A rendering choice like **solo**, and written nowhere: the queue, the **archive** and the
+  ---**payload** are what they were, and no entry records that the overlay was on
+  ---(ADR-0010). Off by default, on solo's precedent: a reviewer who does nothing sees the
+  ---editor they already had.
+  ---
+  ---`width` is the margin's, in columns, and it holds that width while other windows open
+  ---and close beside it.
+  overlay = { enabled = false, width = 40 }, ---@type { enabled: boolean, width: integer }
   panel = {
     enabled = true,
     width = 34,
@@ -389,6 +403,18 @@ local function validate_blend(name, value)
   end
 end
 
+---Reject a width that is not a whole number of columns.
+---
+---In the same voice as the switches above: a width of `"40"` or `0` would otherwise reach
+---the window API and fail there, far from the line that has to change.
+---@param name string
+---@param value any
+local function validate_width(name, value)
+  if type(value) ~= "number" or value < 1 or value % 1 ~= 0 then
+    error(("codereview.setup: `%s` must be a whole number of columns — got %s"):format(name, vim.inspect(value)), 0)
+  end
+end
+
 ---Reject a strength that is not a fraction of the way to the background.
 ---
 ---In the same voice as the switches above. A number outside 0..1 is not a stronger effect
@@ -410,6 +436,9 @@ function M.setup(opts)
   validate_boolean("wrap", M.options.wrap)
   validate_boolean("solo", M.options.solo)
   validate_boolean("archived", M.options.archived)
+  validate_blend("overlay", M.options.overlay)
+  validate_boolean("overlay.enabled", M.options.overlay.enabled)
+  validate_width("overlay.width", M.options.overlay.width)
   validate_blend("muted", M.options.muted)
   validate_boolean("muted.enabled", M.options.muted.enabled)
   validate_strength("muted.strength", M.options.muted.strength)
@@ -546,6 +575,36 @@ end
 function M.toggle_solo()
   solo_override = not M.solo()
   return solo_override
+end
+
+--- The overlay switch at runtime -----------------------------------------------
+
+---What `:CodeReviewOverlay` has said about the **overlay**, for the rest of this editing
+---session.
+---
+---The fourth copy of the arrangement above, and copied again for the reason the third was.
+---Not persisted, for solo's reason: the overlay says how one sitting is being read, and
+---nothing about it is a fact about the checkout or the review (ADR-0010).
+---@type boolean|nil nil until the toggle has been used, when configuration decides
+local overlay_override = nil
+
+---Whether the overlay is on.
+---@return boolean
+function M.overlay()
+  if overlay_override == nil then
+    return M.get().overlay.enabled
+  end
+  return overlay_override
+end
+
+---Turn the overlay on or off for the rest of this editing session.
+---
+---Both directions from wherever the switch stands now, so a reviewer whose configuration
+---has it on can turn it off.
+---@return boolean on Whether it is now on
+function M.toggle_overlay()
+  overlay_override = not M.overlay()
+  return overlay_override
 end
 
 return M
