@@ -18,6 +18,14 @@
 ---an anchor per entry, so an edit above a line moves its card with the code, and a sign on
 ---each covered line.
 ---
+---**It follows the reviewer.** One margin per tab page, beside the window it follows; the
+---cursor entering a split that holds a file moves it there, and that window's buffer changing
+---repaints it. Floats and the margin itself are never followed. Beside a file with nothing to
+---draw it holds one quiet line; beside a window holding no file it closes and the toggle stays
+---on. Closing it by hand turns the toggle off. The window events this rides on arrive in an
+---order that does not say what the reviewer did, so several decisions wait a tick -- each one
+---says why where it is made.
+---
 ---Nothing of the review view is read, so it is not handed in. The margin's keys will act
 ---through `annotate` the way the queue float's do; that is when a view first has a reason to
 ---arrive here.
@@ -101,6 +109,24 @@ end
 
 --- What a buffer is about ----------------------------------------------------------
 
+---Whether a buffer holds a file, in or out of any checkout: what decides whether the margin
+---stands beside it at all.
+---
+---A different question from `file_of`, and the difference is the margin's empty state. A
+---file of another checkout, of no checkout, or one not yet written is still a file a reviewer
+---is reading, and the margin stays up with its empty line, so moving between files does not
+---make the layout jump. A help page, a terminal, a scratch buffer and every buffer the plugin
+---owns carry a `buftype` or a name with a scheme, and the margin closes beside them.
+---@param buf integer
+---@return boolean
+local function is_file(buf)
+  if vim.bo[buf].buftype ~= "" then
+    return false
+  end
+  local name = vim.api.nvim_buf_get_name(buf)
+  return name ~= "" and not name:find("^%a[%w+.-]*://")
+end
+
 ---The checkout and repository-relative path of the file a buffer holds, or nothing.
 ---
 ---Resolved the way a capture resolves its buffer, because a review-path entry carries a
@@ -109,19 +135,15 @@ end
 ---this runs on every scroll, and a git process per scroll is not a price the overlay may
 ---charge.
 ---
----Nothing for a buffer that is not a file on disk -- a help page, a terminal, a scratch
----buffer -- and nothing for one the plugin owns, which all carry a `buftype`.
+---Nothing for a buffer that is not a file (see `is_file`), and nothing for a file outside
+---every checkout.
 ---@param buf integer
 ---@return { root: string, rel: string }|nil
 local function file_of(buf)
-  if vim.bo[buf].buftype ~= "" then
+  if not is_file(buf) then
     return nil
   end
-  local name = vim.api.nvim_buf_get_name(buf)
-  if name == "" or name:find("^codereview://") then
-    return nil
-  end
-  local abs = vim.uv.fs_realpath(name)
+  local abs = vim.uv.fs_realpath(vim.api.nvim_buf_get_name(buf))
   if not abs then
     return nil
   end
@@ -223,11 +245,16 @@ end
 --- The margin -----------------------------------------------------------------------
 
 ---@class CROverlayMargin
----@field win integer  The margin window
----@field buf integer  Its buffer, which the plugin owns
----@field code integer The window it was opened beside, whose buffer it draws
+---@field code integer|nil The window it follows, whose buffer it draws; nil from that window
+---                        closing until the next one is entered
+---@field win integer|nil  The margin window; nil while the window it follows holds no file
+---@field buf integer|nil  Its buffer, which the plugin owns
+---@field dismissed boolean|nil Closed by the reviewer, until the next tick says whether that
+---                        was the margin alone or its whole tab page
 
----One margin per tab page, keyed by the tab page's handle.
+---One margin per tab page, keyed by the tab page's handle. A tab page with an entry and no
+---margin window is one whose followed window holds no file: the toggle is still on there,
+---and the margin comes back when a file does.
 ---@type table<integer, CROverlayMargin>
 local margins = {}
 
@@ -237,16 +264,28 @@ local signed = {}
 
 local GROUP = "codereview_overlay"
 
+---What a margin says beside a file it has no card for. The same line for a file of another
+---checkout or of none: what the reviewer needs to know is that nothing here is drawn, and the
+---margin staying up is what stops the layout jumping between files.
+local EMPTY = "no annotations in this file"
+
 ---Whether the overlay is on, for the rest of this session.
 ---@return boolean
 function M.enabled()
   return config.overlay()
 end
 
+---Whether a margin's window is up and still holds the margin's buffer.
+---@param m CROverlayMargin|nil
+---@return boolean
+local function standing(m)
+  return m ~= nil and m.win ~= nil and vim.api.nvim_win_is_valid(m.win) and vim.api.nvim_win_get_buf(m.win) == m.buf
+end
+
 ---@param m CROverlayMargin|nil
 ---@return boolean
 local function live(m)
-  return m ~= nil and vim.api.nvim_win_is_valid(m.win) and vim.api.nvim_win_is_valid(m.code)
+  return standing(m) and m.code ~= nil and vim.api.nvim_win_is_valid(m.code)
 end
 
 ---The margin of the current tab page, when there is one still standing.
@@ -421,6 +460,10 @@ local function paint_margin(m)
       end
     end
   end
+  if #drawn == 0 then
+    rows[1] = EMPTY
+    marks[#marks + 1] = { row = 0, col = 0, end_col = #EMPTY, hl = "CodeReviewOverlayEmpty" }
+  end
 
   vim.api.nvim_buf_clear_namespace(m.buf, M.NS, 0, -1)
   write(m.buf, rows)
@@ -452,7 +495,9 @@ function M.paint()
   local skipped = 0
   local ok, err = pcall(function()
     for tab, m in pairs(margins) do
-      if live(m) then
+      if not vim.api.nvim_tabpage_is_valid(tab) then
+        margins[tab] = nil
+      elseif live(m) and not m.dismissed then
         local n = paint_margin(m)
         if tab == current then
           skipped = n
@@ -479,9 +524,220 @@ local function concerns(ids)
   return false
 end
 
----Listen for what moves an anchor on screen: a scroll and a resize of the window a margin
----is beside. Not `VimResized`, which arrives with every terminal resize together with
----`WinResized` and would paint each margin twice.
+---Put the margin beside a window: move it there if it stands elsewhere in that tab page, and
+---open it if it does not stand at all.
+---
+---A split rather than a float, so the code window gives up the columns rather than having
+---them drawn over; `split = "right"` of that one window rather than `botright`, because the
+---margin belongs beside the window it reads and not at the edge of the tab. Focus stays
+---where it was.
+---
+---Moved rather than closed and opened again: `nvim_win_set_config` takes a split to another
+---window's side, keeps its handle and options, and fires no `WinClosed`, `WinNew` or
+---`WinEnter` doing it, so a move cannot be mistaken for the reviewer closing the margin. It
+---does even out the width, so the width goes in the same call.
+---
+---Opened with autocommands blocked, because `nvim_open_win` raises `BufWinEnter` with the new
+---window current, and `follow` would read that as the reviewer arriving in a buffer that is
+---not a file.
+---@param win integer
+---@return CROverlayMargin
+local function place(win)
+  local tab = vim.api.nvim_win_get_tabpage(win)
+  local m = margins[tab]
+  local width = config.get().overlay.width
+  if standing(m) then
+    if m.code ~= win then
+      vim.api.nvim_win_set_config(m.win, { split = "right", win = win, width = width })
+      m.code = win
+    end
+    return m
+  end
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].filetype = "codereview-overlay"
+  vim.bo[buf].modifiable = false
+  local mwin = vim.api.nvim_open_win(buf, false, {
+    split = "right",
+    win = win,
+    width = width,
+    noautocmd = true,
+  })
+  local wo = vim.wo[mwin]
+  wo.winfixwidth = true
+  -- The card rows are cut to the margin's width here, so the window must not fold them back
+  -- to column zero, where there is no rule.
+  wo.wrap = false
+  wo.number = false
+  wo.relativenumber = false
+  wo.signcolumn = "no"
+  wo.foldcolumn = "0"
+  wo.statuscolumn = ""
+  wo.list = false
+  wo.spell = false
+  wo.cursorline = false
+  m = { win = mwin, buf = buf, code = win }
+  margins[tab] = m
+  return m
+end
+
+---Whether the margin window being closed is the plugin's own doing, which `WinClosed` cannot
+---otherwise tell from the reviewer's.
+local closing = false
+
+---Take a margin's window down and keep following: the toggle stays on.
+---@param m CROverlayMargin
+local function shut(m)
+  if standing(m) then
+    closing = true
+    pcall(vim.api.nvim_win_close, m.win, true)
+    closing = false
+  end
+  m.win, m.buf = nil, nil
+end
+
+---Close every margin and take the signs out of every buffer they were drawn in.
+---
+---The listeners go first, so the windows closed here raise nothing this module hears.
+---
+---The anchors stay. They are not drawn, and an edit made while the overlay is off still
+---moves them, so a card comes back beside the code it was about.
+local function close_all()
+  pcall(vim.api.nvim_del_augroup_by_name, GROUP)
+  for tab, m in pairs(margins) do
+    shut(m)
+    margins[tab] = nil
+  end
+  for buf in pairs(signed) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
+    end
+    signed[buf] = nil
+  end
+end
+
+---Settle where a tab page's margin stands, now that the cursor is in `win` or `win` has a new
+---buffer.
+---
+---A floating window is never followed: a picker or a float of this plugin opening over the
+---code would otherwise take the margin with it. The margin itself is not followed either, so
+---entering it moves nothing and closes nothing. A window holding no file is followed only
+---when nothing else is, or when it is the window already followed, whose file has just gone:
+---the cursor passing through a help split leaves the margin beside the code. Everything
+---else -- the followed window with a file in it, or another window with a file in it -- puts
+---the margin beside that window and paints it.
+---@param win integer
+---@return integer skipped Entries of the file the current tab page's margin cannot draw
+local function follow(win)
+  if not M.enabled() or not vim.api.nvim_win_is_valid(win) then
+    return 0
+  end
+  if vim.api.nvim_win_get_config(win).relative ~= "" then
+    return 0
+  end
+  local tab = vim.api.nvim_win_get_tabpage(win)
+  local m = margins[tab]
+  if m and (m.dismissed or win == m.win) then
+    return 0
+  end
+  local file = is_file(vim.api.nvim_win_get_buf(win))
+  local following = m ~= nil and m.code ~= nil and vim.api.nvim_win_is_valid(m.code)
+  if following and win ~= m.code and not file then
+    return 0
+  end
+  if not file then
+    if m then
+      shut(m)
+      m.code = win
+    else
+      margins[tab] = { code = win }
+    end
+    return 0
+  end
+  place(win)
+  return M.paint()
+end
+
+---The reviewer closed a margin. Whether that turns the overlay off waits a tick.
+---
+---`:tabclose` closes the margin before the window it follows, with that window current and
+---every window of the tab page still valid: in that moment it is indistinguishable from
+---`:only` in the code window, which is the reviewer closing the margin. Only afterwards does
+---the tab page say whether it is gone. Until then the margin is marked dismissed, so the
+---`WinEnter` that the close itself raises cannot open it again.
+---@param tab integer
+---@param m CROverlayMargin
+local function dismissed(tab, m)
+  m.dismissed = true
+  m.win, m.buf = nil, nil
+  vim.schedule(function()
+    if margins[tab] ~= m then
+      return
+    end
+    if not vim.api.nvim_tabpage_is_valid(tab) then
+      margins[tab] = nil
+      return
+    end
+    if M.enabled() then
+      config.toggle_overlay()
+    end
+    close_all()
+    info("Overlay off")
+  end)
+end
+
+---The window a margin follows is closing.
+---
+---The margin's rows are about a file no longer on screen, so they go at once. Where the
+---margin goes waits a tick: the `WinEnter` the close raises comes while the window is still
+---closing, when no split can be made (E242), and a window closed with the cursor elsewhere
+---raises no `WinEnter` at all. Either way, the window the cursor is in afterwards is the one
+---followed.
+---@param m CROverlayMargin
+local function lost(m)
+  m.code = nil
+  if standing(m) then
+    vim.api.nvim_buf_clear_namespace(m.buf, M.NS, 0, -1)
+    write(m.buf, {})
+  end
+  vim.schedule(function()
+    follow(vim.api.nvim_get_current_win())
+  end)
+end
+
+---`:q` in a window whose only neighbour is its margin.
+---
+---Without this the quit would close the code window and leave the reviewer alone with the
+---margin, and closing the margin from the code window's `WinClosed` instead aborts the quit
+---with E855. So the margin goes first and the quit does what it would have done without
+---one: close the tab page, or Neovim. A quit refused over an unsaved buffer leaves the code
+---window standing, and following it again on the next tick brings the margin back.
+local function quitting()
+  local win = vim.api.nvim_get_current_win()
+  local m = margins[vim.api.nvim_get_current_tabpage()]
+  if not standing(m) or m.code ~= win then
+    return
+  end
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if w ~= win and w ~= m.win and vim.api.nvim_win_get_config(w).relative == "" then
+      return
+    end
+  end
+  shut(m)
+  vim.schedule(function()
+    follow(vim.api.nvim_get_current_win())
+  end)
+end
+
+---Listen for what moves an anchor on screen, what changes which window a margin follows, and
+---what closes one.
+---
+---A scroll and a resize of the window a margin is beside; not `VimResized`, which arrives with
+---every terminal resize together with `WinResized` and would paint each margin twice.
+---`WinEnter` and `BufWinEnter`, both read as "the cursor is in this window now": `BufWinEnter`
+---raised by `nvim_win_set_buf` names the window the buffer went into as current, and a buffer
+---that reaches a window this way is one the reviewer is about to read. `BufWinEnter` is what
+---carries a buffer change in the followed window, which raises no `WinEnter`.
 local function listen()
   local group = vim.api.nvim_create_augroup(GROUP, { clear = true })
   vim.api.nvim_create_autocmd("WinScrolled", {
@@ -511,67 +767,59 @@ local function listen()
       end
     end,
   })
-end
-
----Open a margin beside a window, in that window's tab page, if none stands there.
----
----A split rather than a float, so the code window gives up the columns rather than having
----them drawn over; `split = "right"` of that one window rather than `botright`, because the
----margin belongs beside the window it reads and not at the edge of the tab. Focus stays
----where it was.
----@param win integer
----@return CROverlayMargin
-local function open(win)
-  local tab = vim.api.nvim_win_get_tabpage(win)
-  local m = margins[tab]
-  if live(m) then
-    return m
-  end
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].filetype = "codereview-overlay"
-  vim.bo[buf].modifiable = false
-  local mwin = vim.api.nvim_open_win(buf, false, {
-    split = "right",
-    win = win,
-    width = config.get().overlay.width,
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group = group,
+    callback = function()
+      local win = vim.api.nvim_get_current_win()
+      local m = margins[vim.api.nvim_get_current_tabpage()]
+      -- The followed window is closing, and this is the cursor landing elsewhere as it goes.
+      -- Moving the margin now fails with E242, since no split may be made while a window
+      -- closes; `lost` has already asked for the follow on the next tick.
+      if m and m.code == nil then
+        return
+      end
+      -- `:new` splits the window with its buffer, enters the split, and only then gives it
+      -- an empty one, so a window entered on the buffer the margin already draws may be
+      -- about to hold something else. Followed a tick later, it is a split of the file the
+      -- reviewer is in or it is not a file at all; followed now, the margin would move
+      -- beside `:new`'s window and then close there.
+      if
+        m
+        and m.code
+        and m.code ~= win
+        and vim.api.nvim_win_is_valid(m.code)
+        and vim.api.nvim_win_get_buf(m.code) == vim.api.nvim_win_get_buf(win)
+      then
+        vim.schedule(function()
+          if vim.api.nvim_get_current_win() == win then
+            follow(win)
+          end
+        end)
+        return
+      end
+      follow(win)
+    end,
   })
-  local wo = vim.wo[mwin]
-  wo.winfixwidth = true
-  -- The card rows are cut to the margin's width here, so the window must not fold them back
-  -- to column zero, where there is no rule.
-  wo.wrap = false
-  wo.number = false
-  wo.relativenumber = false
-  wo.signcolumn = "no"
-  wo.foldcolumn = "0"
-  wo.statuscolumn = ""
-  wo.list = false
-  wo.spell = false
-  wo.cursorline = false
-  m = { win = mwin, buf = buf, code = win }
-  margins[tab] = m
-  return m
-end
-
----Close every margin and take the signs out of every buffer they were drawn in.
----
----The anchors stay. They are not drawn, and an edit made while the overlay is off still
----moves them, so a card comes back beside the code it was about.
-local function close_all()
-  for tab, m in pairs(margins) do
-    if vim.api.nvim_win_is_valid(m.win) then
-      pcall(vim.api.nvim_win_close, m.win, true)
-    end
-    margins[tab] = nil
-  end
-  for buf in pairs(signed) do
-    if vim.api.nvim_buf_is_valid(buf) then
-      vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
-    end
-    signed[buf] = nil
-  end
-  pcall(vim.api.nvim_del_augroup_by_name, GROUP)
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    group = group,
+    callback = function()
+      follow(vim.api.nvim_get_current_win())
+    end,
+  })
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = group,
+    callback = function(ev)
+      local id = tonumber(ev.match)
+      for tab, m in pairs(margins) do
+        if id == m.win and not closing and not m.dismissed then
+          dismissed(tab, m)
+        elseif id == m.code then
+          lost(m)
+        end
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd("QuitPre", { group = group, callback = quitting })
 end
 
 ---The sentence a toggle ends in.
@@ -591,12 +839,11 @@ local function said(on, skipped)
   )
 end
 
----Draw the margin beside the current window: open it and paint it.
+---Draw the margin beside the current window, or wait for a file if it holds none.
 ---@return integer skipped
 local function show()
-  open(vim.api.nvim_get_current_win())
   listen()
-  return M.paint()
+  return follow(vim.api.nvim_get_current_win())
 end
 
 ---Turn the overlay on or off for the rest of this session, and say so.

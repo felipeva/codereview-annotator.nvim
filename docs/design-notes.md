@@ -1937,3 +1937,43 @@ otherwise put every card a row off.
 `botright vsplit` puts a window at the far right of the whole tab page, full height, and with
 another vertical split open that is not beside the window being read. `nvim_open_win` with
 `split = "right"` and the window named splits that one window and leaves focus where it was.
+
+**The margin is moved, not closed and opened again.** `nvim_win_set_config` with `split =
+"right"` and another window takes a split to that window's side, keeps its handle and its
+window options, and fires no `WinClosed`, `WinNew` or `WinEnter` doing it -- measured, with
+all five events logged across the move. That last part is what makes it the choice: a close
+and a reopen would raise the very `WinClosed` that says the reviewer closed the margin. It
+does even out the width (20 columns read 30 after the move), so the width rides in the same
+call.
+
+**`:new` enters its window before it holds the new buffer.** The split is made with the
+current buffer, `WinEnter` fires there, and only then is the empty buffer put in, raising
+`BufWinEnter`. A margin that follows on `WinEnter` alone moves beside `:new`'s window and
+then closes there, which is how the first version broke overlay_spec's wrap case. So a
+window entered on the very buffer the margin already draws is followed a tick later, when it
+is either a split of that file or not a file at all. A window entered on any other buffer is
+followed at once.
+
+**A window that is closing cannot be split beside.** The `WinEnter` that a close raises for
+the window the cursor lands in comes while the close is still under way, and moving the
+margin from there fails with `E242: Can't split a window while closing another`. Closing
+the margin from the code window's `WinClosed` is no better: with the two alone in a tab
+page, it aborts the close with `E855: Autocommands caused command to abort`. So the code
+window closing only clears the margin's rows; where it goes is decided on the next tick,
+from the window the cursor is then in. `:q` in a window whose only neighbour is its margin
+is caught earlier, on `QuitPre`, where closing the margin first is still allowed and the
+quit then closes the tab page or Neovim as it would have without one.
+
+**`:tabclose` looks exactly like the reviewer closing the margin.** Measured: the margin's
+`WinClosed` comes first, with the code window current and every window of the tab page
+still valid; only after it do the code window's `WinClosed` and `TabClosed` arrive. Nothing
+in that first moment tells it apart from `:only` in the code window. So a margin closed by
+anything but the plugin is marked dismissed at once -- the `WinEnter` the close raises must
+not reopen it -- and the toggle goes off on the next tick only if the tab page is still
+there.
+
+**Which buffer is a file is its own question, not `file_of`'s.** A file of another checkout,
+of no checkout, or not yet written keeps the margin up with its empty line; only a
+`buftype` or a name with a scheme (`term://`, `codereview://`, a plugin's `oil://`) closes
+it. Help has `buftype=help` already by the time its `BufWinEnter` fires, measured, so the
+check needs no second look later.

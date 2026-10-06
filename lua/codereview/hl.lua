@@ -108,6 +108,11 @@ local LINKS = {
   CodeReviewQueueIndex = "LineNr",
   CodeReviewQueueState = "Comment",
 
+  -- The one line a **margin** holds beside a file it has no **card** for. Quiet, because it
+  -- says that nothing is there: the margin stays open so the layout does not jump as the
+  -- reviewer moves between files, and the line is only what keeps it from reading as broken.
+  CodeReviewOverlayEmpty = "Comment",
+
   -- The checked boxes in the commit list: the commits the review is reading. Its own group
   -- rather than the index's, because it answers *this one is in* and not *this is which
   -- one* -- and what is in the review is the one thing in that float a reviewer is looking

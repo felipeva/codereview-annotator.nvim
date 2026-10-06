@@ -1231,19 +1231,49 @@ Each line an annotation covers also gets a sign in the type's colour. With
 'signcolumn' set to `no` there is no sign; the card header still names the
 lines.
 
+                                                *codereview-overlay-follow*
+The margin follows you. There is one margin in each tab page, beside one
+window, and it shows the file in that window:
+- When you open another file in that window, the margin shows that file.
+- When you move the cursor into another split that holds a file, the margin
+  moves to the right of that split.
+- A floating window does not move it. You can move the cursor into the margin;
+  that changes nothing.
+- A file you open from the review with `<CR>` (|codereview-mappings|) opens in a
+  new tab, and that tab gets a margin. The review's own windows get none.
+The first time the margin draws a file of a checkout, it reads that
+checkout's queue back from disk, so the cards are there at once.
+
+When the file has no annotation to draw, the margin stays open and shows one
+line, "no annotations in this file", in `CodeReviewOverlayEmpty`. A file of
+another checkout, or of no checkout, shows the same line.
+
+When the window holds something that is not a file -- a help page, a
+terminal, a buffer of this or another plugin -- the margin closes. The overlay
+stays on, and the margin comes back when that window holds a file again.
+
+When you close the margin yourself (`:q` or `<C-w>c` in it, or `:only` in the
+code window), the overlay goes off, as if you had used |:CodeReviewOverlay|.
+Closing the tab page the margin is in does not turn it off. When you close the
+window the margin is beside, the margin goes to the window the cursor goes to,
+or closes if that window holds no file. `:q` in a window whose only neighbour
+is its margin closes the tab page (or Neovim) as it would without the margin.
+`:close` or `<C-w>c` there leaves the margin alone in the tab page, empty,
+until you close it with `:q`, which turns the overlay off.
+
 What is drawn: the annotations queued in the checkout you are in, about the
 file in the window, whichever path captured them. What is not drawn:
 - an annotation on a deleted line, which has no line in the file on disk;
 - an annotation whose first line is past the end of the file;
 - a sent (archived) annotation, a bare note, and an annotation of another
-  checkout;
-- anything beside a buffer that is not a file, or one the plugin owns.
+  checkout.
 The first two are counted, and turning the overlay on tells you how many were
 not drawn. A range that mixes deleted and added lines is drawn at the lines it
 recorded.
 
-The overlay repaints when you scroll or resize the window, after a capture,
-after an edit, a retype or a drop, and after a submit. A capture made
+The overlay repaints when you scroll or resize the window, when the margin
+moves or the file in its window changes, after a capture, after an edit, a
+retype or a drop, and after a submit. A capture made
 while the overlay is off does not turn it on.
 
 Like |codereview-solo|, the overlay is a way of reading and nothing more. The
@@ -1638,6 +1668,7 @@ defines, so overriding any of them works without the plugin fighting back: >
     CodeReviewUntouched    -> DiagnosticHint
     CodeReviewQueueIndex   -> LineNr
     CodeReviewQueueState   -> Comment
+    CodeReviewOverlayEmpty -> Comment
     CodeReviewBarIcon      -> Comment
     CodeReviewBarSep       -> NonText
     CodeReviewBarTarget    -> Special
