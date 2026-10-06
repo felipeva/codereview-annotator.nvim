@@ -376,6 +376,42 @@ local function write(buf, lines)
   vim.bo[buf].modifiable = false
 end
 
+---What the file on disk and its buffer captures were at the last rehash, per absolute path.
+---@type table<string, string>
+local judged = {}
+
+---Judge the file's buffer captures against the file on disk again, when it can have moved.
+---
+---A restore judges a checkout's captures once, and a file edited after that would otherwise
+---keep a card saying nothing over lines that have changed. Only captures from a buffer: their
+---**blob** is the working tree's, so the file on disk is what they are judged against. A
+---review-path entry's blob is an index or commit blob, which the working file may differ from
+---for good reasons, and it keeps what the review view last judged.
+---
+---Gated, because the paint runs on every scroll and a `git hash-object` per scroll is a
+---process a reviewer reading a file would pay for nothing. The gate is the file's stat, not
+---the buffer's `changedtick`: the capture hashed the file on disk, so an edit not yet written
+---cannot change the answer, and a change made outside Neovim -- a checkout, another editor --
+---moves the stat and no tick. The ids of the file's captures are in the key too, so an entry
+---arriving between two paints is judged before it is drawn.
+---@param file { root: string, rel: string }
+---@param ids integer[] The file's buffer captures, in queue order
+local function rehash(file, ids)
+  if #ids == 0 then
+    return
+  end
+  local abs = vim.fs.joinpath(file.root, file.rel)
+  local st = vim.uv.fs_stat(abs)
+  local key = (st and ("%d.%d:%d"):format(st.mtime.sec, st.mtime.nsec, st.size) or "gone")
+    .. "|"
+    .. table.concat(ids, ",")
+  if judged[abs] == key then
+    return
+  end
+  judged[abs] = key
+  require("codereview.state").reconcile_queue(file.root, file.rel)
+end
+
 ---The entries a buffer's file holds, in queue order, and how many of them cannot be drawn.
 ---@param buf integer
 ---@return CRAnnotation[] drawn, integer skipped
@@ -398,9 +434,12 @@ local function entries_of(buf)
     return {}, 0
   end
   local total = vim.api.nvim_buf_line_count(buf)
-  local drawn, skipped = {}, 0
+  local drawn, skipped, captured = {}, 0, {}
   for _, entry in ipairs(queue.all()) do
     if entry.path == file.rel and entry.kind ~= "note" then
+      if entry.worktree then
+        captured[#captured + 1] = entry.id
+      end
       if entry.kind ~= "file" and (pre_image(entry) or not entry.first or entry.first > total) then
         skipped = skipped + 1
       else
@@ -408,6 +447,8 @@ local function entries_of(buf)
       end
     end
   end
+  -- Before any card is built, since the card is where the flag is read.
+  rehash(file, captured)
   return drawn, skipped
 end
 

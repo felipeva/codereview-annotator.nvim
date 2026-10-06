@@ -1991,3 +1991,22 @@ of no checkout, or not yet written keeps the margin up with its empty line; only
 `buftype` or a name with a scheme (`term://`, `codereview://`, a plugin's `oil://`) closes
 it. Help has `buftype=help` already by the time its `BufWinEnter` fires, measured, so the
 check needs no second look later.
+
+**A paint judges the painted file's buffer captures again, gated on the file's stat and not
+on `changedtick`.** A restore judges a checkout's captures once, so a file written after it
+kept a card saying nothing over changed lines until a restart. The paint runs on every
+scroll, so the rehash runs only when the file's size or `mtime` (seconds and nanoseconds)
+moved, or the ids of its buffer captures changed, since the last one. `changedtick` is the
+wrong key: a capture's blob is `git hash-object` of the file on disk, so an edit not yet
+written cannot change the answer and would spawn a process per edit for nothing, and a
+change made outside Neovim -- a checkout, another editor -- moves the stat and no tick. The
+ids are in the key so an entry arriving between two paints is judged before it is drawn;
+it costs one process on a capture, never on a scroll. Measured in overlay_stale_spec around
+`vim.system`: the paint after a write runs one `hash-object -- <that file>`, and the paint
+after a scroll straight after it runs no git process at all. The rehash is
+`state.reconcile_queue` narrowed to one path, not a second hashing path, so the restore and
+the paint cannot judge a capture differently. Review-path entries are left alone: their blob
+can be the index or a commit, which the working file may differ from for good reasons. The
+limit that remains is the stat's: two writes of the same size inside one `mtime` tick on a
+filesystem with whole-second times read as no change. Not measured; APFS and ext4 keep
+nanoseconds.

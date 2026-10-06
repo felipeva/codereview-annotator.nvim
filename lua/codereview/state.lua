@@ -891,14 +891,24 @@ end
 ---reaches them: it only judges what the current scope includes, which is correct for a
 ---review annotation and means a buffer annotation about an unrelated file would never be
 ---checked at all. Judged here at any scope, and with no view open.
+---
+---Narrowed to one file for the **overlay**, which judges again on a paint and draws one file:
+---the paint runs on every scroll, and hashing every file in the queue there would charge a
+---reviewer for files they are not looking at. The same function rather than a second one
+---beside it, so the two cannot come to judge a capture differently.
 ---@param root string
+---@param path string|nil Only the entries of this repository-relative path; nil for all
 ---@return integer staled
-function M.reconcile_queue(root)
+function M.reconcile_queue(root, path)
   local git = require("codereview.git")
+
+  local function judged(item)
+    return item.worktree and item.path and (path == nil or item.path == path)
+  end
 
   local paths = {}
   for _, item in ipairs(queue.all()) do
-    if item.worktree and item.path then
+    if judged(item) then
       paths[#paths + 1] = item.path
     end
   end
@@ -909,7 +919,7 @@ function M.reconcile_queue(root)
   local hashes = git.hash_worktree(paths, root)
   local staled = 0
   for _, item in ipairs(queue.all()) do
-    if item.worktree and item.path then
+    if judged(item) then
       -- A file that has been deleted hashes to nothing, which is at least as stale as one
       -- that merely changed: the lines the note names are gone either way.
       local moved = hashes[item.path] ~= (item.blob or "")
