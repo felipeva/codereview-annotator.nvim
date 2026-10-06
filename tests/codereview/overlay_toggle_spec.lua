@@ -1,5 +1,6 @@
 -- `overlay.enabled` is what a new Neovim starts from: the margin open from `true`, closed
--- from `false`, and the toggle leaving it the other way either time.
+-- from `false`, and the toggle leaving it the other way either time. `overlay.style` is which
+-- drawing it opens in: captions from `inline`, the margin from `margin`.
 --
 -- Two children, the solo toggle spec's shape: a configured default is only observable in a
 -- process nothing has toggled in yet, and this one is never it. Both share this process's
@@ -10,8 +11,9 @@ local h = require("tests.helpers")
 local fixture = h.fixture("mkfixture")
 
 ---@param enabled boolean
+---@param style "margin"|"inline"|nil
 ---@return string out Both streams of the child, which prints to stderr under `-l`
-local function run_child(enabled)
+local function run_child(enabled, style)
   local run = vim
     .system({
       vim.v.progpath,
@@ -25,6 +27,7 @@ local function run_child(enabled)
         XDG_STATE_HOME = vim.env.XDG_STATE_HOME,
         FIXTURE = fixture,
         OVERLAY = tostring(enabled),
+        STYLE = style,
         GIT_CONFIG_GLOBAL = "/dev/null",
         GIT_CONFIG_SYSTEM = "/dev/null",
       },
@@ -56,5 +59,19 @@ describe("a session configured with the overlay off", function()
 
   it("turns it on at the first toggle", function()
     assert.is_truthy(out:find("toggled=true margin_after=true", 1, true), out)
+  end)
+end)
+
+-- The configured style decides the drawing a session opens with. An entry is queued in the
+-- child before `setup`, so each drawing has something to show and an empty one cannot pass.
+describe("a session configured with the overlay on in a style", function()
+  it("opens with captions and no margin from the inline style", function()
+    local out = run_child(true, "inline")
+    assert.is_truthy(out:find("style=inline margin=false captions=1", 1, true), out)
+  end)
+
+  it("opens the margin and no caption from the margin style", function()
+    local out = run_child(true, "margin")
+    assert.is_truthy(out:find("style=margin margin=true captions=0", 1, true), out)
   end)
 end)

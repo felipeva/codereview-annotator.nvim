@@ -2010,3 +2010,63 @@ can be the index or a commit, which the working file may differ from for good re
 limit that remains is the stat's: two writes of the same size inside one `mtime` tick on a
 filesystem with whole-second times read as no change. Not measured; APFS and ext4 keep
 nanoseconds.
+
+**A caption wraps to the window's width less `textoff`, and `textoff` is stale until a
+redraw.** Virtual lines clip at the window's edge even under `wrap`, so the note is wrapped
+to the text width: `nvim_win_get_width` less `getwininfo().textoff`, which counts the number,
+sign and fold columns and a `statuscolumn` together. (`nvim_win_text_height` answers in rows,
+not in a width, so it is no alternative.) Under `signcolumn=auto` -- the default -- the sign
+column opens only once the first sign is drawn, and `textoff` reports it only after the
+window has been redrawn: measured, 0 straight after the first sign, 2 after `:redraw`. The
+same holds for a number column made wider. So the caption paint redraws between the signs
+and the measurement. `nvim__redraw({ win = ..., valid = false })` also refreshes it, confined
+to the one window, but it is not API; `{ valid = true }` and `{ statuscolumn = true }` do not.
+The paint does not run on a scroll, so the redraw is paid on an enter, a queue change and a
+resize only.
+
+**A caption's indent and its wrap budget are one `strdisplaywidth`.** The connector `╭─` is
+two columns and six bytes, so the review view's note-prefix trap (see "Rendering") is here
+again with a wider gap: a byte count put the continuation rows six columns right of the note
+and shortened every row. Measured by mutation in overlay_caption_spec. The measurement runs
+inside `nvim_win_call` on the followed window, for the margin's reason above: the current
+window can be the queue float. That window wraps, but every row is no wider than its text,
+so no double-width character crosses its edge and the count is the drawn one.
+
+**Virtual lines on one row stack in the order their marks were made, not the order they were
+set.** Measured: two marks on one row, the older one given its `virt_lines` last, still draw
+the older one's first. An entry's anchor is made the first time the entry is drawn in that
+buffer, so an entry skipped as past the end and drawn after the file grew has an anchor
+younger than its neighbour's, and one block per anchor would draw it below a later entry.
+So every caption of one line hangs on one mark, the anchor of the first in queue order, and
+the other anchors on that line carry nothing. A whole-file entry has no anchor; its caption
+joins line 1's block, ahead of the rest, or hangs on a mark of the paint's own at the top of
+the buffer when no anchor is on line 1. That mark is in the namespace the paint clears, so it
+is made again at the top every paint.
+
+**Virtual lines above line 1 are hidden until the window scrolls up into them.** Neovim 0.12
+treats them as filler above the top line: a window at its top draws line 1 on its first row
+and the caption only after `<C-y>` -- measured, `topfill` 0 at first, 2 after two `<C-y>`. So
+after drawing a caption above line 1 the paint sets `topfill` to the filler
+`nvim_win_text_height` counts for row 0, when the window's top line is 1. Not when it is
+scrolled down: that is where the reviewer put it. The limit that remains is Neovim's: `gg`
+from further down lands with `topfill` 0, measured, and the rows stay hidden until `<C-y>` or
+the next paint. Forcing `topfill` on `WinScrolled` was rejected: `<C-e>` at the top lowers
+`topfill` and raises that very event, so the reviewer could no longer scroll down past them.
+
+**A caption is taken away by setting its mark again, not by deleting it.** Turning the
+overlay off and switching to the margin keep the anchors, so an edit made in between still
+moves them (see "The anchors live in a namespace of their own"). `nvim_buf_set_extmark` with
+the mark's own id, at its own position, and no `virt_lines` replaces the mark whole: measured,
+`details` then carries no `virt_lines` and the row is unchanged.
+
+**The inline style paints the followed window's buffer, not the current one.** A drop from the
+queue float runs with the float current, and its buffer is the plugin's, so painting "the
+current buffer" would paint nothing and leave the dropped caption up. The inline style keeps
+the margin's bookkeeping -- one followed window per tab page, settled by the same `follow` --
+with no window beside it, so the drop, a capture and a resize all repaint the buffer the
+reviewer is reading. The scroll listener does nothing in this style.
+
+**Switching from the margin closes it through `shut`.** A margin window closed any other way
+raises a `WinClosed` that reads as the reviewer closing it, and the toggle goes off on the
+next tick. Measured by mutation: closing it with `nvim_win_close` directly leaves the overlay
+off after one `vim.wait`.

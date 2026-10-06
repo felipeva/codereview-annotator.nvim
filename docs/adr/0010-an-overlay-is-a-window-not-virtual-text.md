@@ -1,5 +1,7 @@
 # An overlay is a window, not virtual text
 
+_Narrowed by [ADR-0011](0011-a-caption-is-virtual-text-because-it-takes-no-cursor.md): true of the **margin**; the overlay's inline style is virtual text for the reasons given there._
+
 The **review view** draws a queued **note** as virtual lines under its anchor row, and the
 obvious way to show the **queue** on an ordinary buffer was the same mechanism, extracted
 from the render. The **overlay** is a **margin** instead: a split to the right of the file's

@@ -56,11 +56,18 @@ function M.setup(opts)
   })
 
   -- A command, a Lua function and no key: the plugin binds no global keys, and the
-  -- **overlay** is drawn on ordinary buffers, where every key is the host's.
-  vim.api.nvim_create_user_command("CodeReviewOverlay", function()
-    M.overlay()
+  -- **overlay** is drawn on ordinary buffers, where every key is the host's. Bare, it
+  -- toggles; with a style, it turns on in that style or switches the drawing in place.
+  vim.api.nvim_create_user_command("CodeReviewOverlay", function(cmd)
+    M.overlay(cmd.args ~= "" and cmd.args or nil)
   end, {
-    desc = "Show or hide the queued annotations beside the lines of the current file",
+    nargs = "?",
+    desc = "Show or hide the queued annotations on the lines of the current file (margin or inline)",
+    complete = function(lead)
+      return vim.tbl_filter(function(name)
+        return name:sub(1, #lead) == lead
+      end, vim.deepcopy(config.OVERLAY_STYLES))
+    end,
   })
 
   vim.api.nvim_create_user_command("CodeReviewAnnotate", function(cmd)
@@ -143,14 +150,29 @@ function M.annotate(type_name, range, opts)
   require("codereview.capture").annotate(type_name, range, opts)
 end
 
----Show or hide the **overlay** -- the queue drawn beside the lines of the current file --
----for the rest of this session.
+---Show or hide the **overlay** -- the queue drawn on the lines of the current file -- for
+---the rest of this session.
+---
+---With no style it toggles. With one it turns the overlay on in that style, or, when it is
+---on already, switches the drawing in place and leaves it on: two keys a host binds for the
+---two drawings never turn it off.
 ---
 ---Written nowhere: like solo, it is how one sitting is being read, and the queue, the
 ---archive and the payload are what they were (ADR-0010).
+---@param style "margin"|"inline"|nil
 ---@return boolean on Whether the overlay is now on
-function M.overlay()
-  return require("codereview.overlay").toggle(require("codereview.view"))
+function M.overlay(style)
+  -- Said and refused rather than raised: the command's argument is typed by hand, and a
+  -- typo is a sentence to read, not a traceback.
+  if style ~= nil and not vim.tbl_contains(config.OVERLAY_STYLES, style) then
+    vim.notify(
+      ("Unknown overlay style %s — expected margin or inline"):format(vim.inspect(style)),
+      vim.log.levels.ERROR,
+      { title = "Code review" }
+    )
+    return config.overlay()
+  end
+  return require("codereview.overlay").toggle(require("codereview.view"), style)
 end
 
 ---Open the queue for review, with drop / route / submit.

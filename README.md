@@ -51,7 +51,7 @@ With no [`send`](#adapters) adapter, the batch goes to the `+` register and stay
 | `:CodeReviewLastBatch` | Show the last batch you sent |
 | `:CodeReviewSwitch` | Move the review to another checkout (worktree) of this repo |
 | `:CodeReviewBack` | Go back to the previous checkout |
-| `:CodeReviewOverlay` | Show or hide the queued annotations beside the current file |
+| `:CodeReviewOverlay [margin\|inline]` | Show or hide the queued annotations on the current file, in a margin or as captions |
 
 Scopes:
 
@@ -272,14 +272,42 @@ open:
 
 They are bound on the margin's buffer only, so `e`, `t` and `x` hide none of your motions.
 
-Not drawn: annotations on deleted lines or past the end of the file (the toggle tells you how
-many), sent annotations, bare notes, and other checkouts' annotations. Nothing is stored and
-the buffer is not changed.
+#### Captions
+
+`:CodeReviewOverlay inline` draws the same annotations as captions: one virtual line above
+each annotated line, at the column where the code starts:
+
+```
+   ╭─ ✗ ⚠ stale why is this branch unreachable? The guard above already
+            returns on every path that reaches it.
+12 if mode == "split" then
+```
+
+The connector and the icon are in the type's colour, then `⚠ stale` when it applies, then the
+full note. The note wraps to the window's width, less the number, sign and fold columns, and
+it wraps again when you resize the window. A whole-file annotation's caption is above line 1.
+Several annotations on one line stack in queue order. The covered lines get the same signs as
+in the margin. A caption moves with the code when you edit above it.
+
+Captions take no window and have no keys: to act on an annotation, use the queue float or
+switch to the margin. A file with nothing to draw shows nothing. Captions are drawn when you
+enter a buffer, when the queue changes, and when you resize the window.
+
+`:CodeReviewOverlay margin` and `:CodeReviewOverlay inline` turn the overlay on in that style,
+or change the drawing when it is on already; they never turn it off. The bare command still
+toggles. The style lasts for the session; `overlay.style` sets where each session starts.
+
+Not drawn, in either style: annotations on deleted lines or past the end of the file (the
+toggle tells you how many), sent annotations, bare notes, and other checkouts' annotations.
+Nothing is stored and the buffer is not changed.
 
 ```lua
 vim.keymap.set("n", "<leader>ao", function()
   require("codereview").overlay()  -- returns true when it is now on
 end, { desc = "Toggle the review overlay" })
+vim.keymap.set("n", "<leader>ai", function()
+  require("codereview").overlay("inline")  -- on, as captions
+end, { desc = "Review overlay as captions" })
 ```
 
 See `:help codereview-overlay`.
@@ -336,12 +364,13 @@ opts = {
   faded = { enabled = true, strength = 0.35 },        -- dim the files you are not in
   counterpart = { enabled = true, strength = 0.25 },  -- mark the opposite row in split
   panel = { enabled = true, width = 34, position = "left" },
-  overlay = { enabled = false, width = 40 },           -- (:CodeReviewOverlay)
+  overlay = { enabled = false, width = 40, style = "margin" },  -- or "inline" (:CodeReviewOverlay)
   icons = {
     reviewed = "✓", annotated = "●", unreviewed = "○",
     collapsed = "▸", expanded = "▾", change_bar = "▌",
     untouched = "↺", continuation = "↳",
     progress_full = "█", progress_empty = "░",
+    caption = "╭─",
   },
   types = nil,                   -- the five types above
 }
@@ -394,7 +423,7 @@ The queue, reviewed marks, commit selections and sent batches persist per checko
 annotations are marked `⚠ stale`.
 
 The overlay checks this again each time it draws a file, but only for annotations you captured
-from a buffer, and only for the file in the margin. It hashes the file on disk: a change you
+from a buffer, and only for the file it draws. It hashes the file on disk: a change you
 have not written does not count, and it hashes again only when the file's size or modification
 time changes. An annotation from the review view keeps the flag the review view gave it. No
 line moves. See `:help codereview-persistence-staleness`.

@@ -206,7 +206,8 @@ _Avoid_: viewless path, buffer path
 
 **Overlay**:
 The **queue** drawn on an ordinary file buffer: the file's **entries** shown beside the
-lines they are anchored to. Said of a buffer and never of a **review view**, which projects
+lines they are anchored to, in a **margin**, or above them, as **captions** — one toggle,
+one set of rules, two drawings, and a style setting says which. Said of a buffer and never of a **review view**, which projects
 its annotations onto its own lines and keeps doing so — but said of any file buffer, whether
 a review view is open or not, so a file opened from the diff gets one too. Never drawn on a
 buffer the plugin owns. A session-long toggle, written nowhere, like **solo**. The buffer's
@@ -215,7 +216,7 @@ transient, and an overlay stays until it is hidden.
 _Avoid_: toast, inline notes, projection, sidebar
 
 **Margin**:
-The window an **overlay** draws in: a split to the right of the buffer's window, holding
+The window an **overlay** draws in, in its margin style: a split to the right of the buffer's window, holding
 one **card** per entry, laid out from the screen row of each entry's anchor. The cursor can
 enter it, and the queue float's keys work there. Said of a buffer's overlay and never of
 the file tree, which is the **review view**'s side window.
@@ -231,6 +232,16 @@ the margin and no scrolling takes it away. Not a **frame**, which is
 what marks a file out in the review view and refuses this word for itself; a card is said
 of an entry and never of a file.
 _Avoid_: box, toast, bubble, popup
+
+**Caption**:
+One **entry** as the **overlay** draws it in its inline style: a virtual line above the
+entry's anchor line, with a connector, the type's icon, the **stale** flag and the **note**
+wrapped to the window's width, so the note reads as a heading for the lines that follow.
+Drawn on the buffer's lines and never beside them, which is the **card**'s place; takes no
+cursor and has no keys, which is why it is virtual text where a card is a window
+(ADR-0011). Not the note a **review view** hangs under a diff line: that one reads as a
+reply to the line above it, a caption as a title for the lines below.
+_Avoid_: label (a type's group heading), banner, inline note, comment
 
 ### Annotating
 
