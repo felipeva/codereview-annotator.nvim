@@ -386,18 +386,15 @@ function M.open(view)
   end, { buffer = buf, desc = "Jump to the annotation" })
 
   vim.keymap.set("n", "x", function()
-    local id = entry_at_cursor()
-    if not id then
+    local entry = queued(entry_at_cursor())
+    if not entry then
       return
     end
-    queue.remove(id)
-    if view.current() then
-      view.paint()
-      view.persist()
-    end
+    -- Through annotate, for the reason `e` gives. The drop says what it left, "0 left"
+    -- included, so an empty queue needs no word of its own here.
+    require("codereview.annotate").drop_entry(entry)
     if queue.count() == 0 then
       close()
-      info("Queue is now empty")
       return
     end
     paint_queue()
