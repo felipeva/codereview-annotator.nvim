@@ -1023,9 +1023,11 @@ function M.build(files, opts)
     local icon = type_def and type_def.icon or "•"
     -- An archived entry keeps its type's icon, because what kind of finding it was is still
     -- worth knowing, and gives up that type's color: severity is an instruction to act,
-    -- and this one has already been acted on.
+    -- and this one has already been acted on. A queued entry's note takes the same group
+    -- as its glyph, as a card's and a caption's do, so one color means one type wherever a
+    -- note is read.
     local group = archived and "CodeReviewArchived" or (type_def and type_def.hl or "CodeReviewNote")
-    local text_group = archived and "CodeReviewArchivedNote" or "CodeReviewNote"
+    local text_group = archived and "CodeReviewArchivedNote" or group
     local prefix = ("   %s "):format(icon)
     -- In columns, never in bytes, and measured once so the budget a note wraps to and the
     -- indent its continuation rows carry cannot disagree. They did: `#prefix` and

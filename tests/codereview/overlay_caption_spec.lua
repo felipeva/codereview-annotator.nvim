@@ -278,7 +278,7 @@ end)
 describe("a caption", function()
   after_each(off)
 
-  it("is a virtual line above its anchor: connector and icon in the type's group, note in the note group", function()
+  it("is a virtual line above its anchor: connector, icon and note in the type's group", function()
     queue.clear()
     local _, buf = code_window()
     queued({ type = "fix", first = 12, note = "pull it out" })
@@ -286,11 +286,11 @@ describe("a caption", function()
     local row = first_row(buf, 12)
     assert.equal(CONNECTOR .. " ✎ pull it out", text(row))
     assert.equal("CodeReviewFix", group_of(row, CONNECTOR .. " ✎ "))
-    assert.equal("CodeReviewNote", group_of(row, "pull it out"))
-    assert.same({ "CodeReviewFix", "CodeReviewNote" }, groups(row))
+    assert.equal("CodeReviewFix", group_of(row, "pull it out"))
+    assert.same({ "CodeReviewFix", "CodeReviewFix" }, groups(row))
   end)
 
-  it("says stale in the stale group, and only on a stale entry", function()
+  it("says stale in the stale group inside a note in the type's group, and only on a stale entry", function()
     queue.clear()
     local _, buf = code_window()
     queued({ first = 12, note = "moved", stale = true })
@@ -299,11 +299,13 @@ describe("a caption", function()
     local stale = first_row(buf, 12)
     assert.equal(CONNECTOR .. " ✗ ⚠ stale moved", text(stale))
     assert.equal("CodeReviewStale", group_of(stale, "⚠ stale "))
-    assert.same({ "CodeReviewBug", "CodeReviewStale", "CodeReviewNote" }, groups(stale))
-    assert.same({ "CodeReviewBug", "CodeReviewNote" }, groups(first_row(buf, 20)))
+    assert.same({ "CodeReviewBug", "CodeReviewStale", "CodeReviewBug" }, groups(stale))
+    assert.same({ "CodeReviewBug", "CodeReviewBug" }, groups(first_row(buf, 20)))
   end)
 
-  it("draws an untyped entry with the untyped mark, in the note group", function()
+  -- The one case where the note group is still right: an untyped note gives no instruction,
+  -- and grey is what says so.
+  it("draws an untyped entry with the untyped mark, mark and note in the note group", function()
     queue.clear()
     local _, buf = code_window()
     queue.add({
@@ -368,6 +370,8 @@ describe("a caption", function()
         assert.equal(prefix, vim.fn.strdisplaywidth(row[1][1]))
         assert.equal("", vim.trim(row[1][1]))
       end
+      -- Every row of the note, not only the first, says what kind of remark it is.
+      assert.equal("CodeReviewBug", row[#row][2], ("row %d"):format(n))
       joined[#joined + 1] = row[#row][1]
     end
     assert.equal(note, table.concat(joined, " "))

@@ -281,23 +281,28 @@ describe("a card", function()
     end
   end)
 
-  it("draws its header and rule in the type's group, and its note in the note group", function()
+  it("draws its header, rule and note in the type's group", function()
     assert.equal("CodeReviewBug", group_of(m.buf, 2, "✗ bug 2"))
     assert.equal("CodeReviewBug", group_of(m.buf, 2, BAR))
     assert.equal("CodeReviewBug", group_of(m.buf, 3, BAR))
-    assert.equal("CodeReviewNote", group_of(m.buf, 3, "first note"))
+    assert.equal("CodeReviewBug", group_of(m.buf, 3, "first note"))
+    assert.equal("CodeReviewSuggestion", group_of(m.buf, 7, "a range"))
     assert.equal("CodeReviewSuggestion", group_of(m.buf, 6, "✦ suggestion 6–9"))
   end)
 
   it("says stale in the stale group, and only on a stale entry", function()
     assert.equal("CodeReviewStale", group_of(m.buf, 11, "⚠ stale"))
     assert.equal("CodeReviewBug", group_of(m.buf, 11, "✗ bug 11"))
+    -- The flag sits in the header; the note under it keeps its type's group.
+    assert.equal("CodeReviewBug", group_of(m.buf, 12, "stale one"))
     assert.is_nil(lines(m.buf)[2]:find("stale", 1, true))
   end)
 
   it("draws an untyped entry with the untyped mark, no name, in the note group", function()
     assert.equal("CodeReviewNote", group_of(m.buf, 15, "• 15"))
     assert.equal("CodeReviewNote", group_of(m.buf, 15, BAR))
+    -- An untyped note gives no instruction, and grey is what says so.
+    assert.equal("CodeReviewNote", group_of(m.buf, 16, "no type"))
   end)
 
   it("puts a sign in the type's group on every covered line", function()
@@ -340,6 +345,11 @@ describe("a card", function()
     assert.equal(BAR .. " " .. ("界"):rep(11), rows[5])
     assert.equal(BAR, (rows[6]:gsub("%s+$", "")))
     assert.equal(BAR .. " after", rows[7])
+    -- Every row of the note, the continuation and the next paragraph alike, in its type's group.
+    local mbuf = margin().buf
+    assert.equal("CodeReviewBug", group_of(mbuf, 4, ("界"):rep(19)))
+    assert.equal("CodeReviewBug", group_of(mbuf, 5, ("界"):rep(11)))
+    assert.equal("CodeReviewBug", group_of(mbuf, 7, "after"))
     -- Measured in the margin, which does not wrap: in the 39-column code window, which does,
     -- the character crossing its edge would cost a cell more than it draws.
     vim.api.nvim_win_call(margin().win, function()

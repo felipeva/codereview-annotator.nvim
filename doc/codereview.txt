@@ -916,6 +916,19 @@ carries in front of its prose, and all an archived entry keeps -- see
 |codereview-archived|. Plain Unicode, one column wide, so no patched font is
 needed here or anywhere else the plugin draws.
 
+                                                *codereview-note-colour*
+A queued note is drawn in its type's `hl` group, the same group as its glyph.
+This is true on every surface that draws a note: under a diff line in the
+review view, on a card in the margin, and in a caption. The shipped type
+groups link to the diagnostic severities -- `CodeReviewBug` to
+`DiagnosticError`, `CodeReviewNitpick` to `DiagnosticHint` -- so a bug reads
+loud and a nitpick quiet, and a page of notes sorts itself by type. `⚠ stale`
+keeps `CodeReviewStale` inside a coloured note. An untyped note stays in
+`CodeReviewNote`, which links to `Comment`: it gives the agent no instruction,
+and grey says so. An archived note keeps `CodeReviewArchivedNote`, see
+|codereview-archived|. There is no separate group for the note: to change its
+colour, change its type's `hl`, and the glyph changes with it.
+
 `aa` opens the picker, which offers those same four columns and `no type`
 last, under the untyped mark. The rows are built from your own types, so a
 replaced set is offered with its own names and its own keys, and a type with
@@ -933,7 +946,8 @@ picker.
     key         required -- pressed after the `a` prefix, so `q` binds `aq`
     label       defaults to the name, title-cased and pluralized
     icon        defaults to `icons.annotated`
-    hl          defaults to CodeReview<Name>, linked so it has color
+    hl          defaults to CodeReview<Name>, linked so it has color;
+                the glyph and the note take it (|codereview-note-colour|)
     directive   optional -- the heading is then just "## Questions (3)",
                 and the picker's row for that type stops at its key
 
@@ -1219,8 +1233,9 @@ one card for each queued annotation of the file in that window: >
 A card starts with a header in its type's colour: the type's icon, its name,
 the lines it is about (`12`, or `12–15`), and `⚠ stale` when the file changed
 under it -- checked again as the margin draws, see
-|codereview-persistence-staleness|. Then the note, wrapped to the margin's
-width, with its blank lines kept. The `change_bar` icon runs down the left
+|codereview-persistence-staleness|. Then the note in the type's colour
+(|codereview-note-colour|), wrapped to the margin's width, with its blank
+lines kept. The `change_bar` icon runs down the left
 edge of each card in the type's colour, which is where one card ends and the
 next starts. An untyped annotation shows `•` and its lines, with no type name.
 
@@ -1308,8 +1323,8 @@ columns: >
 <
 The first row has the `caption` icon (`╭─`) and the type's icon in the type's
 colour, `⚠ stale` in `CodeReviewStale` when the file changed under it, then
-the note in `CodeReviewNote`. An untyped annotation shows `•`, in
-`CodeReviewNote`. The whole note is shown: it wraps to the width of the
+the note in the type's colour (|codereview-note-colour|). An untyped
+annotation shows `•` and its note in `CodeReviewNote`. The whole note is shown: it wraps to the width of the
 window's text, and the rows after the first start under the note. Virtual
 lines do not wrap on their own -- they are cut at the window's edge -- so the
 caption is wrapped again when you resize the window.

@@ -344,6 +344,47 @@ describe("where a note is drawn", function()
     end
     assert.is_true(found)
   end)
+
+  -- Groups on the note text, read row by row: a long bug that wraps to more than one row, a
+  -- stale nitpick whose flag sits inside its coloured note, and an untyped note that stays
+  -- grey because it gives no instruction. Both layouts, out of the same walk.
+  for _, layout in ipairs({ "unified", "split" }) do
+    it(("draws a queued note's text in its type's group in the %s layout"):format(layout), function()
+      local key = render.file_key(path)
+      local long = ("loud "):rep(30) .. "end"
+      local after = build({
+        layout = layout,
+        notes = {
+          [key] = {
+            { note = long, type = "bug" },
+            { note = "quiet", type = "nitpick", stale = true },
+            { note = "grey" },
+          },
+        },
+        expanded = { [path] = false },
+      })
+      local virt = assert(virt_at(after, after.file_rows[index_of(path)]), "no note on the header")
+      local seen = { bug = 0 }
+      for _, line in ipairs(virt) do
+        local last = line[#line]
+        if last[1]:find("loud", 1, true) or last[1] == "end" then
+          assert.same("CodeReviewBug", last[2], vim.inspect(line))
+          seen.bug = seen.bug + 1
+        elseif last[1] == "quiet" then
+          assert.same("CodeReviewNitpick", last[2])
+          assert.same({ "⚠ stale  ", "CodeReviewStale" }, line[#line - 1])
+          seen.stale = true
+        elseif last[1] == "grey" then
+          assert.same("CodeReviewNote", last[2])
+          seen.untyped = true
+        end
+      end
+      -- Unwrapped in the unified layout, which leaves the long note on one row; the split
+      -- layout wraps it to the pane, and its continuation rows have to say bug as well.
+      assert.same(layout == "split", seen.bug > 1, ("%d bug rows"):format(seen.bug))
+      assert.is_true(seen.stale and seen.untyped or false, vim.inspect(seen))
+    end)
+  end
 end)
 
 -- Archived entries take the same anchors live ones do, so they need no rule of their own
