@@ -2066,6 +2066,30 @@ the margin's bookkeeping -- one followed window per tab page, settled by the sam
 with no window beside it, so the drop, a capture and a resize all repaint the buffer the
 reviewer is reading. The scroll listener does nothing in this style.
 
+**A queue change repaints every buffer with captions, and judges only the followed ones.** A
+caption is on the buffer, so a drop from the float of an entry in a file the reviewer left
+would otherwise stay drawn there until they came back. So after the followed buffers, the
+paint walks every loaded buffer it has drawn in this session (`signed`) and draws it again,
+wrapped to a window that shows it, or to the width it last had when none does. Those
+buffers skip the stale rehash altogether rather than trusting its gate: the gate's key holds
+the ids of the file's captures as well as its stat, so dropping a capture of that file
+changes the key and the gate lets a `git hash-object` through. Measured by mutation in
+overlay_caption_true_spec: with the gated rehash on the other buffers, both drop cases see a
+`hash-object` run; skipping it, they see none. An edit of a note leaves the ids and the key alone, so it
+could not tell the two apart.
+
+**A write judges the written buffer again, and the stat decides what "no change" is.**
+`BufWritePost` on a buffer with captions repaints that buffer alone with the rehash on, so
+`⚠ stale` shows after the reviewer edits and writes without leaving the file. It goes
+through the same stat gate, and a `:write` of identical content still moves the `mtime`, so
+it costs one process: what runs none is a second `BufWritePost` the stat says changed
+nothing, and the spec names its case that way. Unlike `WinScrolled`, `BufWritePost` is
+raised by `:write` itself, so a spec case reaches it with no child process. Inline style
+only: the margin's scroll paint already judges the file, and the write's repaint draws
+captions. Measured by mutation: without the style test, all five overlay_stale_spec cases go
+red, since every one of them writes with the margin up.
+No `FocusGained`: a change made outside Neovim is judged on the next enter or write.
+
 **Switching from the margin closes it through `shut`.** A margin window closed any other way
 raises a `WinClosed` that reads as the reviewer closing it, and the toggle goes off on the
 next tick. Measured by mutation: closing it with `nvim_win_close` directly leaves the overlay

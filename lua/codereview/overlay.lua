@@ -12,7 +12,8 @@
 ---The caption is virtual text (ADR-0011): it takes no cursor, and a virtual *line* takes a
 ---row of its own and draws over nothing. It hangs on the entry's anchor, so the code carries
 ---it, and nothing in it depends on a screen row: it paints on entering a buffer, on a queue
----change and on a resize, and never on a scroll. No window, no keys, no quiet line.
+---change -- in every buffer that holds captions -- on a resize and on a write, and never on a
+---scroll. No window, no keys, no quiet line.
 ---
 ---**Not scrollbound, and that is not an oversight.** Scrollbind keeps two windows the same
 ---number of *lines* apart, and with wrap on in the code window a line can take three screen
@@ -468,9 +469,14 @@ local function rehash(file, ids)
 end
 
 ---The entries a buffer's file holds, in queue order, and how many of them cannot be drawn.
+---
+---`judge` is false for a buffer the reviewer is not in, which a queue change repaints and
+---must not hash. The gate cannot be trusted to hold there: its key has the ids of the file's
+---captures in it, so a drop of one of them reads as a change and would spawn the process.
 ---@param buf integer
+---@param judge boolean Rehash the file's buffer captures, through the gate
 ---@return CRAnnotation[] drawn, integer skipped
-local function entries_of(buf)
+local function entries_of(buf, judge)
   local file = file_of(buf)
   if not file then
     return {}, 0
@@ -503,7 +509,9 @@ local function entries_of(buf)
     end
   end
   -- Before any card is built, since the card is where the flag is read.
-  rehash(file, captured)
+  if judge then
+    rehash(file, captured)
+  end
   return drawn, skipped
 end
 
@@ -539,7 +547,7 @@ end
 ---@return integer skipped Entries of the file the margin cannot draw
 local function paint_margin(m)
   local buf = vim.api.nvim_win_get_buf(m.code)
-  local drawn, skipped = entries_of(buf)
+  local drawn, skipped = entries_of(buf, true)
 
   -- Signs and anchors first, because the card rows are read off the anchors.
   local anchored = anchor_and_sign(buf, drawn)
@@ -619,7 +627,12 @@ local function strip(buf)
   end
 end
 
----Repaint the captions of the buffer in the window the overlay follows.
+---The text width each buffer's captions were last wrapped to, for a repaint of a buffer no
+---window shows: it is wrapped as it was, and the enter that shows it again wraps it anew.
+---@type table<integer, integer>
+local widths = {}
+
+---Repaint the captions of one buffer, wrapped to the text width of `win`.
 ---
 ---Every caption of one line hangs on one mark, the anchor of the first of them in queue
 ---order, with whole-file entries ahead of the rest on line 1. Not one block per anchor:
@@ -629,14 +642,15 @@ end
 ---
 ---A whole-file entry has no anchor, as it has no line; when nothing on line 1 has one either,
 ---its caption hangs on a mark of the paint's own, at the top of the buffer.
----@param m CROverlayMargin
+---@param buf integer
+---@param win integer|nil A window showing it; nil when none does
+---@param judge boolean Rehash its file's buffer captures (see `entries_of`)
 ---@return integer skipped Entries of the file the captions cannot draw
-local function paint_captions(m)
-  local buf = vim.api.nvim_win_get_buf(m.code)
+local function paint_captions(buf, win, judge)
   if not is_file(buf) then
     return 0
   end
-  local drawn, skipped = entries_of(buf)
+  local drawn, skipped = entries_of(buf, judge)
   local anchored = anchor_and_sign(buf, drawn)
   -- The signs and anchors are gone already, and their captions with them; a file with
   -- nothing to draw is the common case on an enter, and it costs no redraw.
@@ -644,16 +658,25 @@ local function paint_captions(m)
     return skipped
   end
 
-  -- After the signs: under `signcolumn=auto` the first sign is what opens the column, and the
-  -- window reports its new text offset only once it has been redrawn. Measured: 0 before the
-  -- redraw, 2 after. `nvim__redraw` would confine it to the one window, but it is not API.
-  vim.cmd("redraw")
-  local width = vim.api.nvim_win_get_width(m.code) - vim.fn.getwininfo(m.code)[1].textoff
+  local width = widths[buf]
+  if win then
+    -- After the signs: under `signcolumn=auto` the first sign is what opens the column, and
+    -- the window reports its new text offset only once it has been redrawn. Measured: 0
+    -- before the redraw, 2 after. `nvim__redraw` would confine it to the one window, but it
+    -- is not API.
+    vim.cmd("redraw")
+    width = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
+    widths[buf] = width
+  end
+  -- Hidden, and never wrapped: the signs are drawn, and the enter that shows it draws the rest.
+  if not width then
+    return skipped
+  end
   -- Measured in the window the rows are for: `strdisplaywidth` counts in the current window,
   -- and the current window can be the queue float, narrower than the code (see the margin's
   -- note on the same trap). Every row is no wider than this window's text, so no
   -- double-width character crosses its edge and the count is the drawn one.
-  local built = vim.api.nvim_win_call(m.code, function()
+  local built = vim.api.nvim_win_call(win or 0, function()
     return vim.tbl_map(function(entry)
       return caption(entry, width)
     end, drawn)
@@ -703,9 +726,9 @@ local function paint_captions(m)
   -- none of it until the window is scrolled up into it: measured, a window at its top draws
   -- line 1 first and the caption only after `<C-y>`. So a window already at its top is
   -- scrolled to show them; one scrolled down is left where the reviewer put it.
-  if groups[1] and vim.fn.line("w0", m.code) == 1 then
-    local fill = vim.api.nvim_win_text_height(m.code, { start_row = 0, end_row = 0 }).fill
-    vim.api.nvim_win_call(m.code, function()
+  if win and groups[1] and vim.fn.line("w0", win) == 1 then
+    local fill = vim.api.nvim_win_text_height(win, { start_row = 0, end_row = 0 }).fill
+    vim.api.nvim_win_call(win, function()
       vim.fn.winrestview({ topfill = fill })
     end)
   end
@@ -714,32 +737,69 @@ end
 
 local painting = false
 
----Repaint every margin standing, or in the inline style the captions of every followed
----window's buffer, from the queue as it is now.
+---Run a paint, unless one is running already: a paint can raise the events that ask for one.
+---@param fn fun(): integer
+---@return integer skipped
+local function exclusive(fn)
+  if painting or not M.enabled() then
+    return 0
+  end
+  painting = true
+  local ok, res = pcall(fn)
+  painting = false
+  if not ok then
+    error(res, 0)
+  end
+  return res
+end
+
+---A window showing a buffer, for its captions' width: one in the current tab page if there is
+---one, and never a float.
+---@param buf integer
+---@return integer|nil
+local function shown_in(buf)
+  local current = vim.api.nvim_get_current_tabpage()
+  local elsewhere
+  for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+    if vim.api.nvim_win_get_config(win).relative == "" then
+      if vim.api.nvim_win_get_tabpage(win) == current then
+        return win
+      end
+      elsewhere = elsewhere or win
+    end
+  end
+  return elsewhere
+end
+
+---Repaint every margin standing, or in the inline style the captions of every buffer that
+---holds them, from the queue as it is now.
 ---
 ---What everything that changes the queue calls afterwards, and what a scroll or a resize of
 ---the window a margin is beside calls. Does nothing while the overlay is off, so a capture
 ---made with the overlay off stays invisible rather than turning it on.
 ---
 ---The followed window and not the current one, so a drop from the queue float, which is
----current while it runs, repaints the buffer under it.
+---current while it runs, repaints the buffer under it. In the inline style every other
+---loaded buffer painted this session is repainted after it, because a caption is on the
+---buffer and a dropped entry's caption would otherwise stay up wherever the reviewer is not.
+---Those cost extmarks and no git process: only a followed buffer is judged again.
 ---@return integer skipped Entries the current tab page's drawing could not draw
 function M.paint()
-  if painting or not M.enabled() then
-    return 0
-  end
-  painting = true
-  local current = vim.api.nvim_get_current_tabpage()
-  local skipped = 0
-  local ok, err = pcall(function()
+  return exclusive(function()
+    local current = vim.api.nvim_get_current_tabpage()
+    local skipped = 0
+    local followed = {}
     for tab, m in pairs(margins) do
       if not vim.api.nvim_tabpage_is_valid(tab) then
         margins[tab] = nil
       elseif M.style() == "inline" then
         if m.code and vim.api.nvim_win_is_valid(m.code) then
-          local n = paint_captions(m)
+          local buf = vim.api.nvim_win_get_buf(m.code)
+          if not followed[buf] then
+            followed[buf] = paint_captions(buf, m.code, true)
+          end
           if tab == current then
-            skipped = n
+            skipped = followed[buf]
           end
         end
       elseif live(m) and not m.dismissed then
@@ -749,12 +809,34 @@ function M.paint()
         end
       end
     end
+    if M.style() == "inline" then
+      for buf in pairs(signed) do
+        if not followed[buf] and vim.api.nvim_buf_is_loaded(buf) then
+          paint_captions(buf, shown_in(buf), false)
+        end
+      end
+    end
+    return skipped
   end)
-  painting = false
-  if not ok then
-    error(err, 0)
-  end
-  return skipped
+end
+
+---Repaint the captions of a buffer just written, and judge its file again.
+---
+---The write moved the file's stat, so the rehash's gate lets it through once and holds after.
+---Only this buffer: the write changed one file and no entry. Wrapped to the window the
+---overlay follows when that window shows it, as an enter would wrap it.
+---@param buf integer
+local function paint_written(buf)
+  exclusive(function()
+    local m = margins[vim.api.nvim_get_current_tabpage()]
+    local win = m
+      and m.code
+      and vim.api.nvim_win_is_valid(m.code)
+      and vim.api.nvim_win_get_buf(m.code) == buf
+      and m.code
+    paint_captions(buf, win or shown_in(buf), true)
+    return 0
+  end)
 end
 
 ---Whether an event concerns a window some margin follows or is.
@@ -1170,7 +1252,9 @@ end
 ---`WinEnter` and `BufWinEnter`, both read as "the cursor is in this window now": `BufWinEnter`
 ---raised by `nvim_win_set_buf` names the window the buffer went into as current, and a buffer
 ---that reaches a window this way is one the reviewer is about to read. `BufWinEnter` is what
----carries a buffer change in the followed window, which raises no `WinEnter`.
+---carries a buffer change in the followed window, which raises no `WinEnter`. A write, for the
+---inline style's stale flag. No `FocusGained`: a file changed outside Neovim while it is on
+---screen is judged on the next enter or write (#270 leaves that out of scope).
 local function listen()
   local group = vim.api.nvim_create_augroup(GROUP, { clear = true })
   vim.api.nvim_create_autocmd("WinScrolled", {
@@ -1276,6 +1360,17 @@ local function listen()
     end,
   })
   vim.api.nvim_create_autocmd("QuitPre", { group = group, callback = quitting })
+  -- A capture's blob is the file on disk, so a write is when its stale flag can change, and
+  -- in the inline style nothing else repaints a buffer the reviewer stays in. Not the
+  -- margin's: its scroll paint judges the file through the same gate.
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    callback = function(ev)
+      if M.style() == "inline" and signed[ev.buf] then
+        paint_written(ev.buf)
+      end
+    end,
+  })
 end
 
 ---The sentence a toggle ends in.
