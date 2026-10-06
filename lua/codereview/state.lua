@@ -193,6 +193,8 @@ local function checkout_of(item)
   end
   return canonical(item.abs_path:sub(1, #item.abs_path - #suffix))
 end
+-- Exported so the queue float roots a tab with this answer, not with a second copy of it.
+M.checkout_of = checkout_of
 
 ---Split the queue by the checkout each entry is about.
 ---

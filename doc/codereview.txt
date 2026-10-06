@@ -385,7 +385,9 @@ the review that was there.
 
 In the queue float:
 
-    <CR>            jump to the annotation under the cursor
+    <CR>            jump to the annotation under the cursor; with no
+                    review view open, open its file in a new tab at
+                    its first line
     e               edit its note
     t               change its type
     x               drop it
@@ -401,6 +403,14 @@ and ?. `?` lists every key of the float and changes nothing in the queue.
 The title shows where the batch goes, after `→`. `gy` leaves the float open
 -- it takes nothing out of the queue, so every row it is listing is still
 true.
+
+With no review view open, <CR> opens the file the way <CR> in the diff does:
+in a new tab, with the tab's directory set to the file's checkout by |:tcd|.
+The cursor goes to the first line the entry recorded, or to line 1 for a
+whole-file entry. A file in no repository opens by its absolute path, and
+its tab keeps its directory. A bare note has no file, so <CR> refuses it with
+or without a view, and a file that is no longer on disk is refused too. A
+refused <CR> leaves the float open.
 
 `e` opens the composer with the note of the entry under the cursor in it,
 from any row of that entry. Submit, and the new note replaces the old one.

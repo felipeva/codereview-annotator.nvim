@@ -96,7 +96,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `edit_restart_spec` | An edited note and a changed type across a genuine restart: the next session restores the new note, the type taken off and the type changed, every id as it was, and the edited entry in the place it held |
 | `drop_restart_spec` | A drop made with `x` in the queue float with no review view open, across a genuine restart: the next session restores only the entry that was kept, under the id it had |
 | `drafts_spec` | A draft outliving the session it was written in, and the **preamble**'s own key: per repository, one slot outside a checkout, and never the bare note's |
-| `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, and the three ways it cannot go — and a drop from the float with a review view open, which takes the note off the diff and the annotated mark off the file tree |
+| `queue_jump_spec` | Jumping from the queue float: where it lands, what it expands, the file it opens with no review view, and the three ways it cannot go — and a drop from the float with a review view open, which takes the note off the diff and the annotated mark off the file tree |
 | `queue_jump_panel_spec` | That jump with the tree dismissed, summoned, and never there — the one surface neither slice could test alone |
 | `interactive_spec` | The insert-mode leak, and where a completed or canceled `@` leaves you, in a real pty-backed Neovim |
 | `map_spec` | That `lua/codereview/CLAUDE.md` lists exactly the modules that exist — the only part of the map a machine can check |

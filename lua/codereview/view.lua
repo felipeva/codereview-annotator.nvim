@@ -1671,15 +1671,29 @@ function M.open_file()
     warn(("%s does not exist in the working tree"):format(file.path))
     return
   end
-  local line = anchor.kind == "line" and worktree_line(file, anchor) or 1
+  M.open_real_file(abs, anchor.kind == "line" and worktree_line(file, anchor) or 1, V.root)
+end
+
+---Open a file on disk in a new tab, at a line, with the tab rooted in its **checkout**.
+---
+---Exported because the queue float opens the same way when no review view is open, and
+---the tab it opens into is the same tab: the line is the only thing that differs, which is
+---why the caller works it out. Takes no view, so it has nothing of the view's to read.
+---@param abs string An absolute path the caller has already found readable
+---@param line integer Clamped to the file, since a recorded line can outlive the lines
+---@param root string|nil The checkout; nil for a file in no repository, whose tab keeps its directory
+function M.open_real_file(abs, line, root)
   -- A new tab keeps the review intact: `gT` returns to exactly where you were.
   vim.cmd("tabedit " .. vim.fn.fnameescape(abs))
-  -- Rooted in the review's checkout, so the LSP, the diff signs and a relative path in
-  -- here agree with the diff it was opened out of. A tab spawned from the review tab does
-  -- inherit that tab's directory, measured on this platform -- but an inherited value is a
-  -- copy taken from a source Neovim can reset with no event, so it is set from the
-  -- authority instead of trusted to arrive.
-  root_this_tab(V.root)
+  -- Rooted in the checkout, so the LSP, the diff signs and a relative path in here agree
+  -- with the diff it was opened out of. A tab spawned from the review tab does inherit
+  -- that tab's directory, measured on this platform -- but an inherited value is a copy
+  -- taken from a source Neovim can reset with no event, so it is set from the authority
+  -- instead of trusted to arrive.
+  if root then
+    root_this_tab(root)
+  end
+  line = math.max(1, math.min(line, vim.api.nvim_buf_line_count(0)))
   pcall(vim.api.nvim_win_set_cursor, 0, { line, 0 })
   vim.cmd("normal! zz")
 end
@@ -1901,15 +1915,19 @@ end
 ---Put the cursor on the place a queued annotation is about.
 ---
 ---Says why not rather than doing nothing when it cannot, and says it differently each
----time: a **bare note** will never have a destination, a missing review view means open
----one, and a file the scope does not cover means change scope. One shared "cannot jump
----there" would name none of the three remedies.
+---time: a **bare note** will never have a destination, and a file the scope does not cover
+---means change scope. One shared "cannot jump there" would name neither remedy.
+---
+---The queue float does not reach this with no review view open: it opens the entry's file
+---itself then, and sends only a bare note here. The refusal for a missing view is for a
+---direct caller, which has no float to fall back on.
 ---@param entry CRAnnotation
 ---@return boolean jumped Whether the cursor actually moved; false has already reported why
 function M.jump_to_entry(entry)
   -- One queue holds both paths' entries, and the capture path can produce an annotation
   -- with no file behind it at all. Checked before the view, because opening a review would
-  -- not give this one anywhere to go either.
+  -- not give this one anywhere to go either -- and because the float sends a bare note here
+  -- with no view open, so this order is what gives it one wording either way.
   if entry.kind == "note" then
     info("A bare note is about no file — there is nowhere to jump to")
     return false

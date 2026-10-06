@@ -378,12 +378,29 @@ function M.open(view)
     if not entry then
       return
     end
+    -- With no diff to land in, the file itself is the destination, opened the way the
+    -- diff's own `<CR>` opens it. A bare note falls through, so it is refused in the one
+    -- wording it gets with a view open too.
+    if entry.kind ~= "note" and not view.current() then
+      if vim.fn.filereadable(entry.abs_path) == 0 then
+        info(("%s is not on disk — there is nothing to open"):format(entry.path or entry.abs_path))
+        return
+      end
+      -- The checkout the entry is about, from the one rule the queue's stores are filed by.
+      -- An entry outside every repository has none, and its tab keeps the directory it has.
+      local root = require("codereview.state").checkout_of(entry)
+      -- Closed first: the tab opens out of the window the float was over, not out of the
+      -- float, and a float left behind in the old tab would list a queue nobody is reading.
+      close()
+      view.open_real_file(entry.abs_path, entry.kind == "file" and 1 or entry.first or 1, root)
+      return
+    end
     -- Only a jump that happened costs the list: a reviewer who pressed a key that could
     -- not act did not ask to lose what they were reading.
     if view.jump_to_entry(entry) then
       close()
     end
-  end, { buffer = buf, desc = "Jump to the annotation" })
+  end, { buffer = buf, desc = "Jump to the annotation, or open its file" })
 
   vim.keymap.set("n", "x", function()
     local entry = queued(entry_at_cursor())
