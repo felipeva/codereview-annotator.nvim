@@ -1,9 +1,10 @@
 -- Jumping from the queue float to the annotation under the cursor.
 --
 -- The float lists a queue that is shared with the capture path and is reachable with no
--- review view open, so several of the annotations it lists have nowhere to go. Those are
--- three different failures with three different remedies -- nothing, open a review, change
--- scope -- which is why the messages are asserted apart rather than merely counted.
+-- review view open. With no view, an entry's file is opened in place of the diff. Several
+-- entries have nowhere to go at all, and those are three different failures with three
+-- different remedies -- nothing, change scope, find the file -- which is why the messages
+-- are asserted apart rather than merely counted.
 local h = require("tests.helpers")
 
 -- Deliberately short: whether a landing row is *centered* is only observable when the diff
@@ -405,32 +406,186 @@ describe("an annotation whose file is outside the scope", function()
   end)
 end)
 
-describe("with no review view open", function()
-  fresh_queue()
-  annotate_row(row_of("line"))
-  view.close()
+-- With no review view there is no diff to land in, so the float opens the file itself, the
+-- way the diff's own `<CR>` does. Every case below runs with the view closed.
+local root = vim.uv.fs_realpath(V.root)
 
+---Leave `path` loaded with its cursor parked on `line`, then go back to the tab that was
+---current.
+---
+---A buffer opened again lands where it was last left, and a fresh tab lands on line 1. So
+---without this, a jump that ignored the entry's line would still land on line 1 for a
+---whole-file entry, and that case would pass with nothing tested.
+---@param path string
+---@param line integer
+local function parked_at(path, line)
+  vim.cmd("tabedit " .. vim.fn.fnameescape(path))
+  vim.api.nvim_win_set_cursor(0, { line, 0 })
+  vim.cmd("tabclose")
+end
+
+---Press `<CR>` in the float on the first entry, and report where the reviewer is after.
+---@return { messages: string[], tabs: integer, name: string, line: integer, cwd: string, float_open: boolean }
+local function jump_from_float()
+  local tabs = vim.fn.tabpagenr("$")
   local win = open_float()
   cursor_on(win, 1)
   local messages = jump()
-  said[#said + 1] = messages[1]
-  local still_open = vim.api.nvim_win_is_valid(win)
+  local seen = {
+    messages = messages,
+    tabs = vim.fn.tabpagenr("$") - tabs,
+    name = vim.uv.fs_realpath(vim.api.nvim_buf_get_name(0)) or "",
+    line = vim.api.nvim_win_get_cursor(0)[1],
+    cwd = vim.uv.fs_realpath(vim.fn.getcwd()) or "",
+    float_open = vim.api.nvim_win_is_valid(win),
+  }
+  if seen.float_open then
+    vim.api.nvim_win_close(win, true)
+  elseif seen.tabs == 1 then
+    vim.cmd("tabclose")
+  end
+  return seen
+end
 
-  it("says the review view is what is missing", function()
-    assert.same(1, #messages)
-    assert.is_true(h.notified(messages, "No review view open"), messages[1])
+describe("a line annotation with no review view open", function()
+  fresh_queue()
+  -- Back from the staged scope the case above left, which does not hold this file.
+  view.set_scope("branch")
+  annotate_row(row_of("line", "src/main.lua", true))
+  view.close()
+  local entry = queue.all()[1]
+  local abs = vim.fs.joinpath(root, entry.path)
+  -- Elsewhere than the recorded line, so landing there is the jump's doing.
+  parked_at(abs, entry.first == 1 and 3 or 1)
+  -- From a tab rooted somewhere else, so a rooted tab is the jump's doing too: a new tab
+  -- inherits its parent's directory. Inside the checkout, because the queue the float lists
+  -- is the one of the checkout the reviewer stands in.
+  vim.cmd("tabnew")
+  vim.cmd("tcd " .. vim.fn.fnameescape(vim.fs.joinpath(root, "src")))
+  local seen = jump_from_float()
+  vim.cmd("tabclose")
+
+  it("is no review view and a line that is not the first", function()
+    assert.is_nil(view.current())
+    assert.is_true(entry.first > 1, ("line %d"):format(entry.first))
   end)
 
-  it("leaves the float open", function()
-    assert.is_true(still_open)
+  it("opens the file in a new tab", function()
+    assert.same({}, seen.messages)
+    assert.same(1, seen.tabs)
+    assert.same(abs, seen.name)
+  end)
+
+  it("puts the cursor on the recorded first line", function()
+    assert.same(entry.first, seen.line)
+  end)
+
+  it("roots the tab in the checkout", function()
+    assert.same(root, seen.cwd)
+  end)
+
+  it("closes the float", function()
+    assert.is_false(seen.float_open)
   end)
 end)
 
-describe("the three unavailable cases", function()
-  it("give three distinct messages, not one shared one", function()
-    assert.same(3, #said)
+describe("a whole-file annotation with no review view open", function()
+  fresh_queue()
+  view.open("branch")
+  V = view.current()
+  annotate_row(row_of("file", "src/newname.lua"))
+  view.close()
+  local entry = queue.all()[1]
+  local abs = vim.fs.joinpath(root, entry.path)
+  parked_at(abs, 3)
+  local seen = jump_from_float()
+
+  it("is about the whole file", function()
+    assert.same("file", entry.kind)
+  end)
+
+  it("opens the file at line 1", function()
+    assert.same(abs, seen.name)
+    assert.same(1, seen.line)
+    assert.is_false(seen.float_open)
+  end)
+end)
+
+describe("a bare note with no review view open", function()
+  fresh_queue()
+  vim.cmd("tabnew")
+  require("codereview").annotate("bug")
+  vim.cmd("tabclose")
+  local seen = jump_from_float()
+  said[#said + 1] = seen.messages[1]
+
+  it("still says there is nowhere to go", function()
+    assert.is_nil(view.current())
+    assert.same(1, #seen.messages)
+    assert.is_true(h.notified(seen.messages, "nowhere to jump"), seen.messages[1])
+  end)
+
+  it("opens nothing and leaves the float open", function()
+    assert.same(0, seen.tabs)
+    assert.is_true(seen.float_open)
+  end)
+end)
+
+describe("a file in no repository", function()
+  fresh_queue()
+  local outside = vim.fn.tempname() .. ".txt"
+  vim.fn.writefile({ "one", "two", "three", "four" }, outside)
+  outside = vim.uv.fs_realpath(outside)
+  local cwd = vim.uv.fs_realpath(vim.fn.getcwd())
+  -- From a visual-mode mapping, because capture reads a selection only while it is live,
+  -- and in normal mode it takes the whole file, which would land on line 1 regardless.
+  vim.keymap.set({ "n", "x" }, "<F5>", function()
+    require("codereview").annotate("bug")
+  end)
+  vim.cmd("tabedit " .. vim.fn.fnameescape(outside))
+  h.feed("3GV<F5>")
+  vim.api.nvim_win_set_cursor(0, { 1, 0 })
+  vim.cmd("tabclose")
+  local entry = queue.all()[1]
+  local seen = jump_from_float()
+
+  it("is a line of a file with an absolute path and no checkout", function()
+    assert.same("line", entry.kind)
+    assert.is_nil(entry.path)
+    assert.same(outside, entry.abs_path)
+  end)
+
+  it("opens it by that path at its line", function()
+    assert.same(outside, seen.name)
+    assert.same(3, seen.line)
+    assert.is_false(seen.float_open)
+  end)
+
+  it("leaves the tab's directory alone", function()
+    assert.same(cwd, seen.cwd)
+  end)
+
+  describe("once it is gone", function()
+    os.remove(outside)
+    local gone = jump_from_float()
+    said[#said + 1] = gone.messages[1]
+
+    it("says so and opens nothing", function()
+      assert.same(1, #gone.messages)
+      assert.is_true(h.notified(gone.messages, vim.fn.fnamemodify(outside, ":t")), gone.messages[1])
+      assert.same(0, gone.tabs)
+      assert.is_true(gone.float_open)
+    end)
+  end)
+end)
+
+describe("the unavailable cases", function()
+  it("give distinct messages, not one shared one", function()
+    -- A bare note with a view, out of scope, a bare note without one, a file that is gone.
+    assert.same(4, #said)
+    assert.same(said[1], said[3])
     assert.is_true(said[1] ~= said[2], said[1])
-    assert.is_true(said[2] ~= said[3], said[2])
-    assert.is_true(said[1] ~= said[3], said[3])
+    assert.is_true(said[2] ~= said[4], said[2])
+    assert.is_true(said[1] ~= said[4], said[4])
   end)
 end)

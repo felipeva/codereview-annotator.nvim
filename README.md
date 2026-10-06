@@ -141,7 +141,7 @@ Opens in insert mode. `<C-s>` and `<C-t>` work in insert and normal mode.
 
 | Key | Action |
 | --- | --- |
-| `<CR>` | Go to the annotation |
+| `<CR>` | Go to the annotation. With no review view open, open its file at its line, in a new tab |
 | `e` | Edit its note |
 | `t` | Change its type |
 | `x` | Drop it |
