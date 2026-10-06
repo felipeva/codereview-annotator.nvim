@@ -1,10 +1,18 @@
----The **overlay**: the **queue** drawn on an ordinary file buffer, in a **margin** to the
----right of the buffer's window, one **card** per **entry** at the screen row of its anchor.
+---The **overlay**: the **queue** drawn on an ordinary file buffer, in one of two styles. In
+---the margin style, a **margin** to the right of the buffer's window, one **card** per
+---**entry** at the screen row of its anchor. In the inline style, one **caption** per entry,
+---a virtual line above its anchor line. One toggle, one set of rules -- which entries, which
+---are skipped, the stale flag, the sign on each covered line -- and two drawings.
 ---
----A window and not virtual text (ADR-0010). A card has to take a cursor, and a note beside a
----line is what was asked for rather than one under it; right-aligned virtual text draws over
----any line long enough to reach it. So the margin is a split, and every scroll and resize
----rebuilds it from where each anchor sits on screen.
+---The margin is a window and not virtual text (ADR-0010). A card has to take a cursor, and a
+---note beside a line is what was asked for rather than one under it; right-aligned virtual
+---text draws over any line long enough to reach it. So the margin is a split, and every
+---scroll and resize rebuilds it from where each anchor sits on screen.
+---
+---The caption is virtual text (ADR-0011): it takes no cursor, and a virtual *line* takes a
+---row of its own and draws over nothing. It hangs on the entry's anchor, so the code carries
+---it, and nothing in it depends on a screen row: it paints on entering a buffer, on a queue
+---change and on a resize, and never on a scroll. No window, no keys, no quiet line.
 ---
 ---**Not scrollbound, and that is not an oversight.** Scrollbind keeps two windows the same
 ---number of *lines* apart, and with wrap on in the code window a line can take three screen
@@ -15,10 +23,12 @@
 ---**Nothing here is stored.** Like **solo**, the overlay is a session-long toggle and is
 ---written nowhere: not to a store, not per **checkout**, not on an entry (ADR-0009). The
 ---code buffer's text is never touched either. What the overlay puts in it are extmarks --
----an anchor per entry, so an edit above a line moves its card with the code, and a sign on
----each covered line.
+---an anchor per entry, so an edit above a line moves its card or its caption with the code,
+---the captions themselves hung on those anchors, and a sign on each covered line.
 ---
----**It follows the reviewer.** One margin per tab page, beside the window it follows; the
+---**It follows the reviewer.** In both styles the overlay follows one window per tab page,
+---and the inline style paints that window's buffer; what follows here is the margin's. One
+---margin per tab page, beside the window it follows; the
 ---cursor entering a split that holds a file moves it there, and that window's buffer changing
 ---repaints it. Floats and the margin itself are never followed. Beside a file with nothing to
 ---draw it holds one quiet line; beside a window holding no file it closes and the toggle stays
@@ -41,12 +51,14 @@ local types = require("codereview.types")
 
 local M = {}
 
----The margin's cards and the code buffer's signs. Cleared and redrawn on every paint.
+---The margin's cards, the code buffer's signs, and the captions of whole-file entries, which
+---have no anchor. Cleared and redrawn on every paint.
 M.NS = vim.api.nvim_create_namespace("codereview_overlay")
 
 ---One extmark per drawn entry, at its anchor in the code buffer. A namespace of its own
 ---because it must survive the paint that clears the signs: an anchor recreated on every
 ---paint would sit at the recorded line again, and the card would stop following the code.
+---In the inline style the captions hang on these marks, so an edit above moves them too.
 M.NS_ANCHOR = vim.api.nvim_create_namespace("codereview_overlay_anchor")
 
 ---@param msg string
@@ -245,6 +257,42 @@ local function card(entry, width)
   return { lines = lines, marks = marks }
 end
 
+--- A caption, as virtual lines ------------------------------------------------------
+
+---A caption's rows, as `virt_lines` chunks.
+---
+---The first row is the connector and the icon in the type's group, the stale flag when it is
+---set, and the note's first line; the rest of the note follows under that line. The budget
+---the note wraps to and the indent of its continuation rows come from one `strdisplaywidth`
+---of everything before the note, so the two cannot disagree: the connector is a two-column
+---glyph of six bytes, and a byte count would push every continuation row past the edge.
+---
+---The note is wrapped in full rather than cut, because a virtual line clips at the window's
+---edge even under `wrap` and the part written last is the part that would go.
+---@param entry CRAnnotation
+---@param width integer Display columns of the window's text, after its number, sign and fold columns
+---@return table[] rows
+local function caption(entry, width)
+  local look_ = look(entry)
+  local stale = entry.stale and "⚠ stale " or nil
+  local lead = config.get().icons.caption .. " " .. look_.icon .. " "
+  local indent = vim.fn.strdisplaywidth(lead .. (stale or ""))
+  local rows = {}
+  for n, line in ipairs(render.wrap(entry.note or "", math.max(1, width - indent))) do
+    if n == 1 then
+      local row = { { lead, look_.hl } }
+      if stale then
+        row[#row + 1] = { stale, "CodeReviewStale" }
+      end
+      row[#row + 1] = { line, "CodeReviewNote" }
+      rows[1] = row
+    else
+      rows[n] = { { (" "):rep(indent) }, { line, "CodeReviewNote" } }
+    end
+  end
+  return rows
+end
+
 --- The margin -----------------------------------------------------------------------
 
 ---@class CROverlayMargin
@@ -266,7 +314,8 @@ end
 ---@type table<integer, CROverlayMargin>
 local margins = {}
 
----Code buffers this session has drawn signs into, so turning the overlay off can clear them.
+---Code buffers this session has drawn signs or captions into, so turning the overlay off, or
+---switching its style, can clear them.
 ---@type table<integer, boolean>
 local signed = {}
 
@@ -281,6 +330,12 @@ local EMPTY = "no annotations in this file"
 ---@return boolean
 function M.enabled()
   return config.overlay()
+end
+
+---Which drawing it uses, for the rest of this session.
+---@return "margin"|"inline"
+function M.style()
+  return config.overlay_style()
 end
 
 ---Whether a margin's window is up and still holds the margin's buffer.
@@ -452,6 +507,33 @@ local function entries_of(buf)
   return drawn, skipped
 end
 
+---Draw the sign on every covered line of a buffer and settle each drawn entry's anchor, the
+---same in both styles: the line each anchor sits on now, by the entry's index in `drawn`, nil
+---for a whole-file entry, which has no anchor.
+---@param buf integer
+---@param drawn CRAnnotation[]
+---@return table<integer, integer> anchored
+local function anchor_and_sign(buf, drawn)
+  vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
+  signed[buf] = true
+  local bar = config.get().icons.change_bar
+  local total = vim.api.nvim_buf_line_count(buf)
+  local kept, anchored = {}, {}
+  for i, entry in ipairs(drawn) do
+    if entry.kind ~= "file" then
+      kept[entry.id] = true
+      local line = anchor_line(buf, entry)
+      anchored[i] = line
+      local last = math.min(total, line + (entry.last or entry.first) - entry.first)
+      for l = line, last do
+        vim.api.nvim_buf_set_extmark(buf, M.NS, l - 1, 0, { sign_text = bar, sign_hl_group = look(entry).hl })
+      end
+    end
+  end
+  prune_anchors(buf, kept)
+  return anchored
+end
+
 ---Repaint one margin from the code buffer beside it.
 ---@param m CROverlayMargin
 ---@return integer skipped Entries of the file the margin cannot draw
@@ -460,11 +542,8 @@ local function paint_margin(m)
   local drawn, skipped = entries_of(buf)
 
   -- Signs and anchors first, because the card rows are read off the anchors.
-  vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
-  signed[buf] = true
-  local bar = config.get().icons.change_bar
-  local total = vim.api.nvim_buf_line_count(buf)
-  local kept, cards, anchored = {}, {}, {}
+  local anchored = anchor_and_sign(buf, drawn)
+  local cards = {}
   local width = vim.api.nvim_win_get_width(m.win)
   -- Measured inside the margin, which does not wrap. `strdisplaywidth` counts in the current
   -- window, and in a window that wraps, a double-width character that crosses its right edge
@@ -476,21 +555,12 @@ local function paint_margin(m)
     end, drawn)
   end)
   for i, entry in ipairs(drawn) do
-    local c = built[i]
     if entry.kind == "file" then
-      cards[i] = { pinned = true, height = #c.lines }
+      cards[i] = { pinned = true, height = #built[i].lines }
     else
-      kept[entry.id] = true
-      local line = anchor_line(buf, entry)
-      anchored[i] = line
-      local last = math.min(total, line + (entry.last or entry.first) - entry.first)
-      for l = line, last do
-        vim.api.nvim_buf_set_extmark(buf, M.NS, l - 1, 0, { sign_text = bar, sign_hl_group = look(entry).hl })
-      end
-      cards[i] = { row = margin_row(m, line), height = #c.lines }
+      cards[i] = { row = margin_row(m, anchored[i]), height = #built[i].lines }
     end
   end
-  prune_anchors(buf, kept)
 
   local height = vim.api.nvim_win_get_height(m.win)
   local rows = {}
@@ -534,14 +604,126 @@ local function paint_margin(m)
   return skipped
 end
 
+---Take every caption out of a buffer and keep its anchors where the code has moved them.
+---
+---An anchor's captions go by setting the mark again at its own position with nothing on it:
+---deleting it would lose the place an edit made while the overlay was off still moves.
+---@param buf integer
+local function strip(buf)
+  vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
+  for _, mark in pairs(anchors[buf] or {}) do
+    local pos = vim.api.nvim_buf_get_extmark_by_id(buf, M.NS_ANCHOR, mark, {})
+    if pos[1] then
+      vim.api.nvim_buf_set_extmark(buf, M.NS_ANCHOR, pos[1], pos[2], { id = mark })
+    end
+  end
+end
+
+---Repaint the captions of the buffer in the window the overlay follows.
+---
+---Every caption of one line hangs on one mark, the anchor of the first of them in queue
+---order, with whole-file entries ahead of the rest on line 1. Not one block per anchor:
+---Neovim stacks the virtual lines of two marks on one row in the order the marks were
+---made, and an anchor made late -- an entry past the end until the file grew -- would draw
+---above an older entry's.
+---
+---A whole-file entry has no anchor, as it has no line; when nothing on line 1 has one either,
+---its caption hangs on a mark of the paint's own, at the top of the buffer.
+---@param m CROverlayMargin
+---@return integer skipped Entries of the file the captions cannot draw
+local function paint_captions(m)
+  local buf = vim.api.nvim_win_get_buf(m.code)
+  if not is_file(buf) then
+    return 0
+  end
+  local drawn, skipped = entries_of(buf)
+  local anchored = anchor_and_sign(buf, drawn)
+  -- The signs and anchors are gone already, and their captions with them; a file with
+  -- nothing to draw is the common case on an enter, and it costs no redraw.
+  if #drawn == 0 then
+    return skipped
+  end
+
+  -- After the signs: under `signcolumn=auto` the first sign is what opens the column, and the
+  -- window reports its new text offset only once it has been redrawn. Measured: 0 before the
+  -- redraw, 2 after. `nvim__redraw` would confine it to the one window, but it is not API.
+  vim.cmd("redraw")
+  local width = vim.api.nvim_win_get_width(m.code) - vim.fn.getwininfo(m.code)[1].textoff
+  -- Measured in the window the rows are for: `strdisplaywidth` counts in the current window,
+  -- and the current window can be the queue float, narrower than the code (see the margin's
+  -- note on the same trap). Every row is no wider than this window's text, so no
+  -- double-width character crosses its edge and the count is the drawn one.
+  local built = vim.api.nvim_win_call(m.code, function()
+    return vim.tbl_map(function(entry)
+      return caption(entry, width)
+    end, drawn)
+  end)
+
+  local groups = {}
+  local function add(line, i)
+    groups[line] = groups[line] or { rows = {} }
+    local g = groups[line]
+    if not g.carrier and anchored[i] then
+      g.carrier = anchors[buf][drawn[i].id]
+    end
+    vim.list_extend(g.rows, built[i])
+  end
+  for i, entry in ipairs(drawn) do
+    if entry.kind == "file" then
+      add(1, i)
+    end
+  end
+  for i in ipairs(drawn) do
+    if anchored[i] then
+      add(anchored[i], i)
+    end
+  end
+
+  local carried = {}
+  for _, g in pairs(groups) do
+    if g.carrier then
+      carried[g.carrier] = g.rows
+    else
+      vim.api.nvim_buf_set_extmark(buf, M.NS, 0, 0, { virt_lines = g.rows, virt_lines_above = true })
+    end
+  end
+  for _, mark in pairs(anchors[buf] or {}) do
+    local pos = vim.api.nvim_buf_get_extmark_by_id(buf, M.NS_ANCHOR, mark, {})
+    if pos[1] then
+      local rows = carried[mark]
+      vim.api.nvim_buf_set_extmark(buf, M.NS_ANCHOR, pos[1], pos[2], {
+        id = mark,
+        virt_lines = rows,
+        virt_lines_above = rows ~= nil or nil,
+      })
+    end
+  end
+
+  -- Virtual lines above line 1 are filler above the window's top line, and Neovim shows
+  -- none of it until the window is scrolled up into it: measured, a window at its top draws
+  -- line 1 first and the caption only after `<C-y>`. So a window already at its top is
+  -- scrolled to show them; one scrolled down is left where the reviewer put it.
+  if groups[1] and vim.fn.line("w0", m.code) == 1 then
+    local fill = vim.api.nvim_win_text_height(m.code, { start_row = 0, end_row = 0 }).fill
+    vim.api.nvim_win_call(m.code, function()
+      vim.fn.winrestview({ topfill = fill })
+    end)
+  end
+  return skipped
+end
+
 local painting = false
 
----Repaint every margin standing, from the queue as it is now.
+---Repaint every margin standing, or in the inline style the captions of every followed
+---window's buffer, from the queue as it is now.
 ---
 ---What everything that changes the queue calls afterwards, and what a scroll or a resize of
 ---the window a margin is beside calls. Does nothing while the overlay is off, so a capture
 ---made with the overlay off stays invisible rather than turning it on.
----@return integer skipped Entries the current tab page's margin could not draw
+---
+---The followed window and not the current one, so a drop from the queue float, which is
+---current while it runs, repaints the buffer under it.
+---@return integer skipped Entries the current tab page's drawing could not draw
 function M.paint()
   if painting or not M.enabled() then
     return 0
@@ -553,6 +735,13 @@ function M.paint()
     for tab, m in pairs(margins) do
       if not vim.api.nvim_tabpage_is_valid(tab) then
         margins[tab] = nil
+      elseif M.style() == "inline" then
+        if m.code and vim.api.nvim_win_is_valid(m.code) then
+          local n = paint_captions(m)
+          if tab == current then
+            skipped = n
+          end
+        end
       elseif live(m) and not m.dismissed then
         local n = paint_margin(m)
         if tab == current then
@@ -828,7 +1017,17 @@ local function shut(m)
   m.win, m.buf = nil, nil
 end
 
----Close every margin and take the signs out of every buffer they were drawn in.
+---Take the signs and captions out of every buffer they were drawn in.
+local function strip_all()
+  for buf in pairs(signed) do
+    if vim.api.nvim_buf_is_valid(buf) then
+      strip(buf)
+    end
+    signed[buf] = nil
+  end
+end
+
+---Close every margin and take the signs and captions out of every buffer they were drawn in.
 ---
 ---The listeners go first, so the windows closed here raise nothing this module hears.
 ---
@@ -840,12 +1039,7 @@ local function close_all()
     shut(m)
     margins[tab] = nil
   end
-  for buf in pairs(signed) do
-    if vim.api.nvim_buf_is_valid(buf) then
-      vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
-    end
-    signed[buf] = nil
-  end
+  strip_all()
 end
 
 ---Settle where a tab page's margin stands, now that the cursor is in `win` or `win` has a new
@@ -857,7 +1051,8 @@ end
 ---when nothing else is, or when it is the window already followed, whose file has just gone:
 ---the cursor passing through a help split leaves the margin beside the code. Everything
 ---else -- the followed window with a file in it, or another window with a file in it -- puts
----the margin beside that window and paints it.
+---the margin beside that window and paints it. In the inline style there is no margin to
+---put: that window becomes the one followed, and its buffer's captions are painted.
 ---@param win integer
 ---@return integer skipped Entries of the file the current tab page's margin cannot draw
 local function follow(win)
@@ -886,7 +1081,13 @@ local function follow(win)
     end
     return 0
   end
-  place(win)
+  if M.style() == "inline" then
+    m = m or {}
+    margins[tab] = m
+    m.code = win
+  else
+    place(win)
+  end
   return M.paint()
 end
 
@@ -982,11 +1183,13 @@ local function listen()
           ids[id] = true
         end
       end
-      if concerns(ids) then
+      -- Nothing in a caption depends on a screen row, so a scroll has nothing to repaint.
+      if M.style() ~= "inline" and concerns(ids) then
         M.paint()
       end
     end,
   })
+  -- In the inline style too: the captions are wrapped to the window's width.
   vim.api.nvim_create_autocmd("WinResized", {
     group = group,
     callback = function()
@@ -1099,11 +1302,44 @@ local function show()
   return follow(vim.api.nvim_get_current_win())
 end
 
----Turn the overlay on or off for the rest of this session, and say so.
+---Change the drawing while the overlay is on, and keep it on.
+---
+---The margins go through their own close, which `WinClosed` knows is the plugin's, and not
+---through the reviewer's: closing one by hand turns the toggle off, and this must not. The
+---captions go from every buffer they were painted in, and the signs with them; the new
+---drawing puts the signs back where it draws. Each tab page keeps the window it followed,
+---so the drawing comes back beside the same code.
+---@param style "margin"|"inline"
+---@return integer skipped
+local function switch(style)
+  for _, m in pairs(margins) do
+    shut(m)
+  end
+  strip_all()
+  config.set_overlay_style(style)
+  follow(vim.api.nvim_get_current_win())
+  -- Again, for the cursor in a float, which `follow` leaves alone.
+  return M.paint()
+end
+
+---Turn the overlay on or off for the rest of this session, or name the style it draws in,
+---and say so.
+---
+---With a style: on in that style when it was off, and a switch in place when it was on --
+---never off, so two host keys for the two drawings each always show something.
 ---@param view table The review view, whose exported actions the margin's keys run
+---@param style "margin"|"inline"|nil
 ---@return boolean on The state it is now in
-function M.toggle(view)
+function M.toggle(view, style)
   view_ = view
+  if style and M.enabled() then
+    local skipped = style ~= M.style() and switch(style) or M.paint()
+    info(said(true, skipped))
+    return true
+  end
+  if style then
+    config.set_overlay_style(style)
+  end
   local on = config.toggle_overlay()
   local skipped = 0
   if on then

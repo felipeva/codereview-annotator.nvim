@@ -150,11 +150,14 @@ takes commits off the start of the branch included, works on any git.
         See |codereview-capture|.
 
                                                         *:CodeReviewOverlay*
-:CodeReviewOverlay
+:CodeReviewOverlay [margin|inline]
         Show or hide the overlay: the queued annotations of the current file,
-        drawn in a margin to the right of its window. Needs no review open.
-        Lasts for the session and is written nowhere. See
-        |codereview-overlay|.
+        drawn in a margin to the right of its window, or as captions above
+        its lines. With no argument it toggles. With `margin` or `inline` it
+        turns the overlay on in that style, or changes the drawing when it is
+        on already; it never turns it off. Needs no review open. Lasts for
+        the session and is written nowhere. See |codereview-overlay| and
+        |codereview-overlay-captions|.
 
 ==============================================================================
 3. MAPPINGS                                            *codereview-mappings*
@@ -1294,8 +1297,53 @@ These keys are bound on the margin's own buffer only. `e`, `t` and `x` hide
 no motion of yours, because the margin is not a buffer you edit, and the
 code window keeps every key it had.
 
-What is drawn: the annotations queued in the checkout you are in, about the
-file in the window, whichever path captured them. What is not drawn:
+                                                *codereview-overlay-captions*
+`:CodeReviewOverlay inline` or `overlay("inline")` draws the same annotations
+as captions instead of cards: one virtual line above each annotated line,
+starting at the column where the code starts, after the number, sign and fold
+columns: >
+       ╭─ ✗ ⚠ stale why is this branch unreachable? The guard above
+                already returns on every path that reaches it.
+    12 if mode == "split" then
+<
+The first row has the `caption` icon (`╭─`) and the type's icon in the type's
+colour, `⚠ stale` in `CodeReviewStale` when the file changed under it, then
+the note in `CodeReviewNote`. An untyped annotation shows `•`, in
+`CodeReviewNote`. The whole note is shown: it wraps to the width of the
+window's text, and the rows after the first start under the note. Virtual
+lines do not wrap on their own -- they are cut at the window's edge -- so the
+caption is wrapped again when you resize the window.
+
+A caption moves with the code when you edit above its line. A whole-file
+annotation's caption is above line 1. Several annotations on one line stack in
+queue order. Each covered line gets the same sign as in the margin.
+
+Neovim draws the rows above line 1 only when the window is scrolled up into
+them. When a caption is drawn above line 1 and the window is at its top, the
+overlay scrolls it up to show them. After `gg` from further down, Neovim
+stops at line 1 and hides them again; `<C-y>` shows them.
+
+A caption is drawn on the buffer, so it shows in every window that shows that
+buffer, wrapped to the width of the window the overlay follows (the same
+window the margin would be beside). A caption has no window and no keys, and
+a file with nothing to draw shows nothing: there is no quiet line. To act on
+an annotation, use the queue float (|codereview.queue()|) or switch to the
+margin.
+
+Captions are drawn when you enter a buffer, after a capture, an edit, a retype
+or a drop, after a submit, and when you resize the window. Scrolling draws
+nothing, because nothing in a caption depends on where the line is on the
+screen. A buffer you are not in keeps the captions it had when you left it,
+until you enter it again.
+
+`:CodeReviewOverlay margin` and `:CodeReviewOverlay inline` switch between the
+two while the overlay is on: the margin closes and the captions appear, or the
+captions go from every buffer they were drawn in and the margin opens. The
+overlay stays on.
+
+What is drawn, in either style: the annotations queued in the checkout you
+are in, about the file in the window, whichever path captured them. What is
+not drawn:
 - an annotation on a deleted line, which has no line in the file on disk;
 - an annotation whose first line is past the end of the file;
 - a sent (archived) annotation, a bare note, and an annotation of another
@@ -1304,7 +1352,7 @@ The first two are counted, and turning the overlay on tells you how many were
 not drawn. A range that mixes deleted and added lines is drawn at the lines it
 recorded.
 
-The overlay repaints when you scroll or resize the window, when the margin
+The margin repaints when you scroll or resize the window, when the margin
 moves or the file in its window changes, when you move the cursor into it,
 after a capture, after an edit, a retype or a drop, and after a submit. A capture made
 while the overlay is off does not turn it on.
@@ -1312,7 +1360,9 @@ while the overlay is off does not turn it on.
 Like |codereview-solo|, the overlay is a way of reading and nothing more. The
 queue, the archive and the payload are what they were, no annotation records
 that it was on, and the buffer's text is never changed. `overlay.enabled` sets
-where each session starts; `overlay.width` is the margin's width in columns.
+where each session starts; `overlay.width` is the margin's width in columns;
+`overlay.style` is the drawing each session starts in, `"margin"` (the
+default) or `"inline"`. Any other style is an error at |codereview.setup()|.
 
 ==============================================================================
 8. ADAPTERS                                            *codereview-adapters*
@@ -1616,12 +1666,13 @@ Defaults: >
       faded = { enabled = true, strength = 0.35 },
       counterpart = { enabled = true, strength = 0.25 },
       panel = { enabled = true, width = 34, position = "left" },
-      overlay = { enabled = false, width = 40 },
+      overlay = { enabled = false, width = 40, style = "margin" },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
         collapsed = "▸", expanded = "▾", change_bar = "▌",
         untouched = "↺", continuation = "↳",
         progress_full = "█", progress_empty = "░",
+        caption = "╭─",
       },
       types = nil,
       send = nil, pick_target = nil, pick_file = nil,
@@ -1892,9 +1943,12 @@ require("codereview").annotate({type}, {range}, {opts})
         and the whole-file default. {opts} takes `immediate = true` to send
         this one annotation on its own instead of queueing it. See
         |codereview-capture| and |codereview-immediate-send|.
-require("codereview").overlay()                       *codereview.overlay()*
+require("codereview").overlay({style})                *codereview.overlay()*
         Show or hide the overlay for the rest of the session, and return
-        `true` when it is now on. See |codereview-overlay|.
+        `true` when it is now on. With {style} (`"margin"` or `"inline"`),
+        turn it on in that style, or change the drawing when it is on
+        already; it then always returns `true`. See |codereview-overlay| and
+        |codereview-overlay-captions|.
 require("codereview").queue()                           *codereview.queue()*
         Open the queue float: edit, retype, drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*

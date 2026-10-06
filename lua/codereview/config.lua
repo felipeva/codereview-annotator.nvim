@@ -133,11 +133,13 @@ M.defaults = {
   ---stay visible inside a window everything else in it is being pulled toward the
   ---background, and it must still read as secondary to the row the pane with focus lights.
   counterpart = { enabled = true, strength = 0.25 }, ---@type { enabled: boolean, strength: number }
-  ---Draw the **queue** beside the lines of an ordinary file buffer: the **overlay**. A
-  ---**margin** opens to the right of the window, holding one **card** per **entry** of the
-  ---file at the screen row of its anchor, and each covered line carries a sign in the
-  ---annotation type's group. `:CodeReviewOverlay` and `overlay()` turn it on and off for
-  ---the rest of the session, and never write here -- see `M.overlay` below.
+  ---Draw the **queue** on the lines of an ordinary file buffer: the **overlay**. In the
+  ---`margin` style a **margin** opens to the right of the window, holding one **card** per
+  ---**entry** of the file at the screen row of its anchor; in the `inline` style each entry
+  ---is a **caption**, a virtual line above its anchor line (ADR-0011). Either way each
+  ---covered line carries a sign in the annotation type's group. `:CodeReviewOverlay` and
+  ---`overlay()` turn it on and off, and switch the style, for the rest of the session, and
+  ---never write here -- see `M.overlay` below.
   ---
   ---A rendering choice like **solo**, and written nowhere: the queue, the **archive** and the
   ---**payload** are what they were, and no entry records that the overlay was on
@@ -145,8 +147,11 @@ M.defaults = {
   ---editor they already had.
   ---
   ---`width` is the margin's, in columns, and it holds that width while other windows open
-  ---and close beside it.
-  overlay = { enabled = false, width = 40 }, ---@type { enabled: boolean, width: integer }
+  ---and close beside it. A caption has no width of its own: it wraps to the window's.
+  ---
+  ---`style` is the margin by default, so a configuration written before the caption existed
+  ---draws what it drew then.
+  overlay = { enabled = false, width = 40, style = "margin" }, ---@type { enabled: boolean, width: integer, style: "margin"|"inline" }
   panel = {
     enabled = true,
     width = 34,
@@ -180,6 +185,10 @@ M.defaults = {
     ---of your own is a bar whose two halves were chosen by two people.
     progress_full = "█",
     progress_empty = "░",
+    ---What opens a **caption**, in the entry's type group, so the row reads as attached to
+    ---the line below it and not as code. Two display columns, the one glyph here that is:
+    ---nothing lines up against it, and the caption measures it rather than assuming its width.
+    caption = "╭─",
   },
 
   --- Annotations ---
@@ -367,6 +376,30 @@ local function validate_layout(layout)
   end
 end
 
+---The drawings the **overlay** has, in the order completion offers them.
+M.OVERLAY_STYLES = { "margin", "inline" }
+
+---Reject an overlay style the overlay has no drawing for, in the voice of a bad layout and
+---for its reason: a mistyped `style` that fell back to the margin would look like a
+---configuration that did nothing.
+---@param style any
+local function validate_style(style)
+  if not vim.tbl_contains(M.OVERLAY_STYLES, style) then
+    error(
+      ("codereview.setup: unknown `overlay.style` %s — expected one of %s"):format(
+        vim.inspect(style),
+        table.concat(
+          vim.tbl_map(function(name)
+            return ("%q"):format(name)
+          end, M.OVERLAY_STYLES),
+          ", "
+        )
+      ),
+      0
+    )
+  end
+end
+
 ---Reject a switch that is not a boolean.
 ---
 ---In the same voice as a bad layout, and for the same reason: `spans = "off"` is truthy, so
@@ -439,6 +472,7 @@ function M.setup(opts)
   validate_blend("overlay", M.options.overlay)
   validate_boolean("overlay.enabled", M.options.overlay.enabled)
   validate_width("overlay.width", M.options.overlay.width)
+  validate_style(M.options.overlay.style)
   validate_blend("muted", M.options.muted)
   validate_boolean("muted.enabled", M.options.muted.enabled)
   validate_strength("muted.strength", M.options.muted.strength)
@@ -605,6 +639,23 @@ end
 function M.toggle_overlay()
   overlay_override = not M.overlay()
   return overlay_override
+end
+
+---What `:CodeReviewOverlay margin` or `inline` last said, for the rest of this editing
+---session. The toggle's own arrangement, for the toggle's reason: how one sitting is read.
+---@type "margin"|"inline"|nil nil until a style has been named, when configuration decides
+local style_override = nil
+
+---Which drawing the overlay uses.
+---@return "margin"|"inline"
+function M.overlay_style()
+  return style_override or M.get().overlay.style
+end
+
+---Use this drawing for the rest of this editing session. Says nothing about on or off.
+---@param style "margin"|"inline"
+function M.set_overlay_style(style)
+  style_override = style
 end
 
 return M

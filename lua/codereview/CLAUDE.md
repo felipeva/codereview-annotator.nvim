@@ -27,7 +27,7 @@ change there is felt through.
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
-| `overlay.lua` | The **overlay**: its session-long toggle, the **margin** split beside a file's window, a **card** per **entry** at its anchor's screen row, the sign on each covered line, the pure layout that stacks the cards, and the margin's keys | stateful (windows) |
+| `overlay.lua` | The **overlay**: its session-long toggle and style, the **margin** split beside a file's window with a **card** per **entry** at its anchor's screen row, or a **caption** per entry above its anchor line, the sign on each covered line, the pure layout that stacks the cards, and the margin's keys | stateful (windows) |
 | `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies; a file row's glyph and a directory row's are both `render`'s answer — two adapters, one rule, never a second copy of it -- so drawing a tree row records that row's group in `render`'s memo | pure (reaches that memo) |
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
