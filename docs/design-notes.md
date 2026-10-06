@@ -1980,6 +1980,12 @@ still a float (`relative` set), and in the `WinEnter` that follows, `winnr("#")`
 window just entered, not the float. So the margin records, on every `WinLeave`, whether the
 window left was a float, and lands only when it was not.
 
+**A session configured with the overlay on loads the review view at `setup()`.** `start` is
+handed the view, as `toggle` is, because the margin's batch keys run its actions; so
+`overlay.enabled = true` loads `view.lua` and what it requires at startup, where only
+`overlay.lua` loaded before. Accepted, not an accident: requiring `view` lazily inside the
+keys would close a cycle through `delivery`, which repaints the overlay. Not measured.
+
 **Which buffer is a file is its own question, not `file_of`'s.** A file of another checkout,
 of no checkout, or not yet written keeps the margin up with its empty line; only a
 `buftype` or a name with a scheme (`term://`, `codereview://`, a plugin's `oil://`) closes

@@ -322,6 +322,43 @@ describe("the margin's keys", function()
     assert.same({ nitpick, "CodeReviewNote" }, groups_on(m.buf, row + 1))
   end)
 
+  -- Read against what the send adapter is handed for the same batch, as delivery_spec reads
+  -- a copy: the payload's rules are delivery's, and a second rendering of them here would
+  -- agree with this one today and with nothing tomorrow.
+  it("gy copies the batch as a submit would send it, and leaves the queue and the card", function()
+    queued(3, "one")
+    queued(10, "two")
+    local code = code_window()
+    on()
+    enter_from(code, 3)
+    local m = margin()
+    local ids = vim.tbl_map(function(item)
+      return item.id
+    end, queue.all())
+    local rows = lines(m.buf)
+    vim.fn.setreg("+", "")
+    local _, restore = h.capture_notify()
+    h.feed("gy")
+    restore()
+    local copied = vim.fn.getreg("+")
+    assert.is_truthy(copied:find("two", 1, true), copied)
+    assert.same(
+      ids,
+      vim.tbl_map(function(item)
+        return item.id
+      end, queue.all())
+    )
+    assert.same(rows, lines(m.buf))
+    assert.equal(m.win, vim.api.nvim_get_current_win())
+
+    local before = #sent
+    _, restore = h.capture_notify()
+    codereview.submit()
+    restore()
+    assert.equal(before + 1, #sent)
+    assert.equal(sent[#sent], copied)
+  end)
+
   it("<C-s> submits the batch, and the margin shows the empty line", function()
     queued(3, "one")
     queued(10, "two")
