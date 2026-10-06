@@ -151,7 +151,14 @@ M.defaults = {
   ---
   ---`style` is the margin by default, so a configuration written before the caption existed
   ---draws what it drew then.
-  overlay = { enabled = false, width = 40, style = "margin" }, ---@type { enabled: boolean, width: integer, style: "margin"|"inline" }
+  ---
+  ---`tint` is the **tint**, in both styles: a background on every line an entry covers, the
+  ---normal background pulled toward the colour of the **leading type** on that line.
+  ---`strength` is how far, from 0 (not at all) to 1 (the type's colour itself). Low by
+  ---default, because the tint sits under code that has to stay readable, and a range is
+  ---already marked by its sign. The row the cursor is on is left untinted, so the cursor line
+  ---shows. On a terminal without true colour no tint is drawn whatever this says.
+  overlay = { enabled = false, width = 40, style = "margin", tint = { enabled = true, strength = 0.12 } }, ---@type { enabled: boolean, width: integer, style: "margin"|"inline", tint: { enabled: boolean, strength: number } }
   panel = {
     enabled = true,
     width = 34,
@@ -416,8 +423,8 @@ end
 
 ---Reject a switch with a strength beside it written as a bare boolean.
 ---
----`spans` and `archived` are bare booleans while `muted`, `faded` and `counterpart` are
----tables, so `muted = false` is the natural mistake to make. Without this it is an index
+---`spans` and `archived` are bare booleans while `muted`, `faded`, `counterpart` and
+---`overlay.tint` are tables, so `muted = false` is the natural mistake to make. Without this it is an index
 ---error raised from inside a window helper the next time a review opens, rather than a
 ---sentence at `setup()` naming the line to change. Named for the switch it is checking,
 ---because two copies of this sentence would be two chances to word it differently.
@@ -473,6 +480,9 @@ function M.setup(opts)
   validate_boolean("overlay.enabled", M.options.overlay.enabled)
   validate_width("overlay.width", M.options.overlay.width)
   validate_style(M.options.overlay.style)
+  validate_blend("overlay.tint", M.options.overlay.tint)
+  validate_boolean("overlay.tint.enabled", M.options.overlay.tint.enabled)
+  validate_strength("overlay.tint.strength", M.options.overlay.tint.strength)
   validate_blend("muted", M.options.muted)
   validate_boolean("muted.enabled", M.options.muted.enabled)
   validate_strength("muted.strength", M.options.muted.strength)

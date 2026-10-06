@@ -18,6 +18,7 @@
 local M = {}
 
 local render = require("codereview.render")
+local types = require("codereview.types")
 
 ---@class CRPanelNode
 ---@field kind "dir"|"file"
@@ -139,16 +140,15 @@ end
 ---picker lists and the **payload** groups, so the tree agrees with both rather than holding a
 ---private ordering a host would have to learn a second time.
 ---
----**Ranked by position rather than matched by name at the mark.** A rank turns "first in the
----configured order" into one integer comparison per **entry**; comparing names would be a
----search of the list per entry instead.
+---**The rule itself is `types.leading`**, the one copy the **overlay**'s **tint** decides a line
+---with too. It ranks by position rather than matching names at the mark: one integer
+---comparison per **entry**, where comparing names would be a search of the list per entry.
 ---@param files CRFile[]
 ---@param opts { reviewed: table<string, string>, notes: table<string, table[]>, types: CRType[]|nil }
 ---@return CRPanelNode
 function M.tree(files, opts)
-  local rank, group = {}, {}
+  local leading, group = types.leading(opts.types or {}), {}
   for i, t in ipairs(opts.types or {}) do
-    rank[t.name] = rank[t.name] or i
     group[i] = t.hl
   end
 
@@ -171,10 +171,7 @@ function M.tree(files, opts)
         -- nothing. A queue restored under a configuration that has since dropped a type still
         -- says how much is waiting in a file and stops saying what kind of thing it is, which
         -- is the same answer `types.group` gives it in the payload.
-        local r = rank[item.type]
-        if r and r < (lead[path] or math.huge) then
-          lead[path] = r
-        end
+        lead[path] = leading(lead[path], item.type)
       end
     end
   end

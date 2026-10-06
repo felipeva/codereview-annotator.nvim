@@ -714,7 +714,7 @@ file tree dismissed, and with a review that was opened without one.
 
 The summary counts in glyphs rather than words: `✓2/7` reviewed, `●2` notes,
 `↺2` untouched, one glyph each so that three numbers side by side are never
-ambiguous. All of them come from `icons` (|codereview-config|) and all of them
+ambiguous. All of them come from `icons` (|codereview-configuration|) and all of them
 are plain Unicode -- no Nerd Font is needed anywhere in this plugin. The bar
 does not name the review itself.
 
@@ -1248,7 +1248,7 @@ card stays at the top. The margin never scrolls on its own.
 
 Each line an annotation covers also gets a sign in the type's colour. With
 'signcolumn' set to `no` there is no sign; the card header still names the
-lines.
+lines. It also gets a tint (|codereview-overlay-tint|).
 
                                                 *codereview-overlay-follow*
 The margin follows you. There is one margin in each tab page, beside one
@@ -1365,6 +1365,40 @@ once. An annotation from the review view keeps the flag the review last gave
 it. A file changed outside Neovim is checked the next time you enter it or
 write it, not when Neovim gets focus back.
 
+                                                *codereview-overlay-tint*
+In both styles, each line an annotation covers gets a background in its
+type's colour, the tint: your `Normal` background pulled toward the
+foreground of the type's group (`CodeReviewBug`, and so on) by
+`overlay.tint.strength`, 0.12 by default. It is computed from your
+colorscheme, and computed again on every |ColorScheme| event. The tint is a
+background only, so the code on the line keeps its own colours.
+
+The line the cursor is on, in the window the overlay follows, has no tint.
+A line background is drawn over |hl-CursorLine|, so without this your cursor
+line would disappear inside a range. When you move the cursor through a
+range, the tint goes off the line you enter and comes back on the line you
+leave; nothing else is drawn again and no git process runs on that movement.
+This is also true in insert mode. Another window that shows the same buffer
+keeps the tint on its own cursor line until you move into it.
+
+Where two ranges overlap, the line takes the tint of the type that comes
+first in your `types` list: the leading type, the same rule as the mark of a
+file in the file tree (|codereview-tree|). An untyped annotation, an
+annotation whose type is no longer configured and a whole-file annotation
+get no tint; their lines keep the sign.
+
+On a terminal without true colour ('termguicolors' off) there is no
+background to compute: no tint group is defined, nothing is drawn, and the
+signs stay. Dropping an annotation takes its tint away, turning the overlay
+off takes every tint away, and the tint moves with the code when you edit
+above a range, as the signs do. The review view gets no tint; its lines keep
+the diff's colours.
+
+`overlay.tint.enabled = false` draws no tint. `overlay.tint.strength` is
+from 0 (no change) to 1 (the type's colour itself); any other value is an
+error at |codereview.setup()|, as is `overlay.tint = false` (write
+`overlay.tint = { enabled = false }`).
+
 `:CodeReviewOverlay margin` and `:CodeReviewOverlay inline` switch between the
 two while the overlay is on: the margin closes and the captions appear, or the
 captions go from every buffer they were drawn in and the margin opens. The
@@ -1392,6 +1426,7 @@ that it was on, and the buffer's text is never changed. `overlay.enabled` sets
 where each session starts; `overlay.width` is the margin's width in columns;
 `overlay.style` is the drawing each session starts in, `"margin"` (the
 default) or `"inline"`. Any other style is an error at |codereview.setup()|.
+`overlay.tint` is the tint, see |codereview-overlay-tint|.
 
 ==============================================================================
 8. ADAPTERS                                            *codereview-adapters*
@@ -1695,7 +1730,10 @@ Defaults: >
       faded = { enabled = true, strength = 0.35 },
       counterpart = { enabled = true, strength = 0.25 },
       panel = { enabled = true, width = 34, position = "left" },
-      overlay = { enabled = false, width = 40, style = "margin" },
+      overlay = {
+        enabled = false, width = 40, style = "margin",
+        tint = { enabled = true, strength = 0.12 },
+      },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
         collapsed = "▸", expanded = "▾", change_bar = "▌",
@@ -1828,7 +1866,8 @@ Override the two file header groups above and the frame follows them, which is
 the way to recolor it. Override these four directly and it does not. All four
 are `default = true` as well.
 
-Three more families are computed, and none is yours to set. A **muted**
+Four more families are computed, and none is yours to set: three of twins,
+and the tint. A **muted**
 pane (|codereview-muted|) draws every group through a twin named
 `CodeReviewMuted.` plus the group it blends -- `CodeReviewMuted.CodeReviewAdd`,
 `CodeReviewMuted.@keyword`, and so on. A **faded** file (|codereview-faded|)
@@ -1841,7 +1880,16 @@ blended at `counterpart.strength`. Each holds the group's own colors pulled
 that far toward the background, and each is written again on every colorscheme
 change, so a definition of your own is overwritten. Set the strength, or the
 group the twin is named for, instead. A group the active theme gives no color
-of its own gets no twin in any of the three, and is drawn at full brightness.
+of its own gets no twin in any of the three twin families, and is drawn at
+full brightness.
+
+The tint (|codereview-overlay-tint|) goes the other way: one group per
+annotation type, named `CodeReviewTint.` plus the type's group -- >
+    CodeReviewTint.CodeReviewBug
+<
+-- holding only a background, the `Normal` background pulled toward that
+group's foreground at `overlay.tint.strength`. A type group with no
+foreground gets no tint, and without 'termguicolors' none is defined.
 
 ==============================================================================
 11. PERSISTENCE                                     *codereview-persistence*

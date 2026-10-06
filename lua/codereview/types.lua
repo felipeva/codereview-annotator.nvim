@@ -242,6 +242,33 @@ function M.group(items, list)
   return out
 end
 
+---The **leading type**'s rule, as a function: hand it the best rank so far and an entry's
+---type, and it hands back the better of the two.
+---
+---Ranked by position in the declared order, so the first type a host declares wins -- the
+---order the type picker lists and the payload groups, and no ordering of its own. A type not
+---in `list`, and no type at all, leads nothing: the rank comes back unchanged. One function,
+---because the file tree's mark decides a file with it and the **overlay**'s **tint** decides a
+---line with it, and two copies are two chances to disagree about which type leads.
+---
+---The ranks are built once, here, so a caller walking every entry pays one lookup and one
+---comparison per entry rather than a search of the list.
+---@param list CRType[]
+---@return fun(best: integer|nil, name: string|nil): integer|nil lead
+function M.leading(list)
+  local rank = {}
+  for i, t in ipairs(list) do
+    rank[t.name] = rank[t.name] or i
+  end
+  return function(best, name)
+    local r = name and rank[name]
+    if r and r < (best or math.huge) then
+      return r
+    end
+    return best
+  end
+end
+
 ---@param list CRType[]
 ---@param name string
 ---@return CRType|nil

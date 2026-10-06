@@ -23,6 +23,8 @@ style setting picks the drawing, and nothing about the choice reaches the **payl
 - **A background tint on the covered lines.** Deferred: a line-wide background wins over the
   cursor line, so the cursor vanishes inside a tinted range. The sign on each covered line
   is enough to mark the range until that is solved.
+  _Shipped in #277: the row the cursor is on is left untinted, so the cursor line shows, which
+  answers the reason it was deferred._
 
 ## Consequences
 
