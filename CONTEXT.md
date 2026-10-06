@@ -204,6 +204,34 @@ Annotating from an ordinary buffer with no review view open, where the buffer it
 what an annotation is attached to. Produces the same **entry** as the review path.
 _Avoid_: viewless path, buffer path
 
+**Overlay**:
+The **queue** drawn on an ordinary file buffer: the file's **entries** shown beside the
+lines they are anchored to. Said of a buffer and never of a **review view**, which projects
+its annotations onto its own lines and keeps doing so — but said of any file buffer, whether
+a review view is open or not, so a file opened from the diff gets one too. Never drawn on a
+buffer the plugin owns. A session-long toggle, written nowhere, like **solo**. The buffer's
+content is never touched: an overlay is drawn, not inserted. Not _toast_, which is
+transient, and an overlay stays until it is hidden.
+_Avoid_: toast, inline notes, projection, sidebar
+
+**Margin**:
+The window an **overlay** draws in: a split to the right of the buffer's window, holding
+one **card** per entry, laid out from the screen row of each entry's anchor. The cursor can
+enter it, and the queue float's keys work there. Said of a buffer's overlay and never of
+the file tree, which is the **review view**'s side window.
+_Avoid_: sidebar, panel, gutter, column
+
+**Card**:
+One **entry** as the **margin** draws it: a header with the type's icon, name, the lines
+the entry covers and the **stale** flag, then the **note** wrapped to the card's width. The
+header carries the lines because a card pushed down by the one above it has lost the row
+that tied it to its anchor. A card is drawn only while its anchor row is in the window,
+with one exception: a card for a whole file is about no row, so it is pinned at the top of
+the margin and no scrolling takes it away. Not a **frame**, which is
+what marks a file out in the review view and refuses this word for itself; a card is said
+of an entry and never of a file.
+_Avoid_: box, toast, bubble, popup
+
 ### Annotating
 
 **Annotation**:
