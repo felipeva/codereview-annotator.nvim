@@ -291,7 +291,12 @@ in the margin. A caption moves with the code when you edit above it.
 
 Captions take no window and have no keys: to act on an annotation, use the queue float or
 switch to the margin. A file with nothing to draw shows nothing. Captions are drawn when you
-enter a buffer, when the queue changes, and when you resize the window.
+enter a buffer, when you resize the window, and when you write the buffer. A change to the
+queue draws them again in every loaded buffer that has them, so an annotation you drop or edit
+from the queue float changes in a file you are not in, and a submit clears every file of the
+batch; the files you are not in cost no git process. A write checks `⚠ stale` again for the annotations captured
+from that file, so the flag shows after you change and write it, and goes when you write the
+original content back. A file changed outside Neovim is checked when you next enter or write it.
 
 `:CodeReviewOverlay margin` and `:CodeReviewOverlay inline` turn the overlay on in that style,
 or change the drawing when it is on already; they never turn it off. The bare command still

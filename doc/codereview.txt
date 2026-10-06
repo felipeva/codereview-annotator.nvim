@@ -1325,16 +1325,30 @@ stops at line 1 and hides them again; `<C-y>` shows them.
 
 A caption is drawn on the buffer, so it shows in every window that shows that
 buffer, wrapped to the width of the window the overlay follows (the same
-window the margin would be beside). A caption has no window and no keys, and
+window the margin would be beside). A buffer you are not in is wrapped to a
+window that shows it, or, when no window does, to the width it last had. A
+caption has no window and no keys, and
 a file with nothing to draw shows nothing: there is no quiet line. To act on
 an annotation, use the queue float (|codereview.queue()|) or switch to the
 margin.
 
 Captions are drawn when you enter a buffer, after a capture, an edit, a retype
-or a drop, after a submit, and when you resize the window. Scrolling draws
-nothing, because nothing in a caption depends on where the line is on the
-screen. A buffer you are not in keeps the captions it had when you left it,
-until you enter it again.
+or a drop, after a submit, when you resize the window, and when you write the
+buffer. A change to the queue draws the captions again in every loaded buffer
+that has them, not only in the buffer you are in: an annotation you drop or
+edit from the queue float changes in a file you are not looking at, and a
+submit clears the captions of every file in the batch. The files you are not
+in cost no git process. Scrolling draws nothing, because nothing in a caption depends on
+where the line is on the screen.
+
+A write is also when `⚠ stale` is checked again. When you change a file and
+write it, the captions of annotations you captured from that file show
+`⚠ stale` at once, and lose it when you write the original content back. The
+check runs `git hash-object` only when the file's size or modification time
+changed since the last check, so writing the same content again still runs it
+once. An annotation from the review view keeps the flag the review last gave
+it. A file changed outside Neovim is checked the next time you enter it or
+write it, not when Neovim gets focus back.
 
 `:CodeReviewOverlay margin` and `:CodeReviewOverlay inline` switch between the
 two while the overlay is on: the margin closes and the captions appear, or the
