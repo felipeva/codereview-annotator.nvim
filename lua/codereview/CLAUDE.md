@@ -27,7 +27,7 @@ change there is felt through.
 | `hl.lua` | The highlight groups: `default = true` links into whatever colorscheme is active, and the three families of blended twins — the **muted** window's, the **faded** file's and the **counterpart row**'s | stateful (editor) |
 | `init.lua` | The public surface a host reaches: `setup`, the user commands, `annotate(type)` | stateful (setup) |
 | `keymaps.lua` | Every key the review view binds — the diff's and the tree's — onto a buffer handed in, driving actions handed in | stateful (editor) |
-| `overlay.lua` | The **overlay**: its session-long toggle, the **margin** split beside a file's window, a **card** per **entry** at its anchor's screen row, the sign on each covered line, and the pure layout that stacks the cards | stateful (windows) |
+| `overlay.lua` | The **overlay**: its session-long toggle, the **margin** split beside a file's window, a **card** per **entry** at its anchor's screen row, the sign on each covered line, the pure layout that stacks the cards, and the margin's keys | stateful (windows) |
 | `panel.lua` | The file tree: build, chain compaction, folding, per-directory tallies; a file row's glyph and a directory row's are both `render`'s answer — two adapters, one rule, never a second copy of it -- so drawing a tree row records that row's group in `render`'s memo | pure (reaches that memo) |
 | `payload.lua` | The queue rendered as the message an agent receives; `@ref`s resolved at submit time | pure |
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
@@ -49,8 +49,10 @@ change there is felt through.
   `overlay`, `queue_float`, `trim_float`, `view_layout`; then `view_panel`.
 - **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
   is not local to a leaf almost certainly reaches one of them.
-- **On top**: `capture`, then `init`. `annotate` and `init` reach `overlay` function-locally,
-  to repaint it after the queue changes; nothing it requires reaches back.
+- **On top**: `capture`, then `init`. `annotate`, `delivery` and `init` reach `overlay`
+  function-locally, to repaint it after the queue changes. It reaches back to `annotate`
+  only from its keys, function-locally, as `queue_float` does; nothing it requires at file
+  scope reaches back.
 
 ## The four cycles
 
@@ -86,15 +88,17 @@ alternative was `view` *telling* `state` which checkout it is on, which is a sec
 "which review is open" that can drift the moment a tab is closed from outside — and
 ADR-0008 exists because a copy of exactly this fact goes stale silently.
 
-`keymaps`, `queue_float`, `trim_float`, `view_layout` and `view_panel` would each be a
-fifth. All five run the view's exported actions, and all five take them as an argument —
-`view` hands itself in — rather than requiring `view` for them. That is deliberate, and it is
-what leaves `keymaps` a function of its arguments and the configured annotation types.
-`queue_float` reads no view state either: the one field it needs, the window a float is open
-in, stays on `view` behind two accessors, because closing a float on submit is a rule about
-the view's windows. Its edit keys require `annotate` function-locally, as `keymaps` does:
-an edit from the float and one from the diff are to be one path, and that path is
-`annotate`'s. `trim_float` reads none at all: what it takes beside the view is the
+`keymaps`, `overlay`, `queue_float`, `trim_float`, `view_layout` and `view_panel` would each
+be a fifth. All six run the view's exported actions, and all six take them as an argument —
+`view` hands itself in, and `init` hands it to `overlay` — rather than requiring `view` for
+them. That is deliberate, and it is what leaves `keymaps` a function of its arguments and
+the configured annotation types. `queue_float` reads no view state either: the one field it
+needs, the window a float is open in, stays on `view` behind two accessors, because closing
+a float on submit is a rule about the view's windows. Its edit keys require `annotate`
+function-locally, as `keymaps` does: an edit from the float and one from the diff are to be
+one path, and that path is `annotate`'s. `overlay` is handed the view by `init`, through its
+toggle, and does the same for the **margin**'s keys, so the margin is a third surface on
+that one path. `trim_float` reads none at all: what it takes beside the view is the
 repository and the commit the branch starts at, both as plain values, because a second
 derivation of *where does this branch start* is a second chance to answer it differently.
 The view keeps the one refusal only the view can make — the **scope** on screen.

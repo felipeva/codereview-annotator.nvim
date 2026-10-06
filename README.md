@@ -256,6 +256,22 @@ A file opened from the review with `<CR>` gets a margin in its new tab.
 - Closing the margin yourself (`:q` or `<C-w>c` in it) turns the overlay off. Closing its
   tab page does not.
 
+`<C-w>l` into the margin puts the cursor on the card of the line you came from, or on the
+nearer card. There, the queue float's keys act on the card under the cursor, with no review
+open:
+
+| Key | Action |
+| --- | --- |
+| `<CR>` | Go to the card's line in the code window (where the line is now, after edits) |
+| `e` / `t` / `x` | Edit the note / change the type / drop it |
+| `gy` | Copy the batch |
+| `<C-t>` | Choose where the batch goes |
+| `<C-s>` / `<C-a>` | Submit the batch / submit it under a preamble |
+| `q` | Turn the overlay off (there is no `<Esc>`) |
+| `?` | List these keys |
+
+They are bound on the margin's buffer only, so `e`, `t` and `x` hide none of your motions.
+
 Not drawn: annotations on deleted lines or past the end of the file (the toggle tells you how
 many), sent annotations, bare notes, and other checkouts' annotations. Nothing is stored and
 the buffer is not changed.

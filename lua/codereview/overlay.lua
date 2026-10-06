@@ -26,9 +26,12 @@
 ---order that does not say what the reviewer did, so several decisions wait a tick -- each one
 ---says why where it is made.
 ---
----Nothing of the review view is read, so it is not handed in. The margin's keys will act
----through `annotate` the way the queue float's do; that is when a view first has a reason to
----arrive here.
+---**The review view is handed in rather than required**, as the queue float is handed it.
+---The margin's keys are the float's keys, and the ones that act on the whole **batch** --
+---the target, the copy, both submits -- run the view's exported actions, which work with no
+---review open. Requiring `view` for them would close a cycle through `delivery`, which
+---repaints this module. The keys that act on one **entry** reach `annotate` function-locally,
+---as the float's do, so the margin, the float and the diff edit through one path.
 local config = require("codereview.config")
 local git = require("codereview.git")
 local payload = require("codereview.payload")
@@ -251,6 +254,11 @@ end
 ---@field buf integer|nil  Its buffer, which the plugin owns
 ---@field dismissed boolean|nil Closed by the reviewer, until the next tick says whether that
 ---                        was the margin alone or its whole tab page
+---@field rows table<integer, integer>|nil Margin row to the id of the entry drawn on it, as of
+---                        the last paint; every row of a card, header and note alike
+---@field cards { id: integer, start: integer, line: integer|nil }[]|nil The cards drawn at the
+---                        last paint, top to bottom: the row each starts on and the line its
+---                        anchor sat on, nil for a whole-file card
 
 ---One margin per tab page, keyed by the tab page's handle. A tab page with an entry and no
 ---margin window is one whose followed window holds no file: the toggle is still on there,
@@ -415,7 +423,7 @@ local function paint_margin(m)
   signed[buf] = true
   local bar = config.get().icons.change_bar
   local total = vim.api.nvim_buf_line_count(buf)
-  local kept, cards = {}, {}
+  local kept, cards, anchored = {}, {}, {}
   local width = vim.api.nvim_win_get_width(m.win)
   -- Measured inside the margin, which does not wrap. `strdisplaywidth` counts in the current
   -- window, and in a window that wraps, a double-width character that crosses its right edge
@@ -433,6 +441,7 @@ local function paint_margin(m)
     else
       kept[entry.id] = true
       local line = anchor_line(buf, entry)
+      anchored[i] = line
       local last = math.min(total, line + (entry.last or entry.first) - entry.first)
       for l = line, last do
         vim.api.nvim_buf_set_extmark(buf, M.NS, l - 1, 0, { sign_text = bar, sign_hl_group = look(entry).hl })
@@ -448,11 +457,14 @@ local function paint_margin(m)
     rows[r] = ""
   end
   local marks = {}
+  m.rows, m.cards = {}, {}
   for i, slot in ipairs(M.layout(cards, height)) do
     if slot then
       for r = 1, slot.rows do
         rows[slot.start + r - 1] = built[i].lines[r]
+        m.rows[slot.start + r - 1] = drawn[i].id
       end
+      m.cards[#m.cards + 1] = { id = drawn[i].id, start = slot.start, line = anchored[i] }
       for _, mark in ipairs(built[i].marks) do
         if mark.row < slot.rows then
           marks[#marks + 1] = { row = slot.start - 1 + mark.row, col = mark.col, end_col = mark.end_col, hl = mark.hl }
@@ -460,6 +472,9 @@ local function paint_margin(m)
       end
     end
   end
+  table.sort(m.cards, function(a, b)
+    return a.start < b.start
+  end)
   if #drawn == 0 then
     rows[1] = EMPTY
     marks[#marks + 1] = { row = 0, col = 0, end_col = #EMPTY, hl = "CodeReviewOverlayEmpty" }
@@ -524,6 +539,181 @@ local function concerns(ids)
   return false
 end
 
+---The review view, as the last toggle handed it in. Read by the keys that act on the batch.
+local view_
+
+---That entry as it sits in the queue.
+---@param id integer|nil
+---@return CRAnnotation|nil
+local function queued(id)
+  for _, item in ipairs(queue.all()) do
+    if item.id == id then
+      return item
+    end
+  end
+end
+
+---Put the margin's cursor on the start of a card.
+---@param m CROverlayMargin
+---@param card { start: integer }|nil
+local function put(m, card)
+  if card and standing(m) then
+    pcall(vim.api.nvim_win_set_cursor, m.win, { card.start, 0 })
+  end
+end
+
+---Put the margin's cursor on the card nearest the line the code window's cursor is on.
+---
+---The card anchored on that line, else the one whose anchor is nearest; the upper of two
+---as near, and the first in queue order of several on one line, which is the order the
+---margin draws them in. Measured to the anchor and not to the card's row, because a card
+---pushed down by the one above it is still about the line it was anchored to. A whole-file
+---card is about no line, and is where the cursor goes only when no other card is drawn.
+---@param m CROverlayMargin
+local function land(m)
+  local line = vim.api.nvim_win_get_cursor(m.code)[1]
+  local best, gap
+  for _, card in ipairs(m.cards or {}) do
+    if card.line and (not gap or math.abs(card.line - line) < gap) then
+      best, gap = card, math.abs(card.line - line)
+    end
+  end
+  put(m, best or (m.cards or {})[1])
+end
+
+---Bind the queue float's keys on a margin's buffer, with the same meanings.
+---
+---On the margin's own buffer and nowhere else: the plugin binds no global keys, and the
+---code window is the host's. So `e` and `t` hide no motion a reviewer reads a file with.
+---There is no `<Esc>`: the margin is a window a reviewer reads beside the code, not a dialog
+---in front of it, and `q` turns the overlay off rather than closing one window.
+---@param m CROverlayMargin
+local function bind(m)
+  local buf = m.buf
+
+  ---The entry the cursor is on. Every row of a card is mapped to it, its note as well as its
+  ---header; an empty row and the quiet line answer nil.
+  local function at_cursor()
+    if not standing(m) or not m.rows then
+      return nil
+    end
+    return queued(m.rows[vim.api.nvim_win_get_cursor(m.win)[1]])
+  end
+
+  ---The card that entry is drawn as now, wherever the repaint moved it.
+  local function card_of(id)
+    for _, card in ipairs(m.cards or {}) do
+      if card.id == id then
+        return card
+      end
+    end
+  end
+
+  ---After an edit that `annotate` made, which has repainted the margin already. The composer
+  ---and the picker are open for as long as the reviewer likes, and the margin can close
+  ---under them.
+  local function after_edit(edited)
+    put(m, card_of(edited.id))
+  end
+
+  local function map(lhs, rhs, desc)
+    vim.keymap.set("n", lhs, rhs, { buffer = buf, desc = desc })
+  end
+
+  -- The overlay stays on, where the float closes: the margin is still beside the code the
+  -- cursor goes to. The anchor's line now and not the recorded one, so a file edited since
+  -- the capture still lands on the line the card is about.
+  map("<CR>", function()
+    local entry = at_cursor()
+    if not entry or not live(m) then
+      return
+    end
+    if entry.kind ~= "file" then
+      local line = anchor_line(vim.api.nvim_win_get_buf(m.code), entry)
+      vim.api.nvim_win_set_cursor(m.code, { line, 0 })
+    end
+    vim.api.nvim_set_current_win(m.code)
+  end, "Go to the annotated line")
+
+  -- Through annotate, for the reason the float gives: one drop from every surface. The drop
+  -- repaints the margin itself. The cursor then goes to the nearest card, as the float's
+  -- does, or the second `x` of a run would land on an empty row and do nothing.
+  map("x", function()
+    local entry = at_cursor()
+    if not entry then
+      return
+    end
+    local row = vim.api.nvim_win_get_cursor(m.win)[1]
+    require("codereview.annotate").drop_entry(entry)
+    if not standing(m) then
+      return
+    end
+    local height = vim.api.nvim_win_get_height(m.win)
+    for _, range in ipairs({ { row, height, 1 }, { row, 1, -1 } }) do
+      for r = range[1], range[2], range[3] do
+        if m.rows[r] then
+          put(m, card_of(m.rows[r]))
+          return
+        end
+      end
+    end
+  end, "Drop annotation")
+
+  map("e", function()
+    local entry = at_cursor()
+    if entry then
+      require("codereview.annotate").edit_note(entry, after_edit)
+    end
+  end, "Edit the note")
+
+  map("t", function()
+    local entry = at_cursor()
+    if entry then
+      require("codereview.annotate").change_type(entry, after_edit)
+    end
+  end, "Change the type")
+
+  -- Nothing to repaint after: the margin does not name the target.
+  map("<C-t>", function()
+    view_.pick_target()
+  end, "Choose target")
+
+  map("gy", function()
+    view_.copy()
+  end, "Copy the batch to the clipboard")
+
+  -- The submit repaints the overlay itself, so a dispatched batch leaves the quiet line.
+  map("<C-s>", function()
+    view_.submit()
+  end, "Submit the batch")
+
+  map("<C-a>", function()
+    view_.submit_with_preamble()
+  end, "Submit the batch under a preamble")
+
+  map("q", function()
+    M.toggle(view_)
+  end, "Turn the overlay off")
+
+  -- Read off the keys this buffer really has, as the float's list is.
+  map("?", function()
+    local listed = {}
+    for _, km in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
+      if km.desc then
+        listed[#listed + 1] = { key = km.lhs:gsub("^<C%-(%a)>$", "^%1"), desc = km.desc }
+      end
+    end
+    table.sort(listed, function(a, b)
+      return a.key < b.key
+    end)
+    local rows = { "Margin keys:" }
+    for _, l in ipairs(listed) do
+      rows[#rows + 1] = ("  %-6s %s"):format(l.key, l.desc)
+    end
+    info(table.concat(rows, "\n"))
+  end, "List these keys")
+end
+
 ---Put the margin beside a window: move it there if it stands elsewhere in that tab page, and
 ---open it if it does not stand at all.
 ---
@@ -578,6 +768,7 @@ local function place(win)
   wo.cursorline = false
   m = { win = mwin, buf = buf, code = win }
   margins[tab] = m
+  bind(m)
   return m
 end
 
@@ -767,6 +958,16 @@ local function listen()
       end
     end,
   })
+  -- Whether the window the cursor last left was a float. A float closing raises its
+  -- `WinLeave` while it is still a float, and by the `WinEnter` that follows, `winnr("#")`
+  -- names the window entered, so this is the only moment the question can be asked.
+  local left_float = false
+  vim.api.nvim_create_autocmd("WinLeave", {
+    group = group,
+    callback = function()
+      left_float = vim.api.nvim_win_get_config(0).relative ~= ""
+    end,
+  })
   vim.api.nvim_create_autocmd("WinEnter", {
     group = group,
     callback = function()
@@ -776,6 +977,17 @@ local function listen()
       -- Moving the margin now fails with E242, since no split may be made while a window
       -- closes; `lost` has already asked for the follow on the next tick.
       if m and m.code == nil then
+        return
+      end
+      -- The reviewer entering the margin: on the card nearest the line they came from,
+      -- painted first, because an edit since the last paint may have moved an anchor. Not
+      -- after a float closed over the margin -- the composer of `e`, the picker of `t` --
+      -- which has put the cursor on the edited card already.
+      if m and win == m.win then
+        if not left_float and live(m) and not m.dismissed then
+          M.paint()
+          land(m)
+        end
         return
       end
       -- `:new` splits the window with its buffer, enters the split, and only then gives it
@@ -847,8 +1059,10 @@ local function show()
 end
 
 ---Turn the overlay on or off for the rest of this session, and say so.
+---@param view table The review view, whose exported actions the margin's keys run
 ---@return boolean on The state it is now in
-function M.toggle()
+function M.toggle(view)
+  view_ = view
   local on = config.toggle_overlay()
   local skipped = 0
   if on then
@@ -865,7 +1079,9 @@ end
 ---Beside whichever window is current once startup has finished, which is the window the
 ---files given on the command line were loaded into. A host that loads the plugin late has
 ---already entered, and gets the margin at once.
-function M.start()
+---@param view table The review view, as `toggle` takes it
+function M.start(view)
+  view_ = view
   if not M.enabled() then
     return
   end
