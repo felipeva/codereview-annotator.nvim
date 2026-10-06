@@ -593,6 +593,36 @@ describe("a capture from the buffer", function()
   end)
 end)
 
+describe("a drop from the queue float", function()
+  after_each(off)
+
+  -- `x` in the float, with no review view open: the float's drop runs through
+  -- `annotate.drop_entry`, the one drop path, and the margin is repainted there.
+  it("takes that card and its signs out of the margin and leaves the other", function()
+    clear_queue()
+    local _, buf = code_window()
+    queued({ first = 4, note = "dropped from the float" })
+    queued({ type = "fix", first = 10, note = "kept" })
+    on()
+    local m = margin()
+    assert.equal(4, row_of(m.buf, BAR .. " ✗ bug 4"))
+    assert.same({ "CodeReviewBug" }, signs(buf)[4])
+    require("codereview.view").review_queue()
+    local float = vim.api.nvim_get_current_win()
+    assert.is_true(vim.fn.search("dropped from the float") > 0, "the float does not list the entry")
+    h.feed("x")
+    if vim.api.nvim_win_is_valid(float) then
+      vim.api.nvim_win_close(float, true)
+    end
+    assert.equal(1, #queue.all())
+    assert.is_nil(row_of(m.buf, BAR .. " ✗ bug 4"))
+    assert.is_nil(row_of(m.buf, BAR .. " dropped from the float"))
+    assert.is_nil(signs(buf)[4])
+    assert.equal(10, row_of(m.buf, BAR .. " ✎ fix 10"))
+    assert.same({ "CodeReviewFix" }, signs(buf)[10])
+  end)
+end)
+
 describe("a submit", function()
   after_each(off)
 
