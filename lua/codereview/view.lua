@@ -1915,15 +1915,19 @@ end
 ---Put the cursor on the place a queued annotation is about.
 ---
 ---Says why not rather than doing nothing when it cannot, and says it differently each
----time: a **bare note** will never have a destination, a missing review view means open
----one, and a file the scope does not cover means change scope. One shared "cannot jump
----there" would name none of the three remedies.
+---time: a **bare note** will never have a destination, and a file the scope does not cover
+---means change scope. One shared "cannot jump there" would name neither remedy.
+---
+---The queue float does not reach this with no review view open: it opens the entry's file
+---itself then, and sends only a bare note here. The refusal for a missing view is for a
+---direct caller, which has no float to fall back on.
 ---@param entry CRAnnotation
 ---@return boolean jumped Whether the cursor actually moved; false has already reported why
 function M.jump_to_entry(entry)
   -- One queue holds both paths' entries, and the capture path can produce an annotation
   -- with no file behind it at all. Checked before the view, because opening a review would
-  -- not give this one anywhere to go either.
+  -- not give this one anywhere to go either -- and because the float sends a bare note here
+  -- with no view open, so this order is what gives it one wording either way.
   if entry.kind == "note" then
     info("A bare note is about no file — there is nowhere to jump to")
     return false

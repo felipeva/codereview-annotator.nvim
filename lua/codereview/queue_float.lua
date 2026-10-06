@@ -386,17 +386,13 @@ function M.open(view)
         info(("%s is not on disk — there is nothing to open"):format(entry.path or entry.abs_path))
         return
       end
-      -- The checkout the entry is about, derived as the queue's persistence derives it:
-      -- the absolute path with the repository-relative one taken off. An entry outside
-      -- every repository has no relative path, and its tab keeps the directory it has.
-      local suffix = entry.path and ("/" .. entry.path)
-      local root = suffix
-        and entry.abs_path:sub(-#suffix) == suffix
-        and entry.abs_path:sub(1, #entry.abs_path - #suffix)
+      -- The checkout the entry is about, from the one rule the queue's stores are filed by.
+      -- An entry outside every repository has none, and its tab keeps the directory it has.
+      local root = require("codereview.state").checkout_of(entry)
       -- Closed first: the tab opens out of the window the float was over, not out of the
       -- float, and a float left behind in the old tab would list a queue nobody is reading.
       close()
-      view.open_real_file(entry.abs_path, entry.kind == "file" and 1 or entry.first or 1, root or nil)
+      view.open_real_file(entry.abs_path, entry.kind == "file" and 1 or entry.first or 1, root)
       return
     end
     -- Only a jump that happened costs the list: a reviewer who pressed a key that could

@@ -436,7 +436,8 @@ local function jump_from_float()
     tabs = vim.fn.tabpagenr("$") - tabs,
     name = vim.uv.fs_realpath(vim.api.nvim_buf_get_name(0)) or "",
     line = vim.api.nvim_win_get_cursor(0)[1],
-    cwd = vim.uv.fs_realpath(vim.fn.getcwd()) or "",
+    -- As Neovim reports it, not resolved here: the expected side is the realpath.
+    cwd = vim.fn.getcwd(),
     float_open = vim.api.nvim_win_is_valid(win),
   }
   if seen.float_open then
@@ -576,6 +577,32 @@ describe("a file in no repository", function()
       assert.same(0, gone.tabs)
       assert.is_true(gone.float_open)
     end)
+  end)
+end)
+
+describe("a recorded line past the end of the file", function()
+  fresh_queue()
+  local shrunk = vim.fn.tempname() .. ".txt"
+  vim.fn.writefile({ "one", "two", "three", "four" }, shrunk)
+  shrunk = vim.uv.fs_realpath(shrunk)
+  vim.cmd("tabedit " .. vim.fn.fnameescape(shrunk))
+  h.feed("4GV<F5>")
+  -- Wiped rather than closed, so the jump reads the file from disk and not the four lines
+  -- still in memory, and a fresh buffer puts the cursor on line 1 -- which is not the line
+  -- the clamp is to land on.
+  vim.cmd("bwipeout!")
+  vim.fn.writefile({ "one", "two" }, shrunk)
+  local entry = queue.all()[1]
+  local seen = jump_from_float()
+
+  it("records a line the file no longer has", function()
+    assert.same(4, entry.first)
+  end)
+
+  it("opens the file at its last line", function()
+    assert.same(shrunk, seen.name)
+    assert.same(2, seen.line)
+    assert.is_false(seen.float_open)
   end)
 end)
 
