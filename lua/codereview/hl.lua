@@ -20,7 +20,9 @@
 ---its **counterpart row** in, gets a twin here, named for the group it blends. The window
 ---that mutes links to that twin instead of holding a color of its own, and the fade emits it
 ---in place of the group the row would carry, so one piece of arithmetic answers all three.
----See `M.blended` below.
+---The **tint** an **overlay** draws on the lines an entry covers is a fourth family, and the
+---same arithmetic run the other way: the backdrop pulled toward a type's colour. See
+---`M.blended` below.
 local M = {}
 
 local LINKS = {
@@ -318,7 +320,7 @@ end
 
 --- The blended colors ----------------------------------------------------------
 
----@alias CRBlendFamily "muted"|"faded"|"counterpart"
+---@alias CRBlendFamily "muted"|"faded"|"counterpart"|"tint"
 
 ---The families of blended groups: what each one's members are named, and how far each pulls.
 ---
@@ -328,8 +330,8 @@ end
 ---`CodeReviewMuted.@keyword` can only be the twin of `@keyword`. No group this plugin
 ---defines starts with any of the prefixes, so a twin shadows none of them.
 ---
----**Three families, one blend.** A **muted** window, a **faded** file and the **counterpart
----row** a muted pane lights all pull the theme's own colors toward the same background, and
+---**Three twin families, one blend, and a fourth that runs it backwards.** A **muted**
+---window, a **faded** file and the **counterpart row** a muted pane lights all pull the theme's own colors toward the same background, and
 ---each has a strength of its own because each covers a very different amount of the screen:
 ---the window rule answers for the panes a reviewer is not in, the fade for every file but
 ---one, the counterpart row for a single row inside a window the muting already has. A second
@@ -338,15 +340,25 @@ end
 ---
 ---**One member is enough to justify a family.** `counterpart` holds only `CursorLine`. The
 ---alternative is that second copy of the blend, written where the row is lit -- which is
----exactly the shape the two families above were built to refuse.
+---exactly the shape the muted and faded families were built to refuse.
 ---
----`option` names the table in the configuration each family takes its strength from, so a
----family knows where its number comes from and nothing else has to.
----@type table<CRBlendFamily, { prefix: string, option: string }>
+---**The tint runs the blend the other way, and that is why it is a family and not a twin
+---beside them.** The three above pull a group's own colours toward the backdrop and keep
+---them where they were. A **tint** pulls the backdrop toward a type group's *foreground* and
+---writes the result as a background, and nothing else: it is drawn as a line-wide group, and
+---a line-wide group carrying a foreground flattens every colour on the row, the trap the
+---**band** records. One `blend`, so the tint cannot drift from the band or the twins on a
+---theme none of them was written against. `toward` marks that direction.
+---
+---`option` is the path in the configuration each family takes its strength from, so a
+---family knows where its number comes from and nothing else has to. A path, because the
+---tint's table sits inside the overlay's.
+---@type table<CRBlendFamily, { prefix: string, option: string[], toward: boolean|nil }>
 local FAMILIES = {
-  muted = { prefix = "CodeReviewMuted.", option = "muted" },
-  faded = { prefix = "CodeReviewFaded.", option = "faded" },
-  counterpart = { prefix = "CodeReviewCounterpart.", option = "counterpart" },
+  muted = { prefix = "CodeReviewMuted.", option = { "muted" } },
+  faded = { prefix = "CodeReviewFaded.", option = { "faded" } },
+  counterpart = { prefix = "CodeReviewCounterpart.", option = { "counterpart" } },
+  tint = { prefix = "CodeReviewTint.", option = { "overlay", "tint" }, toward = true },
 }
 
 ---The twin of every group that has one, per family, keyed by the group it blends.
@@ -385,6 +397,12 @@ end
 ---
 ---The **band** is a background alone, and that is the half a muted pane most needs pulled: a
 ---header row left unblended is the one bright stripe in a pane that has lost focus.
+---
+---A **tint** is written from `group`'s foreground alone, and only on a terminal with true
+---colour. Without it there is no background to compute -- a palette index has no channels to
+---pull, the band's reason -- so no tint group is defined and the overlay draws none; the sign
+---on each covered line is what marks the range there. A type group with no foreground has no
+---colour to pull toward, and gets no tint either.
 ---@param family CRBlendFamily
 ---@param group string
 ---@return boolean written True if the twin now holds a blend of `group`.
@@ -393,12 +411,19 @@ local function write_twin(family, group)
   if not ok or type(def) ~= "table" or (def.fg == nil and def.bg == nil and def.sp == nil) then
     return false
   end
-  local strength = require("codereview.config").get()[FAMILIES[family].option].strength
+  local spec = FAMILIES[family]
+  local strength = vim.tbl_get(require("codereview.config").get(), unpack(spec.option)).strength
+  if spec.toward then
+    if not vim.o.termguicolors or def.fg == nil then
+      return false
+    end
+    return (pcall(vim.api.nvim_set_hl, 0, spec.prefix .. group, { bg = blend(backdrop(), def.fg, strength) }))
+  end
   local twin = vim.tbl_extend("force", {}, def)
   twin.fg = def.fg and blend(def.fg, backdrop(), strength) or nil
   twin.bg = def.bg and blend(def.bg, backdrop(), strength) or nil
   twin.sp = def.sp and blend(def.sp, backdrop(), strength) or nil
-  return (pcall(vim.api.nvim_set_hl, 0, FAMILIES[family].prefix .. group, twin))
+  return (pcall(vim.api.nvim_set_hl, 0, spec.prefix .. group, twin))
 end
 
 ---The group that holds `group` blended at `family`'s strength, computed once.
@@ -415,6 +440,11 @@ end
 ---@param group string
 ---@return string|nil name The twin's name, or nil if `group` has nothing to blend.
 function M.blended(family, group)
+  -- Asked before the memo, because `termguicolors` can be turned off after a tint was written,
+  -- and a tint is only a background on a terminal that can draw one.
+  if FAMILIES[family].toward and not vim.o.termguicolors then
+    return nil
+  end
   local known = twins[family]
   if known[group] then
     return known[group]
@@ -442,12 +472,16 @@ end
 ---gets. A link that reaches no definition draws nothing at all, so every twin a caller
 ---already links to must stay a definition -- and a mark already emitted in a twin's name is
 ---the same case as a namespace linking to one.
+---
+---Not a tint. Linked back, a tint would be a line-wide group carrying the type's foreground,
+---and every covered line would be drawn in it. A tint that loses its colour is emptied
+---instead, and draws nothing, which is what a terminal without true colour gets.
 local function recolor_twins()
   toward = nil
   for family, known in pairs(twins) do
     for group, twin in pairs(known) do
       if not write_twin(family, group) then
-        pcall(vim.api.nvim_set_hl, 0, twin, { link = group })
+        pcall(vim.api.nvim_set_hl, 0, twin, FAMILIES[family].toward and {} or { link = group })
       end
     end
   end
@@ -477,7 +511,7 @@ function M.apply()
 end
 
 ---Re-link after a colorscheme change, since `nvim_set_hl` definitions are cleared by
----`:colorscheme`. That clears the blended twins too, of both families, so `apply` writes
+---`:colorscheme`. That clears the blended twins too, of every family, so `apply` writes
 ---them again as well.
 function M.setup()
   M.apply()

@@ -249,7 +249,7 @@ each queued annotation of the file, on the screen row of its first line:
 The header has the type's icon, name and lines. The header and the note are in the type's
 colour. Cards move with the code when you scroll or edit. A card that would cover the next one
 pushes it down. A whole-file card stays at the top. Each covered line gets a sign in the
-type's colour.
+type's colour, and a tint (see below).
 
 The margin follows you. It is beside one window per tab page. When you open another file in
 that window, or move the cursor into another split that holds a file, the margin shows that
@@ -304,6 +304,26 @@ from the queue float changes in a file you are not in, and a submit clears every
 batch; the files you are not in cost no git process. A write checks `⚠ stale` again for the annotations captured
 from that file, so the flag shows after you change and write it, and goes when you write the
 original content back. A file changed outside Neovim is checked when you next enter or write it.
+
+#### The tint
+
+In both styles, each line an annotation covers gets a background in its type's colour: your
+normal background, pulled 12% of the way toward the colour of the type's group. It is computed
+from your colorscheme, and computed again when you change it.
+
+- The line the cursor is on has no tint, so your cursor line shows. When you move the cursor
+  through a range, the tint moves off the line you enter and back onto the line you leave.
+  Nothing else is drawn again on a cursor movement.
+- Where two ranges overlap, the line takes the colour of the type that comes first in your
+  `types` list, as the file tree's mark does.
+- A whole-file annotation and an untyped annotation get no tint. Their lines keep the sign.
+- A terminal without true colour (`termguicolors` off) gets no tint. The signs stay.
+- Dropping the annotation or turning the overlay off takes the tint away. The tint moves with
+  the code when you edit above it.
+
+`overlay.tint = { enabled = false }` turns it off. `overlay.tint.strength` sets how far the
+background is pulled, from 0 to 1; a value outside that range is an error at `setup()`. The
+review view gets no tint: its lines keep the diff's colours.
 
 `:CodeReviewOverlay margin` and `:CodeReviewOverlay inline` turn the overlay on in that style,
 or change the drawing when it is on already; they never turn it off. The bare command still
@@ -376,7 +396,10 @@ opts = {
   faded = { enabled = true, strength = 0.35 },        -- dim the files you are not in
   counterpart = { enabled = true, strength = 0.25 },  -- mark the opposite row in split
   panel = { enabled = true, width = 34, position = "left" },
-  overlay = { enabled = false, width = 40, style = "margin" },  -- or "inline" (:CodeReviewOverlay)
+  overlay = {                    -- :CodeReviewOverlay
+    enabled = false, width = 40, style = "margin",      -- or "inline"
+    tint = { enabled = true, strength = 0.12 },         -- colour the lines an annotation covers
+  },
   icons = {
     reviewed = "✓", annotated = "●", unreviewed = "○",
     collapsed = "▸", expanded = "▾", change_bar = "▌",

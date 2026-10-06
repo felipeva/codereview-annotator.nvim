@@ -21,6 +21,12 @@
 ---instead rewritten from `screenpos`, which answers in screen rows and already knows about
 ---wrap, folds and filler.
 ---
+---**The tint rides beside the signs.** Every covered line of a drawn entry carries a line-wide
+---background in its type's **tint**, in either style, drawn and cleared with the signs. The
+---row the cursor is on in the followed window is the one exception: a line-wide background
+---wins over `CursorLine`, so that row's tint is held off it, and a cursor movement moves which
+---row that is without painting anything else.
+---
 ---**Nothing here is stored.** Like **solo**, the overlay is a session-long toggle and is
 ---written nowhere: not to a store, not per **checkout**, not on an entry (ADR-0009). The
 ---code buffer's text is never touched either. What the overlay puts in it are extmarks --
@@ -45,6 +51,7 @@
 ---as the float's do, so the margin, the float and the diff edit through one path.
 local config = require("codereview.config")
 local git = require("codereview.git")
+local hl = require("codereview.hl")
 local payload = require("codereview.payload")
 local queue = require("codereview.queue")
 local render = require("codereview.render")
@@ -519,18 +526,39 @@ local function entries_of(buf, judge)
   return drawn, skipped
 end
 
----Draw the sign on every covered line of a buffer and settle each drawn entry's anchor, the
----same in both styles: the line each anchor sits on now, by the entry's index in `drawn`, nil
----for a whole-file entry, which has no anchor.
+---The tint marks of each painted buffer, and which of them is held off the cursor's row.
+---
+---`marks` maps a tint mark to the group it draws, so the mark the cursor leaves can be given
+---its group back; `bare` is the one mark set with no group, because the cursor is on its row.
+---Mark ids and not line numbers: an edit between two paints moves the marks, and a line
+---number recorded at the paint would name the wrong row. Reset wherever the namespace is
+---cleared, since the marks go with it.
+---@type table<integer, { marks: table<integer, string>, bare: integer|nil }>
+local tints = {}
+
+---Draw the sign on every covered line of a buffer, the tint beside it, and settle each drawn
+---entry's anchor, the same in both styles: the line each anchor sits on now, by the entry's
+---index in `drawn`, nil for a whole-file entry, which has no anchor and draws neither.
+---
+---One tint mark per line, decided before any is drawn. Two line-wide groups on one row do not
+---merge -- the higher priority is applied alone -- so overlapping entries each drawing their
+---own would leave the overlap to the order the marks happened to be made in. An entry with no
+---type, or with one the configuration no longer has, leads nothing and tints nothing: its
+---sign marks the range, as its glyph marks the file in the file tree. Which type leads is
+---`types.leading`, the rule the file tree's mark is decided by, applied to a line.
 ---@param buf integer
 ---@param drawn CRAnnotation[]
+---@param win integer|nil The followed window, when it shows `buf`: its cursor row is not tinted
 ---@return table<integer, integer> anchored
-local function anchor_and_sign(buf, drawn)
+local function anchor_and_sign(buf, drawn, win)
   vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
+  tints[buf] = nil
   signed[buf] = true
   local bar = config.get().icons.change_bar
   local total = vim.api.nvim_buf_line_count(buf)
-  local kept, anchored = {}, {}
+  local tint = config.get().overlay.tint.enabled
+  local leading = tint and types.leading(config.get().types)
+  local kept, anchored, lead = {}, {}, {}
   for i, entry in ipairs(drawn) do
     if entry.kind ~= "file" then
       kept[entry.id] = true
@@ -539,11 +567,72 @@ local function anchor_and_sign(buf, drawn)
       local last = math.min(total, line + (entry.last or entry.first) - entry.first)
       for l = line, last do
         vim.api.nvim_buf_set_extmark(buf, M.NS, l - 1, 0, { sign_text = bar, sign_hl_group = look(entry).hl })
+        if leading then
+          lead[l] = leading(lead[l], entry.type)
+        end
       end
     end
   end
   prune_anchors(buf, kept)
+
+  if next(lead) then
+    local cursor = win and vim.api.nvim_win_get_buf(win) == buf and vim.api.nvim_win_get_cursor(win)[1]
+    local list = config.get().types
+    local t = { marks = {} }
+    for l, r in pairs(lead) do
+      -- Nil on a terminal without true colour, or for a type group with no foreground.
+      local group = hl.blended("tint", list[r].hl)
+      if group then
+        local id = vim.api.nvim_buf_set_extmark(buf, M.NS, l - 1, 0, { line_hl_group = l ~= cursor and group or nil })
+        t.marks[id] = group
+        if l == cursor then
+          t.bare = id
+        end
+      end
+    end
+    tints[buf] = t
+  end
   return anchored
+end
+
+---Move the untinted row to the row the cursor is on now, in the followed window's buffer.
+---
+---What a cursor movement runs, and all it runs: the mark the cursor left gets its group back,
+---and the tint mark on the row it entered, if any, is set again with none. No entry is read,
+---no file is judged and no other mark changes, so a reviewer moving through a long range
+---pays two extmark writes a keystroke. Set again in place, with its own id, rather than
+---deleted and made anew: the mark keeps the place an edit has moved it to.
+---@param win integer
+local function retint(win)
+  local buf = vim.api.nvim_win_get_buf(win)
+  local t = tints[buf]
+  if not t then
+    return
+  end
+  local row = vim.api.nvim_win_get_cursor(win)[1] - 1
+  local entered
+  for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, M.NS, { row, 0 }, { row, -1 }, {})) do
+    if t.marks[mark[1]] then
+      entered = mark[1]
+      break
+    end
+  end
+  if entered == t.bare then
+    return
+  end
+  ---@param id integer|nil
+  ---@param group string|nil
+  local function set(id, group)
+    local pos = id and vim.api.nvim_buf_get_extmark_by_id(buf, M.NS, id, {}) or {}
+    if pos[1] then
+      vim.api.nvim_buf_set_extmark(buf, M.NS, pos[1], pos[2], { id = id, line_hl_group = group })
+    end
+  end
+  -- Either can be absent -- the cursor coming into a range from outside it, or leaving one --
+  -- so not one loop over the pair: `ipairs` stops at the first nil.
+  set(t.bare, t.bare and t.marks[t.bare])
+  set(entered, nil)
+  t.bare = entered
 end
 
 ---Repaint one margin from the code buffer beside it.
@@ -554,7 +643,7 @@ local function paint_margin(m)
   local drawn, skipped = entries_of(buf, true)
 
   -- Signs and anchors first, because the card rows are read off the anchors.
-  local anchored = anchor_and_sign(buf, drawn)
+  local anchored = anchor_and_sign(buf, drawn, m.code)
   local cards = {}
   local width = vim.api.nvim_win_get_width(m.win)
   -- Measured inside the margin, which does not wrap. `strdisplaywidth` counts in the current
@@ -623,6 +712,7 @@ end
 ---@param buf integer
 local function strip(buf)
   vim.api.nvim_buf_clear_namespace(buf, M.NS, 0, -1)
+  tints[buf] = nil
   for _, mark in pairs(anchors[buf] or {}) do
     local pos = vim.api.nvim_buf_get_extmark_by_id(buf, M.NS_ANCHOR, mark, {})
     if pos[1] then
@@ -649,13 +739,14 @@ local widths = {}
 ---@param buf integer
 ---@param win integer|nil A window showing it; nil when none does
 ---@param judge boolean Rehash its file's buffer captures (see `entries_of`)
+---@param followed boolean|nil `win` is the window the overlay follows, whose cursor row stays untinted
 ---@return integer skipped Entries of the file the captions cannot draw
-local function paint_captions(buf, win, judge)
+local function paint_captions(buf, win, judge, followed)
   if not is_file(buf) then
     return 0
   end
   local drawn, skipped = entries_of(buf, judge)
-  local anchored = anchor_and_sign(buf, drawn)
+  local anchored = anchor_and_sign(buf, drawn, followed and win or nil)
   -- The signs and anchors are gone already, and their captions with them; a file with
   -- nothing to draw is the common case on an enter, and it costs no redraw.
   if #drawn == 0 then
@@ -800,7 +891,7 @@ function M.paint()
         if m.code and vim.api.nvim_win_is_valid(m.code) then
           local buf = vim.api.nvim_win_get_buf(m.code)
           if not followed[buf] then
-            followed[buf] = paint_captions(buf, m.code, true)
+            followed[buf] = paint_captions(buf, m.code, true, true)
           end
           if tab == current then
             skipped = followed[buf]
@@ -838,7 +929,7 @@ local function paint_written(buf)
       and vim.api.nvim_win_is_valid(m.code)
       and vim.api.nvim_win_get_buf(m.code) == buf
       and m.code
-    paint_captions(buf, win or shown_in(buf), true)
+    paint_captions(buf, win or shown_in(buf), true, win and true)
     return 0
   end)
 end
@@ -1258,7 +1349,8 @@ end
 ---that reaches a window this way is one the reviewer is about to read. `BufWinEnter` is what
 ---carries a buffer change in the followed window, which raises no `WinEnter`. A write, for the
 ---inline style's stale flag. No `FocusGained`: a file changed outside Neovim while it is on
----screen is judged on the next enter or write (#270 leaves that out of scope).
+---screen is judged on the next enter or write (#270 leaves that out of scope). A cursor
+---movement in the followed window, for the **tint**'s untinted row, and for nothing else.
 local function listen()
   local group = vim.api.nvim_create_augroup(GROUP, { clear = true })
   vim.api.nvim_create_autocmd("WinScrolled", {
@@ -1364,6 +1456,19 @@ local function listen()
     end,
   })
   vim.api.nvim_create_autocmd("QuitPre", { group = group, callback = quitting })
+  -- In both styles, and the one event the inline style paints on that is not a queue change,
+  -- an enter, a resize or a write -- scoped to the tint. Insert mode too: the cursor line is
+  -- drawn there, and a row left tinted as the reviewer types along it would hide it.
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+    group = group,
+    callback = function()
+      local win = vim.api.nvim_get_current_win()
+      local m = margins[vim.api.nvim_get_current_tabpage()]
+      if m and m.code == win then
+        retint(win)
+      end
+    end,
+  })
   -- A capture's blob is the file on disk, so a write is when its stale flag can change, and
   -- in the inline style nothing else repaints a buffer the reviewer stays in. Not the
   -- margin's: its scroll paint judges the file through the same gate.

@@ -243,6 +243,17 @@ cursor and has no keys, which is why it is virtual text where a card is a window
 reply to the line above it, a caption as a title for the lines below.
 _Avoid_: label (a type's group heading), banner, inline note, comment
 
+**Tint**:
+The background an **overlay** draws on the lines an **entry** covers, in either style: the
+reviewer's normal background pulled a step toward the entry's **annotation type**'s colour,
+computed from the theme the way the **band** is, so a tint belongs to a colorscheme the
+plugin has never seen. The row the cursor is on keeps the cursor line and is not tinted, the
+rule the **counterpart row** already follows, so the cursor never disappears inside a range.
+Said of the overlay and never of the **review view**, whose lines carry the diff's own
+colours. Where two ranges overlap, the **leading type** wins. Not the **band**, which is a
+file's header row and carries no type.
+_Avoid_: highlight, background, fill, shade, band
+
 ### Annotating
 
 **Annotation**:

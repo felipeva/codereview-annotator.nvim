@@ -2094,3 +2094,45 @@ No `FocusGained`: a change made outside Neovim is judged on the next enter or wr
 raises a `WinClosed` that reads as the reviewer closing it, and the toggle goes off on the
 next tick. Measured by mutation: closing it with `nvim_win_close` directly leaves the overlay
 off after one `vim.wait`.
+
+**The tint's cursor row is a held mark, not a line number.** A line-wide background wins over
+`CursorLine` (see "Windows, modes and focus"), so a tinted range would hide the cursor line on
+every row of it. The counterpart row is lit by `cursorline` and a namespace, which colours a
+whole window; the tint is per line, so the row the cursor is on has to be a row whose tint
+mark carries no group. The paint sets that row's tint mark with no `line_hl_group` and records its id;
+`CursorMoved` in the followed window sets the held mark again with its group and the tint mark
+on the entered row again with none, both by id at their own positions, the way a caption is
+taken away. Ids and not line numbers, because an edit between two paints moves the marks: a
+line recorded at the paint names the wrong row after a line is added above. Nothing else runs
+on that event -- no entry is read and no file is judged -- which overlay_tint_spec proves by
+moving the file's stat first, so a paint on that event would get through the rehash gate and
+run `hash-object`, and by reading every mark's id unchanged. `CursorMovedI` too: the cursor
+line is drawn in insert mode. Only the followed window's cursor counts; another window on the
+same buffer keeps the tint on its cursor row until the reviewer enters it and the enter
+paints. The two writes are not one loop over `{ held, entered }`: either can be nil, and
+`ipairs` stops at the first nil, so the first move into a range from outside untinted
+nothing. Every group-level case had started with the cursor inside the range; the painted
+cell in overlay_tint_child, which moves in from outside, is what found it.
+
+**The tint is one mark per line, decided before any is drawn.** Two `line_hl_group` marks on one
+row do not merge -- one is applied alone (see "Rendering and syntax highlighting") -- so two
+overlapping entries each drawing their own tint at one priority would leave the overlap to
+whichever mark won rather than to the rule. The sign loop records the
+best rank per line, and one mark per line is drawn after it. The rank is the **leading type**'s
+rule, and there is one copy of it: `types.leading`, which `panel.tree` decides a file's mark
+with and the tint decides a line with.
+
+**The tint is the blend run backwards, and only its background.** The muted, faded and
+counterpart twins pull a group's colours toward `Normal`'s background; the tint pulls `Normal`'s
+background toward a type group's foreground and writes the result as `bg` alone, because a
+line-wide group with a foreground flattens the row, the band's trap. Two more differences from
+a twin: a tint that loses its colour on a colorscheme change is emptied rather than linked back
+to its group, which as a line-wide group would draw every covered line in the type's
+foreground; and `hl.blended` asks `termguicolors` before its memo, so turning true colour off
+after a tint was written hands back no group rather than one that draws nothing.
+
+**Without true colour, a tint is proven absent on the marks, not on a cell.** A background set
+in true colour alone draws nothing on a terminal without it, so a cell reads the same whether
+the fallback worked or a tint mark was drawn anyway. overlay_tint_child therefore reports, with
+`termguicolors` off, the tint marks, the signs and whether a tint group exists; removing the
+gate turns that reading from `tints=0 ... group=0` into `tints=7 ... group=1`.
