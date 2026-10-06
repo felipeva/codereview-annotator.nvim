@@ -244,6 +244,18 @@ The header has the type's icon, name and lines, in the type's colour. Cards move
 when you scroll or edit. A card that would cover the next one pushes it down. A whole-file card
 stays at the top. Each covered line gets a sign in the type's colour.
 
+The margin follows you. It is beside one window per tab page. When you open another file in
+that window, or move the cursor into another split that holds a file, the margin shows that
+file. A floating window does not move it, and you can move the cursor into the margin itself.
+A file opened from the review with `<CR>` gets a margin in its new tab.
+
+- A file with no annotation to draw (or a file of another checkout) shows one quiet line,
+  "no annotations in this file", so the layout does not jump.
+- A window that holds no file (help, a terminal, a plugin's buffer) closes the margin. It
+  comes back when that window holds a file again.
+- Closing the margin yourself (`:q` or `<C-w>c` in it) turns the overlay off. Closing its
+  tab page does not.
+
 Not drawn: annotations on deleted lines or past the end of the file (the toggle tells you how
 many), sent annotations, bare notes, and other checkouts' annotations. Nothing is stored and
 the buffer is not changed.
