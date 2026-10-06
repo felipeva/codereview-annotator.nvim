@@ -308,6 +308,44 @@ describe("the keys the float already had", function()
   end)
 end)
 
+-- The float's drop goes through the diff's own drop now, which writes with or without a
+-- view. With one open it has to paint as well: the diff's note and the file tree's
+-- **state** mark are both drawn from the queue, and a drop that skipped the paint would
+-- leave both on screen for an entry that is gone.
+describe("a drop from the float with a review view open", function()
+  fresh_queue()
+  local row = annotate_row(row_of("line"))
+  local path = V.files[V.render.anchors[row].file].path
+  local annotated = require("codereview.config").get().icons.annotated
+
+  ---What the file tree says on the row of the annotated file.
+  local function tree_mark()
+    local prow = V.panel_render.file_row[assert(h.file_index(V, path))]
+    local line = vim.api.nvim_buf_get_lines(V.panel_buf, prow - 1, prow, false)[1]
+    return vim.trim(line):sub(1, #annotated)
+  end
+
+  local notes_before, mark_before = #h.virt_marks(V), tree_mark()
+  local win = open_float()
+  cursor_on(win, 1)
+  h.feed("x")
+  local notes_after, mark_after = #h.virt_marks(V), tree_mark()
+
+  it("starts with the note on the diff and the file marked annotated", function()
+    assert.same(1, notes_before)
+    assert.same(annotated, mark_before)
+  end)
+
+  it("takes the note off the diff", function()
+    assert.same(0, queue.count())
+    assert.same(0, notes_after)
+  end)
+
+  it("takes the annotated mark off the file tree", function()
+    assert.are_not.same(annotated, mark_after)
+  end)
+end)
+
 describe("a bare note", function()
   fresh_queue()
   -- An unnamed buffer has nothing on disk to anchor to, which is the one kind that will

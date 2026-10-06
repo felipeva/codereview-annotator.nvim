@@ -601,6 +601,25 @@ function M.change_type(entry, on_done)
   end, entry.type or false)
 end
 
+---Take an entry out of the queue, and report.
+---
+---`edit_note`'s and `change_type`'s sibling, and for the same reason: the diff's `x` and the
+---queue float's `x` are one drop, and an entry is dropped the same way from either surface.
+---The write is not conditional on a review view. The float is open without one, and a drop
+---it did not write came back with the next session.
+---@param entry CRAnnotation As it sits in the queue
+---@return CRAnnotation|nil removed nil when the entry was no longer in the queue
+function M.drop_entry(entry)
+  local removed = queue.remove(entry.id)
+  local view = require("codereview.view")
+  view.paint()
+  view.persist()
+  if removed then
+    info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
+  end
+  return removed
+end
+
 ---Collect a note for an already-built entry and deliver it on its own.
 ---
 ---The queued path's twin, and deliberately the same shape: the same composer context, the
@@ -830,13 +849,7 @@ end
 ---it always has; with more, choosing in the picker is the confirmation.
 function M.drop()
   M.pick_entry("Drop which annotation?", function(entry)
-    local view = require("codereview.view")
-    local removed = queue.remove(entry.id)
-    view.paint()
-    view.persist()
-    if removed then
-      info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
-    end
+    M.drop_entry(entry)
   end)
 end
 
