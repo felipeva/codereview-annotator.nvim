@@ -1215,10 +1215,11 @@ one card for each queued annotation of the file in that window: >
 <
 A card starts with a header in its type's colour: the type's icon, its name,
 the lines it is about (`12`, or `12–15`), and `⚠ stale` when the file changed
-under it. Then the note, wrapped to the margin's width, with its blank lines
-kept. The `change_bar` icon runs down the left edge of each card in the type's
-colour, which is where one card ends and the next starts. An untyped
-annotation shows `•` and its lines, with no type name.
+under it -- checked again as the margin draws, see
+|codereview-persistence-staleness|. Then the note, wrapped to the margin's
+width, with its blank lines kept. The `change_bar` icon runs down the left
+edge of each card in the type's colour, which is where one card ends and the
+next starts. An untyped annotation shows `•` and its lines, with no type name.
 
 A card sits on the screen row of its first line, and moves with the code when
 you scroll or edit above it. When a card is taller than the space to the next
@@ -1803,6 +1804,20 @@ no review open.
 That distinction matters in a `staged` review, where the diff shows the index
 and a buffer capture holds the working tree: judging one by the other would
 flag a note about a file nobody has touched.
+
+The overlay (|codereview-overlay|) judges again each time it draws a file, so
+a card does not say "not stale" over a file you changed after the queue was
+read back. It does this only for the annotations you captured from a buffer,
+and only for the file in the margin. The limits:
+    - It hashes the file on disk. A change you have not written yet does not
+      make a card stale; writing it does.
+    - It hashes again only when the file's size or modification time changed,
+      or an annotation of the file was added or dropped, so scrolling an
+      unchanged file runs no git command.
+    - An annotation made in the review view keeps the flag the review view
+      last gave it. Its blob can be the index or a commit, and the file on
+      disk can differ from that for good reasons.
+    - No line moves. A stale card stays at the lines it recorded.
 
 The no-repository store                      *codereview-persistence-norepo*
 

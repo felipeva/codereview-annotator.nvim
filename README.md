@@ -393,6 +393,12 @@ The queue, reviewed marks, commit selections and sent batches persist per checko
 `stdpath("state")/codereview/`. If a file changes, its reviewed mark is removed and its
 annotations are marked `⚠ stale`.
 
+The overlay checks this again each time it draws a file, but only for annotations you captured
+from a buffer, and only for the file in the margin. It hashes the file on disk: a change you
+have not written does not count, and it hashes again only when the file's size or modification
+time changes. An annotation from the review view keeps the flag the review view gave it. No
+line moves. See `:help codereview-persistence-staleness`.
+
 ## Documentation
 
 | Where | What |
