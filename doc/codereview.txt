@@ -149,6 +149,13 @@ takes commits off the start of the branch included, works on any git.
 <
         See |codereview-capture|.
 
+                                                        *:CodeReviewOverlay*
+:CodeReviewOverlay
+        Show or hide the overlay: the queued annotations of the current file,
+        drawn in a margin to the right of its window. Needs no review open.
+        Lasts for the session and is written nowhere. See
+        |codereview-overlay|.
+
 ==============================================================================
 3. MAPPINGS                                            *codereview-mappings*
 
@@ -1187,6 +1194,53 @@ names the target *this note* will reach and `^T` reroutes the note, leaving the
 batch pointing where it was. Abandon it and the text is kept as a draft, like
 any other note you walked away from.
 
+The overlay                                           *codereview-overlay*
+
+A file you already annotated says nothing about it when you open it again. The
+overlay draws the queue beside the lines it is about. |:CodeReviewOverlay| or
+|codereview.overlay()| opens a margin to the right of the current window, with
+one card for each queued annotation of the file in that window: >
+    ▌ ✗ bug 12–15 ⚠ stale
+    ▌ why is this branch unreachable?
+<
+A card starts with a header in its type's colour: the type's icon, its name,
+the lines it is about (`12`, or `12–15`), and `⚠ stale` when the file changed
+under it. Then the note, wrapped to the margin's width, with its blank lines
+kept. The `change_bar` icon runs down the left edge of each card in the type's
+colour, which is where one card ends and the next starts. An untyped
+annotation shows `•` and its lines, with no type name.
+
+A card sits on the screen row of its first line, and moves with the code when
+you scroll or edit above it. When a card is taller than the space to the next
+one, the next card is pushed down below it; the header still names its lines.
+A card is shown only while its line is in the window, and a card that runs
+past the bottom is cut there. A whole-file annotation is about no line, so its
+card stays at the top. The margin never scrolls on its own.
+
+Each line an annotation covers also gets a sign in the type's colour. With
+'signcolumn' set to `no` there is no sign; the card header still names the
+lines.
+
+What is drawn: the annotations queued in the checkout you are in, about the
+file in the window, whichever path captured them. What is not drawn:
+- an annotation on a deleted line, which has no line in the file on disk;
+- an annotation whose first line is past the end of the file;
+- a sent (archived) annotation, a bare note, and an annotation of another
+  checkout;
+- anything beside a buffer that is not a file, or one the plugin owns.
+The first two are counted, and turning the overlay on tells you how many were
+not drawn. A range that mixes deleted and added lines is drawn at the lines it
+recorded.
+
+The overlay repaints when you scroll or resize the window, after a capture,
+after an edit or a retype, and after |codereview.submit()|. A capture made
+while the overlay is off does not turn it on.
+
+Like |codereview-solo|, the overlay is a way of reading and nothing more. The
+queue, the archive and the payload are what they were, no annotation records
+that it was on, and the buffer's text is never changed. `overlay.enabled` sets
+where each session starts; `overlay.width` is the margin's width in columns.
+
 ==============================================================================
 8. ADAPTERS                                            *codereview-adapters*
 
@@ -1489,6 +1543,7 @@ Defaults: >
       faded = { enabled = true, strength = 0.35 },
       counterpart = { enabled = true, strength = 0.25 },
       panel = { enabled = true, width = 34, position = "left" },
+      overlay = { enabled = false, width = 40 },
       icons = {
         reviewed = "✓", annotated = "●", unreviewed = "○",
         collapsed = "▸", expanded = "▾", change_bar = "▌",
@@ -1749,6 +1804,9 @@ require("codereview").annotate({type}, {range}, {opts})
         and the whole-file default. {opts} takes `immediate = true` to send
         this one annotation on its own instead of queueing it. See
         |codereview-capture| and |codereview-immediate-send|.
+require("codereview").overlay()                       *codereview.overlay()*
+        Show or hide the overlay for the rest of the session, and return
+        `true` when it is now on. See |codereview-overlay|.
 require("codereview").queue()                           *codereview.queue()*
         Open the queue float: edit, retype, drop, route, submit.
 require("codereview").submit()                         *codereview.submit()*

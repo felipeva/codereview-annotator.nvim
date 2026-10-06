@@ -55,6 +55,14 @@ function M.setup(opts)
     desc = "Read the last dispatched batch back: its annotations, where it went and when",
   })
 
+  -- A command, a Lua function and no key: the plugin binds no global keys, and the
+  -- **overlay** is drawn on ordinary buffers, where every key is the host's.
+  vim.api.nvim_create_user_command("CodeReviewOverlay", function()
+    M.overlay()
+  end, {
+    desc = "Show or hide the queued annotations beside the lines of the current file",
+  })
+
   vim.api.nvim_create_user_command("CodeReviewAnnotate", function(cmd)
     -- `cmd.range` counts the addresses given, not the lines covered. Reading line1/line2
     -- unconditionally would turn a bare `:CodeReviewAnnotate` into a one-line capture of
@@ -77,6 +85,12 @@ function M.setup(opts)
       return names
     end,
   })
+
+  -- A session configured with the overlay on opens with the margin up, as one configured
+  -- for solo opens soloed. Asked here first, so a session with it off loads none of it.
+  if config.overlay() then
+    require("codereview.overlay").start()
+  end
 end
 
 ---@param spec string|nil "branch"|"staged"|"unstaged"|"worktree"|any git revspec
@@ -129,6 +143,16 @@ function M.annotate(type_name, range, opts)
   require("codereview.capture").annotate(type_name, range, opts)
 end
 
+---Show or hide the **overlay** -- the queue drawn beside the lines of the current file --
+---for the rest of this session.
+---
+---Written nowhere: like solo, it is how one sitting is being read, and the queue, the
+---archive and the payload are what they were (ADR-0010).
+---@return boolean on Whether the overlay is now on
+function M.overlay()
+  return require("codereview.overlay").toggle()
+end
+
 ---Open the queue for review, with drop / route / submit.
 function M.queue()
   require("codereview.view").review_queue()
@@ -137,6 +161,10 @@ end
 ---Submit the queued annotations as one batch.
 function M.submit()
   require("codereview.view").submit()
+  -- A dispatch empties the queue, and the **overlay** is a drawing of it.
+  if config.overlay() then
+    require("codereview.overlay").paint()
+  end
 end
 
 ---Copy the batch to the `+` register, without submitting it.
