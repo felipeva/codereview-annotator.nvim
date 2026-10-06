@@ -58,11 +58,10 @@ local LINKS = {
   CodeReviewNote = "Comment",
   CodeReviewStale = "DiagnosticWarn",
 
-  -- An archived entry drawn on the diff, beneath the code it was about. One step dimmer
-  -- than the live counterpart of each chunk it replaces -- the marker where a queued entry
-  -- carries its annotation type's severity, the prose where it carries `CodeReviewNote` --
-  -- so what has already gone reads as recessive at a glance rather than as a different
-  -- kind of remark. `NonText` is what every colorscheme tunes for the dimmest thing on
+  -- An archived entry drawn on the diff, beneath the code it was about. A queued entry
+  -- carries its annotation type's severity on both its marker and its prose; the archived
+  -- one drops that severity from both, the prose a step dimmer than the marker, so what has
+  -- already gone reads as recessive at a glance rather than as a different kind of remark. `NonText` is what every colorscheme tunes for the dimmest thing on
   -- screen, which is exactly what this is.
   CodeReviewArchived = "Comment",
   CodeReviewArchivedNote = "NonText",
