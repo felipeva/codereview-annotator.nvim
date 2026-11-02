@@ -570,6 +570,7 @@ function M.edit_note(entry, on_done)
     view.persist()
     repaint_overlay()
     info(("Edited %s %s (%d in queue)"):format(edited.type or "untyped", M.describe(edited), queue.count()))
+    sync.update(edited, { note = edited.note })
     if on_done then
       on_done(edited)
     end
@@ -612,6 +613,7 @@ function M.change_type(entry, on_done)
     view.persist()
     repaint_overlay()
     info(("Retyped %s %s (%d in queue)"):format(edited.type or "untyped", M.describe(edited), queue.count()))
+    sync.update(edited, { type = edited.type or "" })
     if on_done then
       on_done(edited)
     end
@@ -634,6 +636,7 @@ function M.drop_entry(entry)
   repaint_overlay()
   if removed then
     info(("Dropped %s note (%d left)"):format(removed.type or "untyped", queue.count()))
+    sync.remove(removed)
   end
   return removed
 end

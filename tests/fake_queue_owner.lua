@@ -15,8 +15,11 @@
 ---    Any other request before `hello` gets `hello first`.
 ---  * `keep` decodes every note as the owner does, and refuses the whole request with
 ---    `bad request: …` when one note is bad (see `check_note`).
----  * `update` with a JSON `null` for `review` or `origin` clears it. `send` that names no
----    queued id refuses `nothing to send`.
+---  * `update` decodes `id`, `note`, `type` and `review` as the owner does, and refuses with
+---    `bad request: …`; an id it does not hold gets `unknown id`. A JSON `null` for `review`
+---    or `origin` clears it. An `update` that changes nothing sends no `queue` event.
+---    `remove` and `send` refuse an id that is not a UUID. `send` that names no queued id
+---    refuses `nothing to send`.
 ---  * Replies and `queue` events carry `rev`, `queue`, a `types` list of the owner's shape and
 ---    `default`. `sent` always carries `preamble` as a string.
 ---
@@ -111,6 +114,63 @@ local function opt_int(v)
   return v == nil or (type(v) == "number" and v % 1 == 0)
 end
 
+---Why a `review` does not decode as the owner's `ReviewAnchor`, or nil.
+---@param review any
+---@param at string The path of the field's parent in the error, with its trailing dot
+---@return string|nil
+local function check_review(review, at)
+  if type(review) ~= "table" then
+    return "wrong type at " .. at .. "review"
+  end
+  if review.kind == nil then
+    return "missing kind"
+  end
+  if not KINDS[review.kind] then
+    return "bad value at " .. at .. "review.kind"
+  end
+  if review.inline ~= nil and type(review.inline) ~= "boolean" then
+    return "wrong type at " .. at .. "review.inline"
+  end
+  if review.stale ~= nil and type(review.stale) ~= "boolean" then
+    return "wrong type at " .. at .. "review.stale"
+  end
+  if not opt_string(review.tag) then
+    return "wrong type at " .. at .. "review.tag"
+  end
+  if review.lines ~= nil then
+    if type(review.lines) ~= "table" then
+      return "wrong type at " .. at .. "review.lines"
+    end
+    for _, l in ipairs(review.lines) do
+      if type(l) ~= "string" then
+        return "wrong type at " .. at .. "review.lines"
+      end
+    end
+  end
+  return nil
+end
+
+---Why `update` does not decode as the owner's `NoteEdit` with its `id`, or nil.
+---@param msg table
+---@return string|nil
+local function check_update(msg)
+  if msg.id == nil then
+    return "missing id"
+  end
+  if type(msg.id) ~= "string" or not msg.id:match(UUID) then
+    return "bad value at id"
+  end
+  for _, field in ipairs({ "note", "type" }) do
+    if not opt_string(msg[field]) then
+      return "wrong type at " .. field
+    end
+  end
+  if msg.review ~= nil then
+    return check_review(msg.review, "")
+  end
+  return nil
+end
+
 ---Why one note of a `keep` does not decode as the owner's `Annotation`, or nil.
 ---
 ---The owner's decoder needs `id` (a UUID), `type`, `note`, `selection`, `source` and
@@ -172,36 +232,8 @@ local function check_note(note, i)
   if type(note.createdAt) ~= "string" or not note.createdAt:match(ISO) then
     return "bad value at " .. at .. "createdAt"
   end
-  local review = note.review
-  if review ~= nil then
-    if type(review) ~= "table" then
-      return "wrong type at " .. at .. "review"
-    end
-    if review.kind == nil then
-      return "missing kind"
-    end
-    if not KINDS[review.kind] then
-      return "bad value at " .. at .. "review.kind"
-    end
-    if review.inline ~= nil and type(review.inline) ~= "boolean" then
-      return "wrong type at " .. at .. "review.inline"
-    end
-    if review.stale ~= nil and type(review.stale) ~= "boolean" then
-      return "wrong type at " .. at .. "review.stale"
-    end
-    if not opt_string(review.tag) then
-      return "wrong type at " .. at .. "review.tag"
-    end
-    if review.lines ~= nil then
-      if type(review.lines) ~= "table" then
-        return "wrong type at " .. at .. "review.lines"
-      end
-      for _, l in ipairs(review.lines) do
-        if type(l) ~= "string" then
-          return "wrong type at " .. at .. "review.lines"
-        end
-      end
-    end
+  if note.review ~= nil then
+    return check_review(note.review, at)
   end
   return nil
 end
@@ -399,10 +431,15 @@ function Owner:answer(client, msg, line)
     return { ok = true, ids = added }
   end
   if msg.op == "update" then
-    local i = type(msg.id) == "string" and self:find(msg.id)
+    local bad = check_update(msg)
+    if bad then
+      return { ok = false, error = "bad request: " .. bad }
+    end
+    local i = self:find(msg.id)
     if not i then
       return { ok = false, error = "unknown id" }
     end
+    local before = vim.deepcopy(self.queue[i])
     for _, field in ipairs({ "note", "type", "review", "origin" }) do
       if msg[field] ~= nil then
         self.queue[i][field] = msg[field]
@@ -410,12 +447,20 @@ function Owner:answer(client, msg, line)
         self.queue[i][field] = nil
       end
     end
-    self:changed()
+    -- The owner sends no snapshot, and keeps its `rev`, when the queue did not change.
+    if not vim.deep_equal(before, self.queue[i]) then
+      self:changed()
+    end
     return { ok = true }
   end
   if msg.op == "remove" or msg.op == "send" then
     if type(msg.ids) ~= "table" then
       return { ok = false, error = "bad request: missing ids" }
+    end
+    for i, id in ipairs(msg.ids) do
+      if type(id) ~= "string" or not id:match(UUID) then
+        return { ok = false, error = ("bad request: bad value at ids.Index %d"):format(i - 1) }
+      end
     end
     if msg.op == "send" then
       local any = false

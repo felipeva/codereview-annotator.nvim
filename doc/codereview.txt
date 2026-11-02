@@ -2030,15 +2030,24 @@ While a queue owner listens on the socket:
 
     - an annotation that you capture, in a review or from a buffer
       (|codereview-capture|), goes to the queue owner at once.
+    - an edit of a note, a change of type and a drop, from the diff, the
+      queue float or the overlay, go to the queue owner at once. Your queue
+      shows the change before the queue owner replies.
+    - when a reconcile marks an annotation stale, or clears the mark
+      (|codereview-persistence-staleness|), the queue owner gets the mark,
+      so that it can say that the line numbers may be stale.
     - the queue that the queue owner sends back becomes your queue. Your
       entries keep their place and their number. The review view, the
       overlay and the queue float show the change, and the queue is saved
       as it is without a sync (|codereview-persistence|).
+      An edit or a drop that the queue owner made in its own queue shows
+      in Neovim in the same way.
     - entries that other tools made are not in the queue yet.
 
 When no queue owner listens, the plugin keeps its own queue, as it does
-without a sync. A connect that fails says nothing. The next capture, the
-queue float, a submit or a copy tries again, at most once every 2 seconds.
+without a sync. A connect that fails says nothing. The next capture, edit,
+change of type or drop, the queue float, a submit or a copy tries again, at
+most once every 2 seconds.
 
 One message says that the sync started, and one says that it stopped. When
 the queue owner closes the connection, your entries stay in the queue.
@@ -2047,6 +2056,17 @@ An annotation that the queue owner does not take -- it refuses it, or it does
 not answer in 5 seconds -- stays in Neovim and is saved as without a sync.
 You are told once per reason in a session. The next connect gives it to the
 queue owner again.
+
+An edit, a change of type or a stale mark that the queue owner does not take
+stays in Neovim in the same way, also when the queue owner sends its queue
+again. You are told once per reason, and the next connect sends the change
+again. An edit that you make while no queue owner listens is sent at the next
+connect too. If the queue owner no longer has the annotation, because another
+tool dropped or sent it a moment before, the annotation goes back to the queue
+owner with your edit. A drop that the queue owner refuses, or does not answer
+in 5 seconds, is undone: the annotation is back in your queue, because it is
+still in the queue that the queue owner submits. You are told once per reason.
+A drop while no queue owner listens is not sent.
 
 Each entry goes to the queue owner with what the plugin needs to make the
 same entry again, and a mark that this plugin made it. The plugin does not

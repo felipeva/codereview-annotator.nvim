@@ -68,6 +68,9 @@ end
 ---@field keeping boolean The `keep` of the connect is written, so a new entry is kept at once
 ---@field confirmed boolean The queue owner has replied to every `keep` of the connect
 ---@field inflight table<string, true> Uuids kept and not yet confirmed by a reply
+---@field updating table<string, integer> Uuids with an `update` that has no reply yet, and how many
+---@field removing table<string, true> Uuids with a `remove` that has no reply yet
+---@field notes table[]|nil The notes of the last snapshot applied
 ---@field ready boolean The connect is complete, and the start was announced
 ---@field closed boolean
 
@@ -98,6 +101,16 @@ local refused = {}
 ---refused for the same reason says nothing again.
 ---@type table<string, true>
 local told = {}
+
+---The uuids, in lower case, of the entries with a change that the queue owner does not
+---have: an edit or a **stale** mark made with no connection, or one that it refused or did
+---not answer.
+---
+---In a snapshot, the local entry wins over the note of the queue owner, so the change
+---stays on screen and on disk. The next connect sends the change with `update`, after its
+---`keep`, and the reply takes the entry off this list.
+---@type table<string, true>
+local unsent = {}
 
 ---The review view, handed in by `start`, as `init` hands it to the overlay. Requiring it
 ---here would put this module in a cycle through `delivery`.
@@ -133,6 +146,19 @@ local function selection(entry)
   }
 end
 
+---The `review` of a note. Whole each time: an `update` replaces it, and `kind` is required.
+---@param entry CRAnnotation
+---@return table
+local function review_of(entry)
+  return {
+    kind = entry.kind,
+    inline = entry.inline == true,
+    tag = entry.tag,
+    stale = entry.stale == true,
+    lines = entry.lines,
+  }
+end
+
 ---An entry as the queue owner keeps it.
 ---
 ---`origin` carries the fields of the entry that the note does not, and the mark that this
@@ -150,13 +176,7 @@ local function to_note(entry)
     selection = selection(entry),
     source = { appName = "nvim" },
     createdAt = os.date("!%Y-%m-%dT%H:%M:%SZ", entry.at),
-    review = {
-      kind = entry.kind,
-      inline = entry.inline == true,
-      tag = entry.tag,
-      stale = entry.stale == true,
-      lines = entry.lines,
-    },
+    review = review_of(entry),
     origin = {
       client = CLIENT,
       path = entry.path,
@@ -349,8 +369,13 @@ end
 ---it yet. Without this, a snapshot from another client that the queue owner wrote before
 ---it read the `keep` would remove the entry here and write that to disk. An entry whose
 ---`keep` was refused stays for the same reason: the queue owner does not have it.
+---
+---The same guard for an `update` and a `remove` that have no reply yet: a snapshot that the
+---queue owner wrote before it read them does not undo them. While an `update` waits, the
+---local entry stays as it is, also when the snapshot does not hold it. While a `remove`
+---waits, the entry does not come back. An entry on `unsent` keeps its local change too.
 ---@param conn CRSyncConn
----@param rev integer|nil
+---@param rev integer|nil nil applies `notes` again, after a request that changed nothing
 ---@param notes table[]|nil
 local function apply(conn, rev, notes)
   if type(rev) == "number" then
@@ -359,6 +384,7 @@ local function apply(conn, rev, notes)
     end
     conn.rev = rev
   end
+  conn.notes = notes
 
   local here = {}
   for _, entry in ipairs(queue.entries()) do
@@ -370,17 +396,22 @@ local function apply(conn, rev, notes)
   local items, seen = {}, {}
   for _, note in ipairs(notes or {}) do
     -- #284 handles the notes of other tools. Until then they are not in this queue.
-    if type(note) == "table" and type(note.id) == "string" and own(note) then
-      local entry = to_entry(note)
-      entry.id = ids[entry.uuid]
+    local uuid = type(note) == "table" and type(note.id) == "string" and lower(note.id)
+    if uuid and own(note) and not conn.removing[uuid] then
+      local entry = here[uuid]
+      if not (entry and (conn.updating[uuid] or unsent[uuid])) then
+        entry = to_entry(note)
+        entry.id = ids[uuid]
+      end
       items[#items + 1] = entry
-      seen[entry.uuid] = true
+      seen[uuid] = true
     end
   end
 
   local unconfirmed = {}
   for uuid, entry in pairs(here) do
-    if not seen[uuid] and (not conn.confirmed or conn.inflight[uuid] or refused[uuid]) then
+    local waits = conn.inflight[uuid] or refused[uuid] or conn.updating[uuid]
+    if not seen[uuid] and (not conn.confirmed or waits) then
       unconfirmed[#unconfirmed + 1] = entry
     end
   end
@@ -559,6 +590,96 @@ local function keep_entries(conn, entries, done)
   step()
 end
 
+---Apply the last snapshot again, after a request that did not change the queue owner's
+---queue: the guards of that request are gone, so the snapshot now wins.
+---@param conn CRSyncConn
+local function reapply(conn)
+  if conn.notes then
+    apply(conn, nil, conn.notes)
+  end
+end
+
+---Warn once per session for each kind of refusal.
+---@param key string The op and the reason
+---@param msg string
+local function warn_once(key, msg)
+  if not told[key] then
+    told[key] = true
+    warn(msg)
+  end
+end
+
+---@param uuid string In lower case
+---@return CRAnnotation|nil
+local function local_entry(uuid)
+  for _, entry in ipairs(queue.entries()) do
+    if lower(entry.uuid) == uuid then
+      return entry
+    end
+  end
+end
+
+---Send a change of one entry with `update`.
+---
+---Before the `keep` of the connect is written, or with no connection, nothing is sent, and
+---the entry goes on `unsent`. An entry whose `keep` was refused is not sent either: the
+---queue owner does not hold it, and the next connect keeps it with the change.
+---
+---A reply of "unknown id" means that the queue owner does not hold the entry: another tool
+---dropped it, or sent it, before the `update` arrived. With `revive`, a change that the
+---reviewer made now, the entry goes back to the queue owner with `keep`, so the note that
+---the reviewer typed is not lost. Without it, the last snapshot is applied again, and the
+---entry leaves. Any other refusal, and no reply, puts the entry on `unsent`, said once.
+---@param conn CRSyncConn|nil
+---@param entry CRAnnotation An entry that is in the queue
+---@param fields table The fields of the note that changed
+---@param revive boolean
+local function send_update(conn, entry, fields, revive)
+  local uuid = lower(entry.uuid)
+  if not conn or not conn.keeping then
+    unsent[uuid] = true
+    return
+  end
+  if refused[uuid] then
+    return
+  end
+  unsent[uuid] = nil
+  conn.updating[uuid] = (conn.updating[uuid] or 0) + 1
+  request(conn, "update", vim.tbl_extend("force", { id = entry.uuid }, fields), function(reply)
+    local n = conn.updating[uuid] - 1
+    conn.updating[uuid] = n > 0 and n or nil
+    if reply.ok then
+      return
+    end
+    if reply.error == "unknown id" then
+      local now = local_entry(uuid)
+      if revive and now then
+        keep_entries(conn, { now })
+      else
+        reapply(conn)
+      end
+      return
+    end
+    unsent[uuid] = true
+    warn_once(
+      "update: " .. tostring(reply.error),
+      ("Queue sync: the queue owner did not take an edit (%s). It stays in Neovim, and the next connect sends it again."):format(
+        tostring(reply.error)
+      )
+    )
+  end)
+end
+
+---Every change on `unsent`, in full, for the entries that are still in the queue.
+---@param conn CRSyncConn
+local function send_unsent(conn)
+  for _, entry in ipairs(queue.entries()) do
+    if unsent[lower(entry.uuid)] then
+      send_update(conn, entry, { note = entry.note or "", type = entry.type or "", review = review_of(entry) }, false)
+    end
+  end
+end
+
 ---The connect is complete: apply what the queue owner holds, and say so once.
 ---@param conn CRSyncConn
 ---@param listed table The reply to `list`, which carries the queue as it was then
@@ -611,6 +732,7 @@ local function handshake(conn)
         conn.keeping = true
         keep_entries(conn, entries, function()
           if not conn.closed then
+            send_unsent(conn)
             ready(conn, listed)
           end
         end)
@@ -632,6 +754,8 @@ local function connect()
     keeping = false,
     confirmed = false,
     inflight = {},
+    updating = {},
+    removing = {},
     ready = false,
     closed = false,
   }
@@ -659,6 +783,7 @@ end
 ---@param review_view table The review view module
 function M.start(review_view)
   view = review_view
+  state.restaled = M.restale
   if current then
     stop(current)
   end
@@ -694,6 +819,64 @@ function M.keep(entry)
     return
   end
   keep_entries(conn, { entry })
+end
+
+---Give the change of an entry's note or type to the queue owner.
+---
+---With no connection, this is a queue operation like any other, and it tries to connect.
+---@param entry CRAnnotation The entry as it is now in the queue
+---@param fields { note?: string, type?: string } The fields that changed. The protocol has no
+---       untyped note, so an **untyped annotation** goes as the type `""`.
+function M.update(entry, fields)
+  if not current then
+    M.wake()
+  end
+  send_update(current, entry, fields, true)
+end
+
+---Give the **stale** mark of entries to the queue owner, after a reconcile changed it, so
+---that it can say that the line numbers may be stale.
+---
+---Not a queue operation, so it does not try to connect: the overlay reconciles on each
+---paint.
+---@param entries CRAnnotation[]
+function M.restale(entries)
+  for _, entry in ipairs(entries) do
+    send_update(current, entry, { review = review_of(entry) }, false)
+  end
+end
+
+---Take an entry out of the queue of the queue owner.
+---
+---Before the `keep` of the connect is written, or with no connection, nothing is sent.
+---
+---A refusal, and no reply, apply the last snapshot again: the entry comes back if the queue
+---owner still holds it, so the screen shows what goes in the next submit. Said once.
+---@param entry CRAnnotation The entry that left the queue
+function M.remove(entry)
+  local conn = current
+  if not conn then
+    M.wake()
+    return
+  end
+  if not conn.keeping then
+    return
+  end
+  local uuid = lower(entry.uuid)
+  conn.removing[uuid] = true
+  request(conn, "remove", { ids = { entry.uuid } }, function(reply)
+    conn.removing[uuid] = nil
+    if reply.ok then
+      return
+    end
+    warn_once(
+      "remove: " .. tostring(reply.error),
+      ("Queue sync: the queue owner did not drop an annotation (%s). It is back in the queue."):format(
+        tostring(reply.error)
+      )
+    )
+    reapply(conn)
+  end)
 end
 
 return M
