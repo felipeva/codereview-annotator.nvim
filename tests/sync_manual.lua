@@ -20,6 +20,15 @@
 --   4. Shows the refusal: the queue owner's error, the entry still local, one warning.
 --   5. Closes the plugin's connection at the proxy (not the queue owner), shows that the
 --      entries stay, then reconnects and shows that the warning is not said again.
+--   6. The changes to an entry (#283), each beside what the queue owner stored:
+--      6.1 an edit of a note, 6.2 a change of type and one to untyped, 6.3 a drop,
+--      6.4 a reconcile that marks two entries stale and one that clears the mark,
+--      6.5 an `update` that the queue owner refuses: raw, and through the plugin with the
+--          proxy changing the id of its next `update`, so the plugin gets the real error,
+--      6.6 "unknown id": raw, and through the plugin with the proxy holding the queue
+--          owner's lines back while a raw `remove` takes the entry out,
+--      6.7 an `update` that changes nothing, on a raw connection that subscribed, beside one
+--          that changes the note, which must give an event.
 --
 -- It never sends `send`. In a `finally` path it removes every uuid that the plugin kept, with
 -- a raw `remove`, and shows that the queue is then what step 0 read. Every raw line is
@@ -136,6 +145,14 @@ assert(proxy:bind(proxy_path))
 ---@type table|nil
 local pair = nil
 
+---Set by a step: called with each line that the plugin writes; a string it gives goes to the
+---queue owner in place of the line, once.
+---@type (fun(line: string): string|nil)|nil
+local rewrite = nil
+
+---While true, the lines of the queue owner wait in the proxy, as on a slow socket.
+local hold = false
+
 ---Split a stream into lines for the record, and hand the bytes on as they came.
 local function tap(dir)
   local buffer = ""
@@ -152,9 +169,18 @@ end
 proxy:listen(4, function()
   local client, upstream = vim.uv.new_pipe(false), vim.uv.new_pipe(false)
   proxy:accept(client)
-  local this = { client = client, upstream = upstream, waiting = {}, open = false }
+  local this = { client = client, upstream = upstream, waiting = {}, open = false, held = {} }
   pair = this
   local out, back = tap(">"), tap("<")
+  local pending = ""
+  ---Write the held lines of the queue owner to the plugin.
+  function this.release()
+    hold = false
+    for _, data in ipairs(this.held) do
+      client:write(data)
+    end
+    this.held = {}
+  end
   local function close()
     for _, p in ipairs({ client, upstream }) do
       if not p:is_closing() then
@@ -168,10 +194,22 @@ proxy:listen(4, function()
       return close()
     end
     out(data)
-    if this.open then
-      upstream:write(data)
-    else
-      this.waiting[#this.waiting + 1] = data
+    pending = pending .. data
+    while pending:find("\n", 1, true) do
+      local i = pending:find("\n", 1, true)
+      local line = pending:sub(1, i - 1)
+      pending = pending:sub(i + 1)
+      local changed = rewrite and rewrite(line)
+      if changed then
+        rewrite = nil
+        record[#record + 1] = { dir = "~", line = changed }
+        line = changed
+      end
+      if this.open then
+        upstream:write(line .. "\n")
+      else
+        this.waiting[#this.waiting + 1] = line .. "\n"
+      end
     end
   end)
   upstream:connect(SOCKET, function(err)
@@ -187,7 +225,11 @@ proxy:listen(4, function()
         return close()
       end
       back(data)
-      client:write(data)
+      if hold then
+        this.held[#this.held + 1] = data
+      else
+        client:write(data)
+      end
     end)
   end)
 end)
@@ -448,6 +490,251 @@ local function main()
   check(said("Queue sync started") == 2, "the reconnect starts the sync again")
   check(said("did not take") == 1, "the reconnect does not say the refusal again")
   vim.wait(1000)
+
+  say("--- step 6: the changes to an entry")
+  local function of(label)
+    for _, c in ipairs(captured) do
+      if c.label == label then
+        return c.uuid
+      end
+    end
+  end
+  ---The note that the queue owner holds, from a raw `list`.
+  local function stored_of(u)
+    for _, note in ipairs(raw({ { op = "list" } })[1].queue or {}) do
+      if note.id:lower() == u:lower() then
+        return note
+      end
+    end
+  end
+  ---The reply that the queue owner gave to the plugin's first request of `op` after `mark`.
+  local function reply_to(op, mark)
+    local req
+    for k = mark + 1, #record do
+      local msg = vim.json.decode(record[k].line)
+      if record[k].dir == ">" and msg.op == op and not req then
+        req = msg.req
+      elseif record[k].dir == "<" and req and msg.req == req then
+        return msg
+      end
+    end
+  end
+  ---Run `fn`, wait for the reply to the plugin's next `op`, and print every line after it.
+  ---@return integer mark The record's length before `fn`
+  local function traced(fn, op)
+    local mark = #record
+    fn()
+    vim.wait(5000, function()
+      return reply_to(op, mark) ~= nil
+    end, 10)
+    vim.wait(300)
+    for k = mark + 1, #record do
+      say(record[k].dir, record[k].line)
+    end
+    return mark
+  end
+  local function sent_op(op, mark)
+    for i = mark + 1, #record do
+      if record[i].dir == ">" and vim.json.decode(record[i].line).op == op then
+        return record[i].line
+      end
+    end
+  end
+  local function side_by_side(label, line, u)
+    say("## " .. label)
+    say("sent:   " .. tostring(line))
+    say("stored: " .. vim.json.encode(stored_of(u) or {}))
+  end
+
+  -- 6.1 An edit of a note.
+  local L = of("line (review)")
+  compose_text = "edited by the manual check"
+  local mark = traced(function()
+    annotate.edit_note(entry_of(L))
+  end, "update")
+  compose_text = "the note"
+  side_by_side("6.1 edit", sent_op("update", mark), L)
+  local r = reply_to("update", mark)
+  check(r and r.ok, "6.1 the queue owner takes the edit")
+  check((stored_of(L) or {}).note == "edited by the manual check", "6.1 the queue owner stores the new note")
+  check(entry_of(L).note == "edited by the manual check", "6.1 the next snapshot keeps it in Neovim")
+
+  -- 6.2 A change of type, then to untyped.
+  local select = vim.ui.select
+  for _, step in ipairs({ { index = 2, want = "fix" }, { untyped = true, want = "" } }) do
+    vim.ui.select = function(items, _, cb)
+      local i = step.untyped and #items or step.index
+      cb(items[i], i)
+    end
+    mark = traced(function()
+      annotate.change_type(entry_of(L))
+    end, "update")
+    side_by_side("6.2 type " .. (step.want == "" and "untyped" or step.want), sent_op("update", mark), L)
+    check((reply_to("update", mark) or {}).ok, "6.2 the queue owner takes the type " .. vim.inspect(step.want))
+    check((stored_of(L) or {}).type == step.want, "6.2 the queue owner stores the type " .. vim.inspect(step.want))
+    check(entry_of(L).type == (step.want ~= "" and step.want or nil), "6.2 the type comes back in Neovim")
+  end
+  vim.ui.select = select
+
+  -- 6.3 A drop.
+  local D = of("bare note")
+  mark = traced(function()
+    annotate.drop_entry(entry_of(D))
+  end, "remove")
+  check((reply_to("remove", mark) or {}).ok, "6.3 the queue owner takes the remove")
+  check(stored_of(D) == nil, "6.3 the entry leaves the queue owner")
+  check(entry_of(D) == nil, "6.3 the entry leaves Neovim")
+
+  -- 6.4 A reconcile that marks two entries stale, then one that clears the mark.
+  local R, F = of("range (buffer)"), of("whole file (buffer)")
+  local path = vim.fs.joinpath(fixture, "src/main.lua")
+  local original = vim.fn.readfile(path)
+  local real_root = assert(vim.uv.fs_realpath(fixture))
+  for _, step in ipairs({
+    { lines = { "-- moved by the manual check" }, stale = true },
+    { lines = original, stale = false },
+  }) do
+    vim.fn.writefile(step.lines, path)
+    mark = #record
+    state.reconcile_queue(real_root)
+    vim.wait(5000, function()
+      local n = 0
+      for i = mark + 1, #record do
+        local msg = vim.json.decode(record[i].line)
+        n = n + ((record[i].dir == "<" and msg.req and msg.event == nil) and 1 or 0)
+      end
+      return n >= 2
+    end, 10)
+    vim.wait(300)
+    for i = mark + 1, #record do
+      say(record[i].dir, record[i].line)
+    end
+    for _, u in ipairs({ R, F }) do
+      local line
+      for i = mark + 1, #record do
+        local msg = vim.json.decode(record[i].line)
+        if record[i].dir == ">" and msg.op == "update" and msg.id:lower() == u:lower() then
+          line = record[i].line
+          check(
+            msg.review and msg.review.kind ~= nil and msg.note == nil and msg.type == nil,
+            "6.4 update carries the whole review and nothing else"
+          )
+        end
+      end
+      side_by_side("6.4 stale " .. tostring(step.stale) .. " " .. u, line, u)
+      check(line ~= nil, "6.4 an update is sent for " .. u)
+      local st = stored_of(u)
+      check(
+        st and st.review and st.review.stale == step.stale,
+        "6.4 the queue owner stores stale " .. tostring(step.stale)
+      )
+    end
+  end
+
+  -- 6.5 A refusal: raw first, then through the plugin.
+  local H = of("hunk (review)")
+  local bad = raw({
+    { op = "update", id = "not-a-uuid", note = "x" },
+    { op = "update", id = H, review = { stale = true } },
+    { op = "update", id = H, type = 7 },
+  })
+  say("6.5 raw, a bad id:        " .. vim.json.encode(bad[1]))
+  say("6.5 raw, review sans kind: " .. vim.json.encode(bad[2]))
+  say("6.5 raw, type not a string: " .. vim.json.encode(bad[3]))
+  local warned = said("did not take an edit")
+  local before_note = (stored_of(H) or {}).note
+  for n = 1, 2 do
+    rewrite = function(line)
+      if line:find('"op":"update"', 1, true) then
+        return (line:gsub('"id":"[^"]*"', '"id":"not-a-uuid"', 1))
+      end
+    end
+    compose_text = "refused edit " .. n
+    mark = traced(function()
+      annotate.edit_note(entry_of(H))
+    end, "update")
+    say("6.5 the plugin got: " .. vim.json.encode(reply_to("update", mark) or {}))
+  end
+  compose_text = "the note"
+  for _, m in ipairs(messages) do
+    if m:find("did not take an edit", 1, true) then
+      say("warning:", m)
+    end
+  end
+  check(said("did not take an edit") == warned + 1, "6.5 the refusal is said once")
+  check(entry_of(H).note == "refused edit 2", "6.5 the edit stays in Neovim")
+  check((stored_of(H) or {}).note == before_note, "6.5 the queue owner keeps its note")
+
+  -- 6.6 "unknown id": raw, then through the plugin.
+  local unknown = raw({ { op = "update", id = uuid(), note = "x" } })
+  say("6.6 raw, an id it does not hold: " .. vim.json.encode(unknown[1]))
+  local U = of("untyped")
+  hold = true
+  say("6.6 raw remove: " .. vim.json.encode(raw({ { op = "remove", ids = { U } } })[1]))
+  compose_text = "typed after the raw remove"
+  mark = #record
+  annotate.edit_note(entry_of(U))
+  vim.wait(5000, function()
+    for i = mark + 1, #record do
+      if record[i].dir == "<" and record[i].line:find("unknown id", 1, true) then
+        return true
+      end
+    end
+  end, 10)
+  pair.release()
+  vim.wait(5000, function()
+    local st = stored_of(U)
+    return st ~= nil and st.note == "typed after the raw remove"
+  end, 50)
+  vim.wait(300)
+  compose_text = "the note"
+  for i = mark + 1, #record do
+    say(record[i].dir, record[i].line)
+  end
+  check((reply_to("update", mark) or {}).error == "unknown id", "6.6 the queue owner answers unknown id")
+  check((stored_of(U) or {}).note == "typed after the raw remove", "6.6 the plugin keeps it again with the typed note")
+  check(entry_of(U) ~= nil, "6.6 the entry stays in Neovim")
+
+  -- 6.7 An update that changes nothing, and one that changes the note, as a control.
+  local same = stored_of(L)
+  local replies, lines = raw({
+    { op = "subscribe" },
+    { op = "list" },
+    { op = "update", id = L, note = same.note },
+    { op = "list" },
+    { op = "update", id = L, note = same.note .. " (changed)" },
+    { op = "list" },
+  })
+  say("6.7 the raw lines, in order:")
+  local events = {}
+  for _, line in ipairs(lines) do
+    local msg = vim.json.decode(line)
+    say(
+      ("< event=%s req=%s ok=%s rev=%s notes=%s"):format(
+        tostring(msg.event),
+        tostring(msg.req),
+        tostring(msg.ok),
+        tostring(msg.rev),
+        msg.queue and #msg.queue or "-"
+      )
+    )
+    if msg.event == "queue" then
+      events[#events + 1] = msg.rev
+    end
+  end
+  for _, line in ipairs(lines) do
+    say("<", line)
+  end
+  say(
+    ("6.7 rev: %s, after the update that changes nothing %s, after the one that changes %s"):format(
+      replies[2].rev,
+      replies[4].rev,
+      replies[6].rev
+    )
+  )
+  check(replies[3].ok and replies[2].rev == replies[4].rev, "6.7 an update that changes nothing keeps rev")
+  check(#events == 1 and replies[6].rev == replies[4].rev + 1, "6.7 only the update that changes gives an event")
+  rewrite, hold = nil, false
 end
 
 local ok, err = xpcall(main, debug.traceback)
