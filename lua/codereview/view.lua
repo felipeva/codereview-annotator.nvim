@@ -2029,6 +2029,15 @@ function M.release_queue_float(win)
   end
 end
 
+---Judge the archive again, after the **sync** wrote it from a `sent`.
+---
+---The paint drops a judgment that an archive write overtook, and a `sent` comes after the
+---submit that judged. So without this the touched tally is gone until the next reconcile.
+---Nothing with no review open.
+function M.judge_archive()
+  judge_archive()
+end
+
 ---Repaint the queue float, if one is open, after the queue changed with no key pressed in
 ---it. The float is this module's to hand actions to, so the **sync** reaches it here.
 function M.repaint_queue_float()

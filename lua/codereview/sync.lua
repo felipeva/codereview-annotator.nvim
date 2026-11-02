@@ -17,7 +17,13 @@
 ---
 ---  * the request path, `request`: a line out, and a callback kept under its `req`;
 ---  * the event path, `on_event`: one handler per event name, in `EVENTS`.
+---
+---**A submit goes through the queue owner** while the sync runs (`M.send`). The queue empties
+---only through the queue owner's next snapshot, and the **archive** is written only from the
+---`sent` event, whoever caused it. So a late reply or an interrupted wait cannot send a batch
+---twice or lose one.
 local config = require("codereview.config")
+local payload = require("codereview.payload")
 local queue = require("codereview.queue")
 local state = require("codereview.state")
 
@@ -35,6 +41,13 @@ local RETRY_MS = 2000
 ---refused. The queue owner answers `hello`, `subscribe`, `list` and `keep` at once, and it
 ---closes a client that does not read for 5 s, so a reply later than that is not coming.
 local REPLY_MS = 5000
+
+---The ops that do not use `REPLY_MS`, with their own time, or `false` for no limit.
+---
+---`send` has no limit. The queue owner replies only when the agent tool has taken the batch,
+---and its tools wait 15 s or 30 s. A late reply is still the result of the submit, so it is
+---reported when it comes, and it never counts as refused.
+local REPLY_MS_OF = { send = false }
 
 ---The most bytes of notes in one `keep`. The queue owner closes a connection whose line is
 ---longer than 8 MiB. A typical entry is a few KiB, so 1 MiB holds hundreds of them in one
@@ -68,6 +81,10 @@ end
 ---@field keeping boolean The `keep` of the connect is written, so a new entry is kept at once
 ---@field confirmed boolean The queue owner has replied to every `keep` of the connect
 ---@field inflight table<string, true> Uuids kept and not yet confirmed by a reply
+---@field departed table<string, CRAnnotation> Own entries that a snapshot took out of the
+---       queue, by uuid in lower case, until the next `sent`
+---@field sending boolean A `send` has had no reply yet
+---@field late fun(reply: table)|nil Gets the reply to a `send` whose wait ran out
 ---@field ready boolean The connect is complete, and the start was announced
 ---@field closed boolean
 
@@ -230,6 +247,12 @@ local function stop(conn)
   if conn.ready then
     info("Queue sync stopped: the queue is kept in Neovim")
   end
+  -- A `send` has no reply timeout, so without this its caller never hears.
+  if conn.late then
+    local late = conn.late
+    conn.late = nil
+    late({ ok = false, unknown = true })
+  end
 end
 
 ---The bytes that stand for a byte that is not UTF-8: U+FFFD, the replacement character.
@@ -288,8 +311,8 @@ end
 
 ---The request path: write one request, and keep its callback under its `req`.
 ---
----A reply that does not come in `REPLY_MS` is answered here with `ok = false`, so no
----callback waits for ever.
+---A reply that does not come in its time (`REPLY_MS`, or the op's own in `REPLY_MS_OF`) is
+---answered here with `ok = false`. An op with no limit waits until its reply or the close.
 ---@param conn CRSyncConn
 ---@param op string
 ---@param fields table|nil The fields of the request beside `req` and `op`
@@ -313,6 +336,10 @@ local function request(conn, op, fields, on_reply)
     stop(conn)
     return
   end
+  local ms = REPLY_MS_OF[op]
+  if ms == false then
+    return
+  end
   vim.defer_fn(function()
     local cb = conn.pending[req]
     if conn.closed or cb == nil then
@@ -322,7 +349,7 @@ local function request(conn, op, fields, on_reply)
     if cb then
       cb({ ok = false, error = "no reply", req = req })
     end
-  end, REPLY_MS)
+  end, ms or REPLY_MS)
 end
 
 ---Write the queue, then repaint every surface that draws it.
@@ -382,6 +409,10 @@ local function apply(conn, rev, notes)
   for uuid, entry in pairs(here) do
     if not seen[uuid] and (not conn.confirmed or conn.inflight[uuid] or refused[uuid]) then
       unconfirmed[#unconfirmed + 1] = entry
+    elseif not seen[uuid] then
+      -- The `sent` of a batch comes after the snapshot that took it out, and it names only
+      -- the ids. So the entries are kept here until then, for the archive.
+      conn.departed[uuid] = entry
     end
   end
   table.sort(unconfirmed, function(a, b)
@@ -396,14 +427,118 @@ local function apply(conn, rev, notes)
   repaint()
 end
 
----The event path: one handler per event name.
+---The name of a target in the archive, from the queue owner's `{ tool, address, cwd }`.
 ---
----#285 adds `sent` here.
+---From the event, also for a batch that this process sent: one rule for every `sent`, and
+---`delivery`, which names the host's targets, is above this module.
+---@param target any
+---@return string
+local function target_label(target)
+  if type(target) ~= "table" then
+    return "queue owner"
+  end
+  for _, field in ipairs({ "address", "tool" }) do
+    if type(target[field]) == "string" and target[field] ~= "" then
+      return target[field]
+    end
+  end
+  return "queue owner"
+end
+
+---Archive the entries of a `sent` that this plugin made, per **checkout**.
+---
+---Each `sent` counts, from this process, another Neovim or another tool. A note of another
+---tool is not in the archive.
+---
+---An entry that its archive holds already is skipped. Two Neovim processes get the same
+---`sent` and write the same state files, so without this each batch is there twice.
+---@param conn CRSyncConn
+---@param msg table
+local function archive_sent(conn, msg)
+  local here = {}
+  for _, entry in ipairs(queue.entries()) do
+    here[lower(entry.uuid)] = entry
+  end
+  local loose, by_root, roots = {}, {}, {}
+  for _, id in ipairs(type(msg.ids) == "table" and msg.ids or {}) do
+    local uuid = type(id) == "string" and lower(id) or nil
+    local entry = uuid and (conn.departed[uuid] or here[uuid])
+    if entry then
+      local root = state.checkout_of(entry)
+      if not root then
+        loose[#loose + 1] = entry
+      else
+        if not by_root[root] then
+          by_root[root] = {}
+          roots[#roots + 1] = root
+        end
+        table.insert(by_root[root], entry)
+      end
+    end
+  end
+  -- The queue owner writes each `sent` just after the snapshot that took its batch out. So
+  -- what departed before this one is not in a later `sent`.
+  conn.departed = {}
+
+  ---@param entries CRAnnotation[]
+  ---@param batches CRBatch[]
+  ---@return CRAnnotation[]
+  local function unarchived(entries, batches)
+    local done = {}
+    for _, batch in ipairs(batches) do
+      for _, e in ipairs(batch.entries or {}) do
+        if type(e.uuid) == "string" then
+          done[lower(e.uuid)] = true
+        end
+      end
+    end
+    local out = vim.tbl_filter(function(e)
+      return not done[lower(e.uuid)]
+    end, entries)
+    -- In queue order, as a submit without the sync archives them. The `ids` of the event
+    -- are in the order of its message, which groups them by type.
+    table.sort(out, function(a, b)
+      return a.id < b.id
+    end)
+    return out
+  end
+
+  local label, preamble = target_label(msg.target), payload.preamble(msg.preamble)
+  loose = unarchived(loose, state.global_archive())
+  if #roots == 0 then
+    if #loose > 0 then
+      state.archive_batch(loose, label, nil, preamble)
+    end
+    return
+  end
+  for i, root in ipairs(roots) do
+    local items = unarchived(by_root[root], state.archive(root))
+    -- The entries with no checkout go in one call with a checkout, so that both records of
+    -- the batch get one stamp: `archive.last` joins the two by it.
+    if i == 1 then
+      vim.list_extend(items, loose)
+    end
+    if #items > 0 then
+      state.archive_batch(items, label, root, preamble)
+    end
+  end
+end
+
+---The event path: one handler per event name.
 local EVENTS = {
   ---@param conn CRSyncConn
   ---@param msg table
   queue = function(conn, msg)
     apply(conn, msg.rev, msg.queue)
+  end,
+  ---@param conn CRSyncConn
+  ---@param msg table
+  sent = function(conn, msg)
+    archive_sent(conn, msg)
+    if view then
+      view.judge_archive()
+    end
+    repaint()
   end,
 }
 
@@ -632,6 +767,8 @@ local function connect()
     keeping = false,
     confirmed = false,
     inflight = {},
+    departed = {},
+    sending = false,
     ready = false,
     closed = false,
   }
@@ -694,6 +831,64 @@ function M.keep(entry)
     return
   end
   keep_entries(conn, { entry })
+end
+
+---Ask the queue owner to deliver a **batch**, and wait for its reply up to `sync.wait`.
+---
+---Nothing here changes the queue or the archive: the next snapshot empties the queue, and
+---the `sent` event writes the archive. `<C-c>` stops the wait, as no reply in time does.
+---@param entries CRAnnotation[] The batch, as the reviewer sees it
+---@param to table|nil The host's target, for the `target` adapter
+---@param preamble string|nil
+---@param late fun(reply: table) Gets the reply that comes after the wait
+---@return table|false|nil reply nil when no sync runs, so the caller delivers as without
+---       one; false when no reply came in time; `unknown = true` when the connection
+---       closed first; else the reply, `ok` or `ok = false` with `error`, a sentence that
+---       says why. `late` gets the same shapes.
+function M.send(entries, to, preamble, late)
+  local conn = current
+  if not conn or not conn.ready then
+    return nil
+  end
+  if conn.sending then
+    return { ok = false, error = "the last submit has no reply from the queue owner yet" }
+  end
+  local ok, mapped = pcall(config.get().sync.target, to)
+  if not ok then
+    return { ok = false, error = ("sync.target adapter failed: %s"):format(mapped) }
+  end
+
+  local reply, waiting = nil, true
+  conn.sending = true
+  request(conn, "send", {
+    ids = vim.tbl_map(function(e)
+      return e.uuid
+    end, entries),
+    target = mapped,
+    preamble = payload.preamble(preamble),
+  }, function(r)
+    conn.sending = false
+    conn.late = nil
+    if not r.ok then
+      r.error = ("the queue owner refused it (%s)"):format(tostring(r.error))
+    end
+    if waiting then
+      reply = r
+    else
+      late(r)
+    end
+  end)
+  vim.wait(config.get().sync.wait, function()
+    return reply ~= nil or conn.closed
+  end, 10)
+  waiting = false
+  if not reply and conn.closed then
+    return { ok = false, unknown = true }
+  end
+  if not reply then
+    conn.late = late
+  end
+  return reply or false
 end
 
 return M

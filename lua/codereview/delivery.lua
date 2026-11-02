@@ -11,7 +11,8 @@
 ---reach it.
 ---
 ---And the submit, which is what holds the rule the other two serve: restore the queue,
----deliver it, and empty it only if the send reports it went (ADR-0005).
+---deliver it, and empty it only if the send reports it went (ADR-0005). While the **sync**
+---runs, the **queue owner** delivers it instead, and only its next snapshot empties the queue.
 ---
 ---The **preamble** is composed here for the same reason the handoff is. It is written at
 ---the moment the batch goes, it is rendered with the batch, and it is not an **entry** --
@@ -293,6 +294,84 @@ local function ensure_queue()
   require("codereview.sync").wake()
 end
 
+---What a submit tells the reviewer when the batch went.
+---@param count integer
+---@param to table|nil The target the batch went to
+local function say_submitted(count, to)
+  info(
+    ("Submitted %d annotation%s to %s"):format(count, count == 1 and "" or "s", to and (to.short or "agent") or "local")
+  )
+end
+
+---What a submit tells the reviewer when the batch did not go through the queue owner.
+---@param reply table
+local function say_refused(reply)
+  vim.notify(("Not submitted: %s"):format(tostring(reply.error)), vim.log.levels.ERROR, { title = "Code review" })
+end
+
+---What a submit tells the reviewer when the sync stopped before the queue owner replied.
+---
+---Not a refusal: the queue owner may have delivered the batch. Only the agent can say.
+local function say_unknown()
+  vim.notify(
+    "Queue sync stopped before the queue owner replied to the submit. The result is unknown, and the batch is still in the Neovim queue. Check the agent before you submit again.",
+    vim.log.levels.WARN,
+    { title = "Code review" }
+  )
+end
+
+---Submit through the **queue owner**, while the **sync** runs.
+---
+---It changes neither the queue nor the archive. The queue owner's next snapshot empties the
+---queue, and its `sent` event writes the archive, also for a reply after the wait. So the
+---answer here is only what is known now (ADR-0005), and nothing that comes later can
+---contradict it.
+---@param items CRAnnotation[]
+---@param ctx { root?: string, preamble?: string }
+---@return boolean|nil dispatched nil when no sync runs
+local function submit_synced(items, ctx)
+  local count, to, preamble = #items, target, ctx.preamble
+  local _, repo = destination(to, ctx)
+  local reply = require("codereview.sync").send(items, to, preamble, function(late)
+    if late.ok then
+      -- The target of this submit, also when the reviewer has chosen another since.
+      say_submitted(count, to)
+      -- `submit_with_preamble` kept the preamble as a draft when the wait ran out. It went
+      -- with the batch, so the draft goes, as on a dispatch; a newer draft stays.
+      local drafts = require("codereview.drafts")
+      local key = drafts.key({ preamble = true, root = repo })
+      if preamble and drafts.get(key) == preamble then
+        drafts.set(key, nil)
+      end
+    elseif late.unknown then
+      say_unknown()
+    else
+      say_refused(late)
+    end
+  end)
+  if reply == nil then
+    return nil
+  end
+  if reply == false then
+    info(
+      ("The queue owner did not reply in %g s. The batch stays in the queue until it goes; the result will follow."):format(
+        config.get().sync.wait / 1000
+      )
+    )
+    return false
+  end
+  if reply.unknown then
+    say_unknown()
+    return false
+  end
+  if not reply.ok then
+    say_refused(reply)
+    return false
+  end
+  say_submitted(count, to)
+  return true
+end
+
 ---Submit the queue as one batch, emptying it only if the send says it went.
 ---
 ---The rule this module exists to hold: a dispatch is what empties the queue, and nothing
@@ -320,6 +399,12 @@ function M.submit(ctx)
     return false
   end
 
+  -- While the sync runs, the queue owner delivers the batch, and nothing below runs.
+  local synced = submit_synced(queue.all(), ctx)
+  if synced ~= nil then
+    return synced
+  end
+
   local dispatched, reason = M.deliver(queue.all(), target, ctx)
   if not dispatched then
     -- Nothing more to add: the batch is still queued, and a queue that still counts what
@@ -342,13 +427,7 @@ function M.submit(ctx)
     require("codereview.overlay").paint()
   end
 
-  info(
-    ("Submitted %d annotation%s to %s"):format(
-      count,
-      count == 1 and "" or "s",
-      target and (target.short or "agent") or "local"
-    )
-  )
+  say_submitted(count, target)
   return true
 end
 

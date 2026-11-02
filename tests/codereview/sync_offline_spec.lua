@@ -57,6 +57,17 @@ describe("the sync option at setup", function()
     assert.is_truthy(refused({ socket = "/tmp/q.sock" }):find("`sync.target` must be a function", 1, true))
   end)
 
+  it("refuses a wait that is not a number of milliseconds", function()
+    local message = "`sync.wait` must be a number of milliseconds"
+    assert.is_truthy(refused({ socket = "/tmp/q.sock", target = target, wait = "5s" }):find(message, 1, true))
+    assert.is_truthy(refused({ socket = "/tmp/q.sock", target = target, wait = -1 }):find(message, 1, true))
+  end)
+
+  it("waits 5 s for the reply to a submit when the host does not say", function()
+    codereview.setup({ syntax = false, sync = { socket = "/tmp/codereview-nowhere.sock", target = target } })
+    assert.same(5000, config.get().sync.wait)
+  end)
+
   it("expands the socket path", function()
     codereview.setup({ syntax = false, sync = { socket = "~/codereview-nowhere.sock", target = target } })
     assert.same(vim.fs.joinpath(vim.fn.expand("~"), "codereview-nowhere.sock"), config.get().sync.socket)

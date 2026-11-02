@@ -15,7 +15,8 @@ The whole suite is about 1,590 cases in under ten seconds. A little over a secon
 one deliberate wait in `trim_spec` — see "a cache is invisible unless the clock moved" — and
 about two seconds is one in `sync_offline_spec` and one in `sync_refusal_spec`, because the
 2 s between two connect attempts is the behavior they test. `sync_wire_spec` waits about
-five seconds, once, for the reply timeout it tests.
+five seconds, once, for the reply timeout it tests, and `sync_submit_spec` a little more, for
+a `send` reply that comes after that timeout.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -134,6 +135,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `sync_offline_spec` | The `sync` option at setup — off by default, the three wrong values and their messages, the path expanded — and the sync with no queue owner: a refused connect and a missing socket that say nothing and leave the queue as it is without a sync, no second attempt sooner than 2 s, and the attempt on the next capture after that, in the fixed order, with every entry in the local queue. Waits about 2 s, once, on purpose |
 | `sync_refusal_spec` | A `keep` the queue owner refuses: one entry whose uuid does not decode at connect, which does not keep the others out and stays in the local queue, said once with the owner's reason; a refused capture that a snapshot without it does not drop, here or on disk, said once; and the next connect, which sends it again and is taken, and says nothing again about the entry refused for the same reason. Waits about 2 s, once, on purpose |
 | `sync_wire_spec` | What goes on the wire: a change another client makes between `hello` and `subscribe`, in the queue after the connect because the connect lists after it subscribes; a note that is not valid UTF-8, which reaches the owner with each bad byte as U+FFFD; and a `keep` whose reply never comes, refused after 5 s, said once and not dropped by a snapshot. Waits about 5 s, once, on purpose |
+| `sync_submit_spec` | A submit while the sync runs: `send` with the batch's uuids, the target that `sync.target` maps and the preamble; an `ok`, reported as today, with the queue emptied by the snapshot and the archive written from `sent`, per store; an `ok` that leaves an entry the owner never took in the queue; an `error`, reported with its reason, with the batch kept and nothing archived; a reply after a short wait and after the 5 s reply timeout, still reported, with the batch kept until the snapshot and a second submit refused meanwhile; a `sent` that this process did not cause, archived per checkout with its preamble and target and judged by touched; a `sent` that another Neovim archived first, not archived again; a late `ok` that removes the preamble's draft, a newer draft that stays, and a late error that keeps it; the untouched tally in the winbar at once after a `sent` with a review open; `<C-c>` in the wait; a close in the wait and a close after it, each said once as a result that is unknown. Waits about 5 s, once, on purpose |
 | `sync_header_spec` | The header of the plugin's own payload: with `sync` set and no queue owner listening, `Annotations — 1 item` and `Annotations — 3 items` on a copy, on `<C-s>`, under a preamble on `<C-a>` and on an immediate send, with no scope or file counts although a review is open; without `sync`, today's header with the scope and the file counts; the same groups, numbers and notes under both headers; and, with the fake queue owner listening, the copy to a register, which the plugin renders also while connected. A connected submit is rendered by the queue owner, so it is not a case here |
 | `sync_limit_spec` | A queue larger than the owner's line limit (set to 2 MiB in the fake), which reaches the owner whole because the connect splits its `keep` |
 | `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
@@ -1222,19 +1224,25 @@ long enough.
     line, as the owner's decoder refuses both;
   - `keep` writes each id in upper case, as the owner does, so a comparison that is not
     case-blind fails here and not in production;
-  - `update` with a JSON `null` for `review` or `origin` clears it; `send` that names no
-    queued id refuses `nothing to send`; `sent` always carries `preamble` as a string;
+  - `update` with a JSON `null` for `review` or `origin` clears it; `sent` always carries
+    `preamble` as a string;
+  - `send` decodes `ids` (UUIDs), `target` (a `tool` the owner knows, an `address` and a
+    `cwd`) and `preamble` as the owner does, and refuses `bad request: …`; a `send` that
+    names no queued id refuses `nothing to send`. Both answer at once;
   - every snapshot (`hello`, `list`, `queue`) carries the owner's five built-in types in
     its shape (`id`, `singular`, `label`, `directive`, `menuHint`, `color`; `symbol` is nil
     for all five and the owner leaves it out), the types a `hello` adds, after the nearest
     earlier one as the owner places them, and `default`.
 - **The order is the owner's.** The `queue` event of a change comes before its reply, and
-  `sent` comes after the reply to `send`. A change goes to subscribers only.
+  `sent` comes after the reply to `send`. A change goes to subscribers only. A `send` gives
+  the batch to the agent tool before it changes the queue, so `owner:delay("send", ms)`
+  holds the `queue` event, the reply and `sent` together, not only the reply.
 - **A spec drives it.** `owner:push_queue(notes)` replaces the queue and sends a `queue`
   event. `owner:push_queue(notes, rev)` sends a stale event with that `rev` and changes
   nothing that the fake holds, so a later push still counts up from its own `rev`.
   `owner:push(event)` sends any event, `sent` included. `owner:refuse(op, error)` answers
-  one op with an error. `owner:delay(op, ms)` does the op at once and replies later; with
+  one op with an error. `owner:delay(op, ms)` does the op at once and replies later (for
+  `send`, the op waits too); with
   `math.huge` the request is lost — recorded, not done, never answered. `owner:after(op, fn)`
   runs `fn(owner)` once, just after the next reply to `op`, which is how a spec makes another
   client's change land between two requests. `owner:drop_clients()` closes the connections
