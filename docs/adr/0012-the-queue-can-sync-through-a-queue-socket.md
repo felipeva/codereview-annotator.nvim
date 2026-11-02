@@ -52,3 +52,11 @@ dispatch of ADR-0005. The reply does not empty the queue and does not write the 
 the queue owner's next snapshot empties the queue, and its `sent` event writes the
 archive, whoever caused it. So a reply that comes after the submit's wait cannot send a
 batch twice or lose one.
+
+An edit of a note, a change of type and a drop go to the queue owner too, as `update` and
+`remove`, and so does each **stale** mark that a reconcile changes. The plugin changes its
+own queue at once, and the next snapshot confirms the change. An edit, a change of type or
+a stale mark that the queue owner refuses, or does not answer, wins in Neovim over each
+snapshot until the next connect, which sends it again: a note that the reviewer typed is
+not lost for a reply that did not come. A refused drop is undone, because the entry is
+still in the queue that the queue owner submits.

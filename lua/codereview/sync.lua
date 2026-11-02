@@ -129,6 +129,14 @@ local told = {}
 ---@type table<string, true>
 local unsent = {}
 
+---The uuids, in lower case, that a `sent` named this session: entries that went to an agent.
+---
+---An edit of one that the queue owner answers with "unknown id" does not keep it again. The
+---queue owner reads requests while a `send` waits for the agent tool, so the `update` of an
+---entry in the batch can come after the batch went.
+---@type table<string, true>
+local delivered = {}
+
 ---The review view, handed in by `start`, as `init` hands it to the overlay. Requiring it
 ---here would put this module in a cycle through `delivery`.
 ---@type table|nil
@@ -565,6 +573,11 @@ local EVENTS = {
   ---@param conn CRSyncConn
   ---@param msg table
   sent = function(conn, msg)
+    for _, id in ipairs(type(msg.ids) == "table" and msg.ids or {}) do
+      if type(id) == "string" then
+        delivered[lower(id)] = true
+      end
+    end
     archive_sent(conn, msg)
     if view then
       view.judge_archive()
@@ -788,7 +801,7 @@ local function send_update(conn, entry, fields, revive)
     end
     if reply.error == "unknown id" then
       local now = local_entry(uuid)
-      if revive and now then
+      if revive and now and not delivered[uuid] then
         keep_entries(conn, { now })
       else
         reapply(conn)
@@ -989,6 +1002,10 @@ end
 ---
 ---A refusal, and no reply, apply the last snapshot again: the entry comes back if the queue
 ---owner still holds it, so the screen shows what goes in the next submit. Said once.
+---
+---An entry in a batch that the queue owner is giving to the agent tool still goes: the
+---queue owner took the batch when the `send` came. Its `sent` names the entry, and the
+---archive keeps it.
 ---@param entry CRAnnotation The entry that left the queue
 function M.remove(entry)
   local conn = current
@@ -1001,6 +1018,9 @@ function M.remove(entry)
   end
   local uuid = lower(entry.uuid)
   conn.removing[uuid] = true
+  -- A `send` that the queue owner took before it read this `remove` still names the entry in
+  -- its `sent`, so it is kept for the archive, as `apply` keeps an entry a snapshot takes out.
+  conn.departed[uuid] = entry
   request(conn, "remove", { ids = { entry.uuid } }, function(reply)
     conn.removing[uuid] = nil
     if reply.ok then

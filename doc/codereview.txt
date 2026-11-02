@@ -2113,7 +2113,10 @@ tool dropped or sent it a moment before, the annotation goes back to the queue
 owner with your edit. A drop that the queue owner refuses, or does not answer
 in 5 seconds, is undone: the annotation is back in your queue, because it is
 still in the queue that the queue owner submits. You are told once per reason.
-A drop while no queue owner listens is not sent.
+A drop while no queue owner listens is not sent. A drop or an edit while a
+submit is on its way does not change that batch: the queue owner took it when
+the submit came, and the archive keeps the batch with your copy of each
+annotation.
 
 Each entry goes to the queue owner with what the plugin needs to make the
 same entry again, and a mark that this plugin made it. The plugin does not

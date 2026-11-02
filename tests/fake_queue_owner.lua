@@ -23,7 +23,9 @@
 ---    refuses `bad request: …`. A `send` that names no queued id refuses `nothing to send`.
 ---    Both answer at once. Else the owner gives the batch to the agent tool first, and only
 ---    then removes it, replies and writes `sent` (`AppModel+Sync.swift`, `serve`): so
----    `owner:delay("send", ms)` holds all three, not only the reply.
+---    `owner:delay("send", ms)` holds all three, not only the reply. The batch is what was
+---    queued when the `send` came, and `sent` names all of it, also a note that a `remove`
+---    took out meanwhile (`transmit`, `clearSent`).
 ---  * Replies and `queue` events carry `rev`, `queue`, a `types` list of the owner's shape and
 ---    `default`. `sent` always carries `preamble` as a string.
 ---
@@ -432,8 +434,9 @@ end
 ---@param client table
 ---@param msg table
 ---@param line string The raw line, for what decoding cannot tell apart
+---@param taken string[]|nil For a held `send`, the ids of the batch it took when it came
 ---@return table reply, fun()|nil after Run after the reply is written
-function Owner:answer(client, msg, line)
+function Owner:answer(client, msg, line, taken)
   if msg.op == "hello" then
     if msg.protocol ~= 1 then
       return { ok = false, error = "protocol" }, function()
@@ -534,7 +537,7 @@ function Owner:answer(client, msg, line)
     return { ok = true }, function()
       self:push({
         event = "sent",
-        ids = removed,
+        ids = taken or removed,
         target = msg.target,
         preamble = msg.preamble or "",
         text = "",
@@ -583,12 +586,13 @@ function Owner:receive(client, line)
   end
   local refused = self.refusals[msg.op]
   ---Do the op, and give what writes its answer.
-  local function answer()
+  ---@param taken string[]|nil For a held `send`, the ids of the batch it took
+  local function answer(taken)
     local reply, after
     if refused then
       reply = { ok = false, error = refused }
     else
-      reply, after = self:answer(client, msg, line)
+      reply, after = self:answer(client, msg, line, taken)
     end
     reply.req = msg.req
     local hook = self.hooks[msg.op]
@@ -606,9 +610,18 @@ function Owner:receive(client, line)
   if not ms then
     answer()()
   elseif msg.op == "send" and (refused or self:send_refusal(msg) == nil) then
-    -- The agent tool takes the batch before anything changes.
+    -- The agent tool takes the batch before anything changes. The batch is the notes queued
+    -- now (`QueueOps.sending`): a `remove` or an `update` read meanwhile does not change what
+    -- goes, and `sent` still names each note of it.
+    local taken = {}
+    for _, id in ipairs(msg.ids) do
+      local i = self:find(id)
+      if i then
+        taken[#taken + 1] = self.queue[i].id
+      end
+    end
     vim.defer_fn(function()
-      answer()()
+      answer(taken)()
     end, ms)
   else
     vim.defer_fn(answer(), ms)
