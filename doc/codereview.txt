@@ -2100,8 +2100,8 @@ is written only when the queue owner says that a batch went. This is also
 true for a batch that another Neovim or another tool submitted: each
 checkout archives its own entries in it, with the preamble, the target and
 the payload that the queue owner names. So the diff shows them as archived,
-and touched works on them. An immediate send (|codereview-immediate-send|) and a copy
-(|:CodeReviewCopy|) do not go through the queue owner.
+and touched works on them. An immediate send (|codereview-immediate-send|)
+and a copy (|:CodeReviewCopy|) do not go through the queue owner.
 
 With `sync` set, the payload that the plugin renders has the header of the
 queue owner, with no scope and no file counts: >
