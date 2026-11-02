@@ -40,6 +40,21 @@ local function ensure_queue()
   if staled > 0 then
     info(queue.stale_phrase(staled))
   end
+  -- Opening the float is a queue operation, so it tries the sync again.
+  require("codereview.sync").wake()
+end
+
+---Repaint the float that is open, after the queue changed under it. Set by `open`, and
+---nil while no float is open.
+---@type fun()|nil
+local repaint_open = nil
+
+---Repaint the open float, if there is one: the **sync** changes the queue with no key
+---pressed here. A queue that is now empty closes the float, as the last drop does.
+function M.repaint()
+  if repaint_open then
+    repaint_open()
+  end
 end
 
 --- Rendering the queue as rows ------------------------------------------------
@@ -480,6 +495,29 @@ function M.open(view)
     end
     info(table.concat(rows, "\n"))
   end, { buffer = buf, desc = "List these keys" })
+
+  local function repaint()
+    if not vim.api.nvim_win_is_valid(win) then
+      return
+    end
+    if queue.count() == 0 then
+      close()
+      return
+    end
+    paint_queue()
+    settle_cursor()
+  end
+  repaint_open = repaint
+  -- Cleared when the buffer goes, however the float was closed.
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    buffer = buf,
+    once = true,
+    callback = function()
+      if repaint_open == repaint then
+        repaint_open = nil
+      end
+    end,
+  })
 
   paint_queue()
 end

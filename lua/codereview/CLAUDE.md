@@ -34,6 +34,7 @@ change there is felt through.
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that edit, retype, drop, jump, copy and submit, and the one that lists them | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file and what a base revision are called wherever they are named, and how a winbar is assembled from typed segments; and one memo, of the groups a host's icon adapters answered with | stateful (one memo) |
 | `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, and the **sweep** that discards the state of checkouts that are gone | stateful (disk) |
+| `sync.lua` | The **sync**: the queue socket to a **queue owner**, one JSON line per message, requests and their replies, the events, the retry, and an entry turned into a note and back | stateful (socket, queue) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalization, labels, the directive that earns a type its keystroke, and the **leading type** rule | pure |
@@ -45,14 +46,16 @@ change there is felt through.
 
 - **Require nothing**: `diff`, `drafts`, `queue`, `types`.
 - **Above them**, in that order: `git`, `payload`, `render`, `panel`; then `state`, `config`; then
-  `archive`, `delivery`, `keymaps`, `syntax`; then `checkout`, `composer`, `hl`, `fade`,
+  `sync`; then `archive`, `delivery`, `keymaps`, `syntax`; then `checkout`, `composer`, `hl`, `fade`,
   `overlay`, `queue_float`, `trim_float`, `view_layout`; then `view_panel`.
-- **The hubs**: `view` requires thirteen of the modules above, `annotate` nine. A change that
+- **The hubs**: `view` requires thirteen of the modules above, `annotate` ten. A change that
   is not local to a leaf almost certainly reaches one of them.
-- **On top**: `capture`, then `init`. `annotate`, `delivery` and `init` reach `overlay`
-  function-locally, to repaint it after the queue changes. It reaches back to `annotate`
-  only from its keys, function-locally, as `queue_float` does; nothing it requires at file
-  scope reaches back.
+- **On top**: `capture`, then `init`. `annotate`, `delivery`, `init` and `sync` reach `overlay`
+  function-locally, to repaint it after the queue changes. `init` hands the view to `sync`,
+  as it does to `overlay`: `annotate`, `delivery` and `queue_float` require `sync`, and
+  `view` requires them, so a require of `view` in `sync` would be a fifth cycle. `overlay`
+  reaches back to `annotate` only from its keys, function-locally, as `queue_float` does;
+  nothing it requires at file scope reaches back.
 
 ## The four cycles
 

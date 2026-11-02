@@ -336,6 +336,20 @@ The annotations accumulated so far, awaiting submission. Survives restarts and i
 both paths.
 _Avoid_: list, buffer, inbox
 
+**Sync**:
+The **queue** shared with a **queue owner** through a queue socket: each capture goes to the
+queue owner, and the queue that it sends back becomes the plugin's queue. Off unless the
+**host** gives a socket. When no queue owner listens, the plugin keeps its own queue, as it
+does without a sync. Not an **adapter**: a snapshot can only become **entries** with the
+plugin's own knowledge of an entry (ADR-0012).
+_Avoid_: mirror, share, link, connection
+
+**Queue owner**:
+The process at the far end of the queue socket. While it listens, it holds the queue,
+renders the **payload** and delivers the **batch**. The plugin does not name it: any tool
+that speaks the protocol can be one.
+_Avoid_: server, daemon, peer, backend
+
 **Batch**:
 The queue as a single unit of delivery — what one submission sends.
 

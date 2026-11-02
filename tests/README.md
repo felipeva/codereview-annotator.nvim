@@ -12,7 +12,10 @@ make perf                                             # timing report at two siz
 Neovim per spec file**. Each process builds its own fixture repository and gets its own
 throwaway state directory, so files neither share state nor need resetting between them.
 The whole suite is about 1,590 cases in under ten seconds. A little over a second of that is
-one deliberate wait in `trim_spec` — see "a cache is invisible unless the clock moved".
+one deliberate wait in `trim_spec` — see "a cache is invisible unless the clock moved" — and
+about two seconds is one in `sync_offline_spec` and one in `sync_refusal_spec`, because the
+2 s between two connect attempts is the behavior they test. `sync_wire_spec` waits about
+five seconds, once, for the reply timeout it tests.
 
 Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *without*
 `-u`, which loads your real config instead of `tests/minimal_init.lua`.
@@ -23,6 +26,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `minimal_init.lua` | The only runtimepath is this plugin plus plenary. Also redirects `XDG_STATE_HOME` and neutralizes git config. |
 | `helpers.lua` | Fixture builders, notification capture, extmark filters, highlight-group sets, anchor lookups. |
+| `sync_manual.lua` | A manual check of the **sync** against a real queue owner, run by hand with `nvim --headless --clean -l tests/sync_manual.lua` (`FAKE=1` runs it against the fake). Not collected, because CI has no queue owner. It stops before it writes anything when the queue is not empty, sends no `send`, records every line through a proxy, and removes every uuid it kept in a `finally` path — see its header. |
+| `fake_queue_owner.lua` | A fake **queue owner** on a real Unix socket, for every spec of the **sync** — see "The fake queue owner". |
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
 | `codereview/state_child.lua` | Spawned by `state_spec` — deliberately not a spec. |
@@ -125,6 +130,11 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `last_scope_spec` | The **scope** a **checkout** was last reviewed in, and the return that reopens it: the marks that come back being that scope's rather than the branch scope's, the revspec whose own name resolves to nothing, the scope reached with `gs` and left with nothing marked in it, the two remembered scopes that must fall back rather than refuse — one that stopped resolving and one that emptied — the document written before the key existed, the argument-less `:CodeReview` that still means the branch review, the staleness a return reports in the queue's own wording, and the scope a previous process left behind |
 | `count_spec` | The queued count a statusline asks for: which **checkout** it is about after a bare directory change, the bare note that is in the number everywhere, what a redraw costs in git processes cold and warm, the answer of "no checkout" that is deliberately not remembered so a `git init` is visible at once, the tab whose own directory was deleted underneath it, and the intersection with the **switch** — the number read from the tab the reviewer is standing in, about the checkout the review is on |
 | `frozen_spec` | A **checkout** deleted underneath an open review, which is the one place the review's root and the tab's working directory give different answers — so this is where ADR-0008 is proved and not merely restated. In two acts, because the two halves need different tab states: never having left the tab, where there is no working directory at all and the review has to stay readable through it; then having left and returned, where the tab has adopted a *live* sibling checkout and a working-directory read resolves, succeeds and is wrong. The paint, the cursor move and the file tree that all raised; the highlighting the diff keeps; the queue still readable; each operation needing the checkout refused by name rather than through git; the reviewer told on coming back; the store the annotation still reaches; the **switch** out that a deletion took away; `:CodeReview` from a tab with no directory of its own — and the executed mutation that replaces the review's root with a working-directory read and shows the review opening a file out of the wrong checkout |
+| `sync_spec` | The **sync** against the fake queue owner: the connect in its fixed order (the restore, so `keep` holds the entry the last session left, then `hello` with the host's types in host order, `subscribe`, `list` and `keep`), the start said once; a capture from a buffer, a bare note and a capture in the review view, each as the note `keep` sends; then a snapshot — the ids and uuids it keeps, the note it changes, an entry rebuilt exactly, the next ids in snapshot order, an entry this process has not seen filed by its checkout, a note of another tool left out, the float, the diff and the store all following it — a lower `rev` ignored, an entry captured here about a file in another checkout that a snapshot leaves in this checkout's queue and still unsaved, and the queue owner closing the connection with the plugin's own entries left in the queue |
+| `sync_offline_spec` | The `sync` option at setup — off by default, the three wrong values and their messages, the path expanded — and the sync with no queue owner: a refused connect and a missing socket that say nothing and leave the queue as it is without a sync, no second attempt sooner than 2 s, and the attempt on the next capture after that, in the fixed order, with every entry in the local queue. Waits about 2 s, once, on purpose |
+| `sync_refusal_spec` | A `keep` the queue owner refuses: one entry whose uuid does not decode at connect, which does not keep the others out and stays in the local queue, said once with the owner's reason; a refused capture that a snapshot without it does not drop, here or on disk, said once; and the next connect, which sends it again and is taken, and says nothing again about the entry refused for the same reason. Waits about 2 s, once, on purpose |
+| `sync_wire_spec` | What goes on the wire: a change another client makes between `hello` and `subscribe`, in the queue after the connect because the connect lists after it subscribes; a note that is not valid UTF-8, which reaches the owner with each bad byte as U+FFFD; and a `keep` whose reply never comes, refused after 5 s, said once and not dropped by a snapshot. Waits about 5 s, once, on purpose |
+| `sync_limit_spec` | A queue larger than the owner's line limit (set to 2 MiB in the fake), which reaches the owner whole because the connect splits its `keep` |
 | `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
 
 ## Fixtures
@@ -1183,6 +1193,74 @@ A section of its own, because `tests/README.md` has conflicted on every merge in
   need — the trail holds every checkout visited except the current one, so emptying it means
   deleting all of them.
 
+## The fake queue owner
+
+`tests/fake_queue_owner.lua` is the far end of the queue socket, for every spec of the
+**sync**. `fake.start()` binds a `vim.uv` pipe server on a socket in Neovim's temporary
+directory and gives back the owner; `owner.path` is what goes in `sync.socket`. It runs on
+the event loop of the spec, beside the plugin, so a spec waits for it with `vim.wait` and a
+condition — on `#owner.requests`, or on a message — and never with a bare sleep it hopes is
+long enough.
+
+- **It records every request, in order.** `owner.requests` holds each request decoded;
+  `owner:ops()` gives their `op`s. Assert on what arrived, never on what the plugin meant to
+  send. A line it could not decode is not in the list.
+- **It is as strict as the real queue owner where the plugin can get it wrong.** The checks
+  follow the owner's Swift codec, and the header of the file names the source files:
+  - a line longer than `owner.max_line` (8 MiB, the owner's) closes the connection; a test
+    sets it small;
+  - a line that is not valid UTF-8 or not a JSON object gets a reply with **no `req`**
+    (`not a JSON object`), so the plugin cannot match it to a request;
+  - `hello` with another protocol replies `protocol` and closes the connection; any other
+    request before `hello` gets `hello first`;
+  - `keep` decodes every note as the owner does and refuses the whole request with
+    `bad request: …` when one note is bad: a UUID, `type` and `note` strings, `selection`
+    in one of its three shapes, `source` present, `createdAt` in whole seconds with `Z`,
+    and `review.kind` in line|range|hunk|file|note when `review` is there. `{}` and `[]`
+    decode to the same empty table, so `"none":[]` and `"source":[]` are found in the raw
+    line, as the owner's decoder refuses both;
+  - `keep` writes each id in upper case, as the owner does, so a comparison that is not
+    case-blind fails here and not in production;
+  - `update` with a JSON `null` for `review` or `origin` clears it; `send` that names no
+    queued id refuses `nothing to send`; `sent` always carries `preamble` as a string;
+  - every snapshot (`hello`, `list`, `queue`) carries the owner's five built-in types in
+    its shape (`id`, `singular`, `label`, `directive`, `menuHint`, `color`; `symbol` is nil
+    for all five and the owner leaves it out), the types a `hello` adds, after the nearest
+    earlier one as the owner places them, and `default`.
+- **The order is the owner's.** The `queue` event of a change comes before its reply, and
+  `sent` comes after the reply to `send`. A change goes to subscribers only.
+- **A spec drives it.** `owner:push_queue(notes)` replaces the queue and sends a `queue`
+  event. `owner:push_queue(notes, rev)` sends a stale event with that `rev` and changes
+  nothing that the fake holds, so a later push still counts up from its own `rev`.
+  `owner:push(event)` sends any event, `sent` included. `owner:refuse(op, error)` answers
+  one op with an error. `owner:delay(op, ms)` does the op at once and replies later; with
+  `math.huge` the request is lost — recorded, not done, never answered. `owner:after(op, fn)`
+  runs `fn(owner)` once, just after the next reply to `op`, which is how a spec makes another
+  client's change land between two requests. `owner:drop_clients()` closes the connections
+  as a queue owner that quits does, and `owner:stop()` closes the server too.
+
+What it still does not do, so a spec cannot lean on it there:
+
+- the `agents` and `show` ops, which it answers `unknown op`;
+- the owner's 150 ms batching of snapshots while the reviewer types: it sends one event per
+  change;
+- the 5 s close of a client that does not read, and the check that the peer is the same
+  user;
+- a real delivery: `send` replies `ok` at once, and `sent` has `text = ""`;
+- a `createdAt` with an offset, which the owner takes and the fake refuses;
+- the owner's full type rules: the 16-type cap is there, but a type deleted in Settings, and
+  the name the owner gives a type with no label, are not.
+
+Two traps it does not hide:
+
+- **libuv deletes the socket file when the server closes.** A stopped owner therefore gives
+  `ENOENT`, not `ECONNREFUSED`. For a refused connect, bind a pipe and do not listen on it —
+  `sync_offline_spec` does.
+- **Every message is handled in the main loop, on both sides.** A `vim.uv` read callback
+  runs where `vim.notify`, windows and buffers are not allowed, so the plugin and the owner
+  both `vim.schedule` each line. A `vim.wait` with a condition runs those; a test that reads
+  the queue straight after a push, with no wait, reads it before the snapshot.
+
 ## Deliberately not covered
 
 - **Rendering as pixels.** Assertions are against the buffer, the anchor map and extmark
@@ -1192,6 +1270,8 @@ A section of its own, because `tests/README.md` has conflicted on every merge in
   are not handled by the plugin and are not tested either way. They should degrade to a
   visible "unsupported entry" row rather than a stack trace; today neither behavior is
   pinned down.
+- **The real queue owner.** It has its own suite. Every spec of the **sync** runs against
+  the fake one, and the `sync.target` adapter is a stub, as every adapter is.
 - **Real adapters.** `send`, `pick_target` and `compose` are injected stubs throughout.
   That is the point of the seam — the plugin carries no opinion about the transport — but
   it means no test exercises a real agent handoff.

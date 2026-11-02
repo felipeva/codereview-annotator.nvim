@@ -203,6 +203,20 @@ M.defaults = {
   ---`label`, `icon` and `hl` are derived from the name, and `directive` is optional.
   types = nil, ---@type CRType[]|nil Defaults to types.defaults
 
+  --- Sync ---
+  ---Share the queue with a **queue owner**: the process at the far end of a queue socket.
+  ---Off when nil. See |codereview-sync| and ADR-0012.
+  ---
+  ---`socket` is the path of the socket. It is expanded, so `~` is allowed. While a queue
+  ---owner listens on it, each capture goes to the queue owner, and the queue that it sends
+  ---back becomes this plugin's queue. When none listens, the plugin keeps its own queue, as
+  ---it does without this option.
+  ---
+  ---`target` is an adapter. It turns the target that `pick_target` gives into the queue
+  ---owner's target, `{ tool, address, cwd }`. The host says who, as it does for `send`.
+  ---@type { socket: string, target: fun(target: table|nil): { tool: string, address: string, cwd: string } }|nil
+  sync = nil,
+
   --- Adapters (all optional) ---
   ---Deliver a rendered payload. `target` is whatever `pick_target` produced, or nil.
   ---
@@ -468,9 +482,47 @@ local function validate_strength(name, value)
   end
 end
 
+---Reject a `sync` table that cannot start a sync, and expand its socket path.
+---
+---In the same voice as the checks above. A wrong path type or a missing adapter would
+---otherwise show only as a sync that never starts, and a sync that cannot connect is
+---silent by design.
+---@param sync any
+---@return table|nil
+local function validate_sync(sync)
+  if sync == nil then
+    return nil
+  end
+  if type(sync) ~= "table" then
+    error(
+      ("codereview.setup: `sync` must be a table — got %s; write `sync = { socket = <path>, target = <function> }`"):format(
+        vim.inspect(sync)
+      ),
+      0
+    )
+  end
+  if type(sync.socket) ~= "string" or sync.socket == "" then
+    error(
+      ("codereview.setup: `sync.socket` must be the path of a socket — got %s"):format(vim.inspect(sync.socket)),
+      0
+    )
+  end
+  if not vim.is_callable(sync.target) then
+    error(
+      ("codereview.setup: `sync.target` must be a function that gives { tool, address, cwd } — got %s"):format(
+        vim.inspect(sync.target)
+      ),
+      0
+    )
+  end
+  sync.socket = vim.fs.normalize(sync.socket)
+  return sync
+end
+
 ---@param opts table|nil
 function M.setup(opts)
   M.options = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), opts or {})
+  M.options.sync = validate_sync(M.options.sync)
   validate_layout(M.options.layout)
   validate_boolean("spans", M.options.spans)
   validate_boolean("wrap", M.options.wrap)

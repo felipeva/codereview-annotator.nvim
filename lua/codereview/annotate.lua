@@ -11,6 +11,7 @@ local delivery = require("codereview.delivery")
 local drafts = require("codereview.drafts")
 local queue = require("codereview.queue")
 local render = require("codereview.render")
+local sync = require("codereview.sync")
 local types = require("codereview.types")
 
 local M = {}
@@ -529,6 +530,8 @@ function M.queue_entry(entry, type_def, opts)
     view.persist()
     repaint_overlay()
     info(("Queued %s %s (%d in queue)"):format(entry.type or "untyped", M.describe(entry), queue.count()))
+    -- The one add of the queue, so both paths reach the queue owner through this line.
+    sync.keep(entry)
   end)
 end
 

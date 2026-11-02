@@ -98,6 +98,11 @@ function M.setup(opts)
   if config.overlay() then
     require("codereview.overlay").start(require("codereview.view"))
   end
+
+  -- Asked here first, as the overlay is: a session without `sync` never connects.
+  if config.get().sync then
+    require("codereview.sync").start(require("codereview.view"))
+  end
 end
 
 ---@param spec string|nil "branch"|"staged"|"unstaged"|"worktree"|any git revspec

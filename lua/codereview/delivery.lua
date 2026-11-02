@@ -287,6 +287,8 @@ local function ensure_queue()
   if staled > 0 then
     info(require("codereview.queue").stale_phrase(staled))
   end
+  -- A submit and a copy are queue operations, so each tries the sync again.
+  require("codereview.sync").wake()
 end
 
 ---Submit the queue as one batch, emptying it only if the send says it went.
