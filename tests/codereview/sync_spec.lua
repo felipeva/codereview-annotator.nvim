@@ -383,6 +383,45 @@ describe("a snapshot with the overlay on", function()
   end)
 end)
 
+describe("a capture about a file in another checkout", function()
+  local count_before = queue.count()
+  local other_before = queue.count_in(other)
+  vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(other, "src/main.lua")))
+  codereview.annotate("bug")
+  local entry = queue.all()[#queue.all()]
+  assert.same(vim.fs.joinpath(other, "src/main.lua"), entry.abs_path)
+  vim.wait(3000, function()
+    return owner:find(entry.uuid) ~= nil
+  end, 10)
+
+  -- A snapshot that holds the entry with a new note, so that the wait below can see that
+  -- the snapshot was applied: the list the entry is in looks the same before it.
+  local held = vim.deepcopy(owner.queue)
+  held[owner:find(entry.uuid)].note = "about the other checkout"
+  owner:push_queue(held)
+  vim.wait(3000, function()
+    return entry_of(entry.uuid).note == "about the other checkout"
+  end, 10)
+
+  it("stays in the queue of the checkout it was captured in", function()
+    local here = vim.tbl_map(function(e)
+      return e.uuid
+    end, queue.all())
+    assert.is_true(vim.tbl_contains(here, entry.uuid))
+    assert.same(count_before + 1, queue.count())
+    assert.same(other_before, queue.count_in(other))
+  end)
+
+  it("is still an entry with nowhere to be saved, as the warning says", function()
+    assert.same(1, said(queue.unfiled_phrase(1)))
+    for _, checkout in ipairs({ root, other }) do
+      for _, stored in ipairs(state.load(checkout).queue) do
+        assert.are_not.same(entry.uuid, stored.uuid)
+      end
+    end
+  end)
+end)
+
 describe("the queue owner closing the connection", function()
   local held = vim.tbl_map(function(e)
     return e.uuid
