@@ -213,6 +213,72 @@ describe("a drop while the sync runs", function()
   end)
 end)
 
+describe("a drop whose remove has no reply when the connection closes", function()
+  bare("dropped as the owner quits")
+  -- Kept, so that the next connect has a `keep` for the `remove` to come before.
+  bare("kept as the owner quits")
+  local Z = assert(by_note("dropped as the owner quits"))
+  local K = assert(by_note("kept as the owner quits"))
+  wait(function()
+    return owner:find(Z.uuid) ~= nil and owner:find(K.uuid) ~= nil
+  end)
+  -- Held, so the queue owner never reads the `remove` and still holds the entry.
+  owner:delay("remove", math.huge)
+  local removes = #requests(owner, "remove")
+  in_float("dropped as the owner quits", "x")
+  wait(function()
+    return #requests(owner, "remove") > removes
+  end)
+  local stopped = said("Queue sync stopped")
+  owner:drop_clients()
+  wait(function()
+    return said("Queue sync stopped") > stopped
+  end)
+  local written = stored().removals
+  owner:delay("remove", nil)
+
+  local started = said("Queue sync started")
+  local before = #owner.requests
+  setup(sync_to(owner))
+  wait(function()
+    return said("Queue sync started") > started and stored().removals == nil
+  end)
+  vim.wait(150)
+  local after = vim.list_slice(owner.requests, before + 1)
+
+  -- The control: the queue owner did not read the `remove`.
+  it("leaves the entry with the queue owner until the next connect", function()
+    assert.same({ Z.uuid }, requests(owner, "remove")[removes + 1].ids)
+    assert.same(
+      { Z.uuid },
+      vim.tbl_map(function(m)
+        return m.uuid
+      end, written or {})
+    )
+  end)
+
+  it("is sent again by the next connect, before keep", function()
+    assert.same(
+      { "hello", "subscribe", "list", "remove", "keep" },
+      vim.tbl_map(function(q)
+        return q.op
+      end, after)
+    )
+    assert.same({ Z.uuid }, after[4].ids)
+    assert.same(
+      { K.uuid },
+      vim.tbl_map(function(n)
+        return n.id:lower()
+      end, after[5].notes)
+    )
+  end)
+
+  it("leaves the queue owner and does not come back", function()
+    assert.is_nil(owner:find(Z.uuid))
+    assert.is_nil(by_note("dropped as the owner quits"))
+  end)
+end)
+
 describe("a pending removal older than 7 days", function()
   local OLD = "00000000-0000-4000-8000-000000000001"
   local FRESH = "00000000-0000-4000-8000-000000000002"

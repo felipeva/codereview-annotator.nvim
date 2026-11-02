@@ -271,6 +271,12 @@ local function stop(conn)
     return
   end
   conn.closed = true
+  -- A `remove` with no reply is not known to have reached the queue owner, so its uuids
+  -- become **pending removals**: the next connect sends them again. A uuid that is a
+  -- pending removal already keeps its stamp.
+  if next(conn.removing) then
+    state.add_removals(vim.tbl_keys(conn.removing))
+  end
   if not conn.pipe:is_closing() then
     conn.pipe:close()
   end
@@ -1097,7 +1103,8 @@ end
 ---Take a dropped entry out of the queue of the queue owner.
 ---
 ---Before the `keep` of the connect is written, or with no connection, it is a **pending
----removal** (`take_out`). With no connection, this is a queue operation like any other, and
+---removal** (`take_out`). So is a `remove` that has no reply when the connection closes
+---(`stop`). With no connection, this is a queue operation like any other, and
 ---it tries to connect.
 ---
 ---An entry in a batch that the queue owner is giving to the agent tool still goes: the

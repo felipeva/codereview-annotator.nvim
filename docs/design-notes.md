@@ -2196,3 +2196,12 @@ record says which entries the queue owner holds, and none can be true after a re
 `remove` of an id that the queue owner does not hold is ok, with `removed: []`, and changes
 nothing (`QueueOps.swift`, `apply`, `.remove`). So the cost is a uuid on the disk for at
 most 7 days, and a filter would be a second copy of the queue owner's queue.
+
+**A close before the reply to a `remove` makes a pending removal.** The queue owner may not
+have read the `remove`, and `stop` drops the callbacks, so nothing would send it again. The
+next connect's snapshot then holds the entry, and it comes back. So `stop` writes every
+uuid in `conn.removing` to the disk before the connection goes. A uuid there is either a
+live drop with no reply or a pending removal already on the disk, which keeps its stamp. A
+`remove` that got a refusal or no reply in 5 s is no longer in `conn.removing`: it was
+undone, and it is not written. `sync_removal_spec` holds the `remove` with `math.huge` and
+closes the connection.

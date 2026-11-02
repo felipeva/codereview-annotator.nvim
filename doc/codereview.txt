@@ -2064,7 +2064,8 @@ through the `send` adapter, while no queue owner listens. So the plugin
 keeps its id as a pending removal, and the next connect removes it from the
 queue of the queue owner before it gives your annotations: an annotation that
 went to the agent does not come back. The same is true for a drop or a submit
-while a connect is not complete yet. Pending removals are saved in the store
+while a connect is not complete yet, and for a drop that the queue owner did
+not answer before the connection closed. Pending removals are saved in the store
 for annotations with no repository (|codereview-persistence-norepo|), so a
 restart of Neovim does not lose them. After 7 days, they are removed from
 the store.
