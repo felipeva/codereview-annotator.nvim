@@ -14,8 +14,9 @@ CONTENTS                                                          *codereview*
   9. Configuration ........................ |codereview-configuration|
  10. Highlights ........................... |codereview-highlights|
  11. Persistence .......................... |codereview-persistence|
- 12. Lua API .............................. |codereview-api|
- 13. License .............................. |codereview-license|
+ 12. Sync ................................. |codereview-sync|
+ 13. Lua API .............................. |codereview-api|
+ 14. License .............................. |codereview-license|
 
 ==============================================================================
 1. INTRODUCTION                                    *codereview-introduction*
@@ -1742,6 +1743,7 @@ Defaults: >
         caption = "╭─",
       },
       types = nil,
+      sync = nil,
       send = nil, pick_target = nil, pick_file = nil,
       compose = nil, open_diff = nil, pick_checkout = nil,
       file_icon = nil, dir_icon = nil,
@@ -2004,7 +2006,50 @@ and reads back with none, exactly as one written before the archive existed
 lacks the archive.
 
 ==============================================================================
-12. LUA API                                                 *codereview-api*
+12. SYNC                                                   *codereview-sync*
+
+The sync shares the queue with a queue owner: a process at the far end of a
+Unix socket that speaks the queue socket protocol, version 1. It is off
+unless you give `sync` in |codereview.setup()|: >
+    require("codereview").setup({
+      sync = {
+        socket = "~/path/to/queue.sock",
+        target = function(target)
+          return { tool = "custom", address = target.id, cwd = target.cwd }
+        end,
+      },
+    })
+<
+`socket` is the path of the socket. It is expanded, so `~` is allowed.
+`target` is an adapter: it turns the target that |codereview-opt-pick_target|
+gives into the target of the queue owner, `{ tool, address, cwd }`. Setup
+stops with a message when either is wrong. Without `sync`, the plugin does
+not connect, and nothing changes.
+
+While a queue owner listens on the socket:
+
+    - an annotation that you capture, in a review or from a buffer
+      (|codereview-capture|), goes to the queue owner at once.
+    - the queue that the queue owner sends back becomes your queue. Your
+      entries keep their place and their number. The review view, the
+      overlay and the queue float show the change, and the queue is saved
+      as it is without a sync (|codereview-persistence|).
+    - entries that other tools made are not in the queue yet.
+
+When no queue owner listens, the plugin keeps its own queue, as it does
+without a sync. A connect that fails says nothing. The next capture, the
+queue float, a submit or a copy tries again, at most once every 2 seconds.
+
+One message says that the sync started, and one says that it stopped. When
+the queue owner closes the connection, your entries stay in the queue.
+
+Each entry goes to the queue owner with what the plugin needs to make the
+same entry again, and a mark that this plugin made it. The plugin does not
+name a queue owner: any tool that speaks the protocol can be one. See
+ADR-0012 in the repository for why the sync is not an adapter.
+
+==============================================================================
+13. LUA API                                                 *codereview-api*
 
 require("codereview").setup({opts})                     *codereview.setup()*
 require("codereview").open({scope})                      *codereview.open()*
@@ -2052,7 +2097,7 @@ require("codereview").count()                           *codereview.count()*
 require("codereview").is_open()                       *codereview.is_open()*
 
 ==============================================================================
-13. LICENSE                                               *codereview-license*
+14. LICENSE                                               *codereview-license*
 
 MIT. Copyright (c) 2026 Felipe Valencia. See the LICENSE file in the plugin
 root for the full text.

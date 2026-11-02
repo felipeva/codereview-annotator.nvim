@@ -160,6 +160,46 @@ function M.all()
   return out
 end
 
+---Every entry this process holds: the queue of each checkout, and the entries that belong
+---to none, in id order.
+---
+---For the **sync**, which gives the whole of it to the **queue owner**. `all` is not
+---enough: it shows one checkout, and a snapshot replaces every checkout's queue.
+---@return CRAnnotation[]
+function M.entries()
+  local out = vim.list_extend({}, loose)
+  for _, list in pairs(per_checkout) do
+    vim.list_extend(out, list)
+  end
+  table.sort(out, function(a, b)
+    return (a.id or 0) < (b.id or 0)
+  end)
+  return out
+end
+
+---Replace every queue at once with the entries of a snapshot, in snapshot order.
+---
+---An entry without an id gets the next one here, in the order of the list. So a new entry
+---is numbered in snapshot order, whichever list it is filed in.
+---
+---Filed by `checkout_of`, the rule the stores are filed by. An entry with no
+---repository-relative path goes with the entries that belong to no checkout.
+---@param items CRAnnotation[]
+---@param checkout_of fun(item: CRAnnotation): string|nil
+function M.replace_every(items, checkout_of)
+  per_checkout, loose = {}, {}
+  for _, item in ipairs(items) do
+    if item.id then
+      next_id = math.max(next_id, item.id + 1)
+    else
+      item.id = next_id
+      next_id = next_id + 1
+    end
+    local list = item.path and list_for(checkout_of(item) or current) or loose
+    list[#list + 1] = item
+  end
+end
+
 ---The queue as a number: a checkout's entries and the ones that belong to none.
 ---
 ---The number a reviewer is shown, for any checkout. Counted rather than built and measured,

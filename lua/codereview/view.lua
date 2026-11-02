@@ -2029,6 +2029,12 @@ function M.release_queue_float(win)
   end
 end
 
+---Repaint the queue float, if one is open, after the queue changed with no key pressed in
+---it. The float is this module's to hand actions to, so the **sync** reaches it here.
+function M.repaint_queue_float()
+  queue_float.repaint()
+end
+
 ---List the queued annotations, drop any of them, then submit the batch.
 ---
 ---The surface is `queue_float`'s; what stays here is the name a host's command and the `Q`
