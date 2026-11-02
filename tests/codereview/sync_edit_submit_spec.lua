@@ -106,6 +106,19 @@ local function archived(entry)
   return out
 end
 
+---The text of `sent` that the archive kept with the batch of an entry.
+---@param entry CRAnnotation
+---@return string|nil
+local function text_of(entry)
+  for _, batch in ipairs(state.global_archive()) do
+    for _, e in ipairs(batch.entries or {}) do
+      if e.uuid == entry.uuid then
+        return batch.text
+      end
+    end
+  end
+end
+
 ---The `keep` requests that carried an entry.
 ---@param entry CRAnnotation
 ---@return integer
@@ -208,6 +221,13 @@ describe("an edit while the queue owner gives the batch to the agent tool", func
     assert.same("edited while the batch goes", archived(X)[1].note)
   end)
 
+  -- The record of what the agent read is the text of `sent`, beside that entry.
+  it("is archived with the text that the agent read, which holds the note from before the edit", function()
+    local text = text_of(X) or ""
+    assert.is_truthy(text:find("\nedit me in the batch\n", 1, true), text)
+    assert.is_falsy(text:find("edited while the batch goes", 1, true), text)
+  end)
+
   it("is not kept again", function()
     assert.same(1, keeps_of(X))
     assert.is_nil(held(X))
@@ -238,6 +258,12 @@ describe("an edit that the queue owner reads after the batch went", function()
     assert.is_not_nil(during)
     assert.same(1, #archived(Z))
     assert.same("edited too late", archived(Z)[1].note)
+  end)
+
+  it("is archived with the text that the agent read, which does not hold the edit", function()
+    local text = text_of(Z) or ""
+    assert.is_truthy(text:find("edit me after it went", 1, true), text)
+    assert.is_falsy(text:find("edited too late", 1, true), text)
   end)
 
   it("is not kept again, as it went to the agent", function()
@@ -308,6 +334,12 @@ describe("a submit of an entry whose edit the queue owner refused", function()
   it("is archived once, with the note as it is in Neovim", function()
     assert.same(1, #archived(V))
     assert.same("the refused edit", archived(V)[1].note)
+  end)
+
+  it("is archived with the text that the agent read, which holds the note the owner kept", function()
+    local text = text_of(V) or ""
+    assert.is_truthy(text:find("refuse my edit", 1, true), text)
+    assert.is_falsy(text:find("the refused edit", 1, true), text)
   end)
 end)
 

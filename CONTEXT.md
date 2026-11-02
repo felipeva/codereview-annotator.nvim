@@ -397,10 +397,10 @@ _Avoid_: quick note, one-off, direct send
 
 **Archive**:
 The batches already dispatched from a **checkout**, kept after the queue that held them was
-cleared — the **entries** as they went and the **preamble** they went under. Only a
-**dispatch** writes it, so a payload copied to a register is not in it. While the **sync**
-runs, the queue owner's `sent` event writes it, also for a batch that another process
-submitted. Read-only, which is a claim about the record and not a feature left unwritten.
+cleared — the **entries** as they went and the **preamble** they went under, and the
+**payload** for a batch that the **queue owner** sent. Only a **dispatch** writes it, so a
+payload copied to a register is not in it. While the **sync** runs, the queue owner's
+`sent` event writes it, also for a batch that another process submitted. Read-only, which is a claim about the record and not a feature left unwritten.
 _Avoid_: history, sent queue, outbox
 
 **Snapshot**:

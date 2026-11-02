@@ -491,6 +491,10 @@ end
 ---
 ---An entry that its archive holds already is skipped. Two Neovim processes get the same
 ---`sent` and write the same state files, so without this each batch is there twice.
+---
+---The batch keeps the event's `text`, the payload that the agent read. The queue owner
+---renders it when the `send` arrives, so an edit after that, or an edit that it refused,
+---is in the archived entry and not in the text.
 ---@param conn CRSyncConn
 ---@param msg table
 local function archive_sent(conn, msg)
@@ -543,10 +547,11 @@ local function archive_sent(conn, msg)
   end
 
   local label, preamble = target_label(msg.target), payload.preamble(msg.preamble)
+  local text = type(msg.text) == "string" and msg.text ~= "" and msg.text or nil
   loose = unarchived(loose, state.global_archive())
   if #roots == 0 then
     if #loose > 0 then
-      state.archive_batch(loose, label, nil, preamble)
+      state.archive_batch(loose, label, nil, preamble, text)
     end
     return
   end
@@ -558,7 +563,7 @@ local function archive_sent(conn, msg)
       vim.list_extend(items, loose)
     end
     if #items > 0 then
-      state.archive_batch(items, label, root, preamble)
+      state.archive_batch(items, label, root, preamble, text)
     end
   end
 end
