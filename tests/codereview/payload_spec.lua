@@ -238,6 +238,90 @@ describe("rendering an untyped annotation", function()
   end)
 end)
 
+-- With `sync` set, a note is written as the queue owner writes it. Its rule, Payload.swift:51-52:
+--
+--     let note = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
+--     if !note.isEmpty { out += ["", note] }
+--
+-- The set is Foundation's, which a probe on macOS lists as U+0009-U+000D, U+0020, U+0085,
+-- U+00A0, U+1680, U+2000-U+200B, U+2028, U+2029, U+202F, U+205F and U+3000; U+FEFF is not
+-- in it. The notes below have non-ASCII spaces at their ends, so a trim of ASCII only fails.
+describe("rendering a note with sync set", function()
+  local IDEO, NBSP, LSEP, BOM = "\227\128\128", "\194\160", "\226\128\168", "\239\187\191"
+  local items = {
+    { kind = "note", type = "bug", note = IDEO .. " padded\t" .. NBSP .. "\n" },
+    { kind = "note", type = "bug", note = "  \n" .. LSEP .. " " },
+    {
+      kind = "line",
+      type = "bug",
+      inline = true,
+      path = "src/x.lua",
+      abs_path = V.root .. "/src/x.lua",
+      first = 3,
+      last = 3,
+      lines = { "-old" },
+      note = "",
+    },
+    { kind = "note", type = "bug", note = BOM .. "kept" .. BOM },
+  }
+  ---@param sync boolean
+  local function rendered(sync)
+    return payload.render(items, V.root, { types = config.get().types, sync = sync })
+  end
+
+  it("trims each note and leaves out an empty one with the blank line above it", function()
+    local want = table.concat({
+      "Annotations — 4 items",
+      "",
+      "## Bugs (4) — diagnose and fix these",
+      "",
+      "### 1. (no file)",
+      "",
+      "padded",
+      "",
+      "### 2. (no file)",
+      "",
+      "### 3. src/x.lua:3",
+      "```diff",
+      "-old",
+      "```",
+      "",
+      "### 4. (no file)",
+      "",
+      BOM .. "kept" .. BOM,
+    }, "\n")
+    assert.same(want, rendered(true))
+  end)
+
+  it("writes each note as it is without sync", function()
+    local want = table.concat({
+      "Code review — 4 annotations",
+      "",
+      "## Bugs (4) — diagnose and fix these",
+      "",
+      "### 1. (no file)",
+      "",
+      items[1].note,
+      "",
+      "### 2. (no file)",
+      "",
+      items[2].note,
+      "",
+      "### 3. src/x.lua:3",
+      "```diff",
+      "-old",
+      "```",
+      "",
+      "",
+      "",
+      "### 4. (no file)",
+      "",
+      items[4].note,
+    }, "\n")
+    assert.same(want, rendered(false))
+  end)
+end)
+
 describe("rendering for an out-of-tree target", function()
   -- The reader's cwd is somewhere else entirely, so `@src/...` would resolve against
   -- their tree, not ours. Every ref has to degrade to an absolute path plus the code.

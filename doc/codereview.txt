@@ -2095,9 +2095,11 @@ queue owner, with no scope and no file counts: >
 For one entry, the header says "item". This header is used whether or not a
 queue owner listens: on a submit while no queue owner listens, on a copy to
 the + register (|:CodeReviewCopy|) and on an |codereview-immediate-send|. A
-preamble stays above it (|codereview-preamble|). The groups, the numbers and
-the text of each entry do not change. Without `sync`, the header is as shown
-in |codereview-preamble|.
+preamble stays above it (|codereview-preamble|). The groups and the numbers do
+not change. Each note is written as the queue owner writes it: with no spaces
+or line breaks at its ends, and not at all when nothing else is left. Then the
+annotation ends at its heading, or at its code. Without `sync`, the header is
+as shown in |codereview-preamble|, and each note is written as it is.
 
 An annotation that the queue owner does not take -- it refuses it, or it does
 not answer in 5 seconds -- stays in Neovim and is saved as without a sync.
