@@ -2043,6 +2043,11 @@ queue float, a submit or a copy tries again, at most once every 2 seconds.
 One message says that the sync started, and one says that it stopped. When
 the queue owner closes the connection, your entries stay in the queue.
 
+An annotation that the queue owner does not take -- it refuses it, or it does
+not answer in 5 seconds -- stays in Neovim and is saved as without a sync.
+You are told once per reason in a session. The next connect gives it to the
+queue owner again.
+
 Each entry goes to the queue owner with what the plugin needs to make the
 same entry again, and a mark that this plugin made it. The plugin does not
 name a queue owner: any tool that speaks the protocol can be one. See

@@ -107,21 +107,21 @@ local function last_kept()
 end
 
 describe("on connect", function()
-  requests(3)
+  requests(4)
   vim.wait(3000, function()
     return said("Queue sync started") > 0
   end, 10)
 
-  it("sends hello, subscribe and keep, in that order", function()
-    assert.same({ "hello", "subscribe", "keep" }, owner:ops())
+  it("sends hello, subscribe, list and keep, in that order", function()
+    assert.same({ "hello", "subscribe", "list", "keep" }, owner:ops())
   end)
 
   it("restores the persisted queue first, so keep has the entry the last session left", function()
     local ids = vim.tbl_map(function(n)
       return n.id:lower()
-    end, owner.requests[3].notes)
+    end, owner.requests[4].notes)
     assert.same({ PERSISTED }, ids)
-    assert.same("left by the last session", owner.requests[3].notes[1].note)
+    assert.same("left by the last session", owner.requests[4].notes[1].note)
   end)
 
   it("says hello with protocol 1, its name, and the host's types in host order", function()
@@ -142,7 +142,7 @@ end)
 describe("a capture from a buffer", function()
   vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(fixture, "src/main.lua")))
   codereview.annotate("bug", { first = 2, last = 3 })
-  requests(4)
+  requests(5)
   local entry = queue.all()[#queue.all()]
 
   it("sends keep with the entry as a note", function()
@@ -182,7 +182,7 @@ end)
 describe("a bare note", function()
   vim.cmd("enew")
   codereview.annotate("question")
-  requests(5)
+  requests(6)
 
   it("selects nothing, and is of the bare-note kind", function()
     local note = last_kept()
@@ -201,7 +201,7 @@ describe("a capture in the review view", function()
   vim.api.nvim_set_current_win(V.win)
   vim.api.nvim_win_set_cursor(V.win, { assert(h.line_row(V, "src/fresh.lua")), 0 })
   h.feed("ab")
-  requests(6)
+  requests(7)
 
   it("sends keep with the line it is anchored to", function()
     local note = last_kept()

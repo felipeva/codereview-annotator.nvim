@@ -31,6 +31,21 @@ local PROTOCOL = 1
 ---The shortest time between two connect attempts, in milliseconds.
 local RETRY_MS = 2000
 
+---How long a request waits for its reply, in milliseconds. After that it counts as
+---refused. The queue owner answers `hello`, `subscribe`, `list` and `keep` at once, and it
+---closes a client that does not read for 5 s, so a reply later than that is not coming.
+local REPLY_MS = 5000
+
+---The most bytes of notes in one `keep`. The queue owner closes a connection whose line is
+---longer than 8 MiB. A typical entry is a few KiB, so 1 MiB holds hundreds of them in one
+---request, and the line stays far below the limit whatever the envelope adds.
+local BATCH_BYTES = 1024 * 1024
+
+---The most bytes of one note. Larger, it would close the connection at each retry, so it is
+---not sent at all and counts as refused. Half the queue owner's limit, so the note can also
+---go in an `update` with room to spare.
+local NOTE_BYTES = 4 * 1024 * 1024
+
 ---@param msg string
 local function info(msg)
   vim.notify(msg, vim.log.levels.INFO, { title = "Code review" })
@@ -51,7 +66,7 @@ end
 ---@field buffer string The part of a line that has not ended yet
 ---@field rev integer The `rev` of the last snapshot applied; a lower one is ignored
 ---@field keeping boolean The `keep` of the connect is written, so a new entry is kept at once
----@field confirmed boolean The queue owner has replied to the `keep` of the connect
+---@field confirmed boolean The queue owner has replied to every `keep` of the connect
 ---@field inflight table<string, true> Uuids kept and not yet confirmed by a reply
 ---@field ready boolean The connect is complete, and the start was announced
 ---@field closed boolean
@@ -70,6 +85,19 @@ local next_req = 0
 ---So a uuid keeps its id across snapshots, also after it left the queue for a time.
 ---@type table<string, integer>
 local ids = {}
+
+---The uuids, in lower case, of the entries whose `keep` was refused, with the reason.
+---
+---A refused entry stays in the local queue and on disk: no snapshot drops it, because the
+---queue owner does not have it. The next connect sends it again with every other entry,
+---and an accepted `keep` takes it off this list.
+---@type table<string, string>
+local refused = {}
+
+---The reasons for a refusal that the reviewer was told this session, so a retry that is
+---refused for the same reason says nothing again.
+---@type table<string, true>
+local told = {}
 
 ---The review view, handed in by `start`, as `init` hands it to the overlay. Requiring it
 ---here would put this module in a cycle through `delivery`.
@@ -204,7 +232,64 @@ local function stop(conn)
   end
 end
 
+---The bytes that stand for a byte that is not UTF-8: U+FFFD, the replacement character.
+local REPLACEMENT = "\239\191\189"
+
+---Make a line valid UTF-8.
+---
+---Text comes from buffers, and `vim.json.encode` writes its bytes as they are. The queue
+---owner cannot parse a line that is not UTF-8, and it then replies with no `req`, so no
+---callback would ever run. Each byte that does not start a valid sequence (RFC 3629: no
+---overlong form, no surrogate, nothing above U+10FFFF) becomes U+FFFD. JSON's own syntax is
+---ASCII, so only the text inside strings can change.
+---@param line string
+---@return string
+local function scrub(line)
+  if not line:find("[\128-\255]") then
+    return line
+  end
+  local out, start, i, n = {}, 1, 1, #line
+  while i <= n do
+    local c = line:byte(i)
+    local len = c < 0x80 and 1
+      or (c >= 0xC2 and c <= 0xDF) and 2
+      or (c >= 0xE0 and c <= 0xEF) and 3
+      or (c >= 0xF0 and c <= 0xF4) and 4
+      or 0
+    local ok = len > 0 and i + len - 1 <= n
+    for k = 1, ok and len - 1 or 0 do
+      local b = line:byte(i + k)
+      if b < 0x80 or b > 0xBF then
+        ok = false
+        break
+      end
+    end
+    if ok and len > 2 then
+      local b = line:byte(i + 1)
+      ok = not (
+        (c == 0xE0 and b < 0xA0)
+        or (c == 0xED and b > 0x9F)
+        or (c == 0xF0 and b < 0x90)
+        or (c == 0xF4 and b > 0x8F)
+      )
+    end
+    if ok then
+      i = i + len
+    else
+      out[#out + 1] = line:sub(start, i - 1)
+      out[#out + 1] = REPLACEMENT
+      i = i + 1
+      start = i
+    end
+  end
+  out[#out + 1] = line:sub(start)
+  return table.concat(out)
+end
+
 ---The request path: write one request, and keep its callback under its `req`.
+---
+---A reply that does not come in `REPLY_MS` is answered here with `ok = false`, so no
+---callback waits for ever.
 ---@param conn CRSyncConn
 ---@param op string
 ---@param fields table|nil The fields of the request beside `req` and `op`
@@ -215,8 +300,9 @@ local function request(conn, op, fields, on_reply)
   end
   next_req = next_req + 1
   local msg = vim.tbl_extend("force", fields or {}, { req = tostring(next_req), op = op })
-  conn.pending[msg.req] = on_reply or false
-  local ok = pcall(conn.pipe.write, conn.pipe, vim.json.encode(msg) .. "\n", function(err)
+  local req = msg.req
+  conn.pending[req] = on_reply or false
+  local ok = pcall(conn.pipe.write, conn.pipe, scrub(vim.json.encode(msg)) .. "\n", function(err)
     if err then
       vim.schedule(function()
         stop(conn)
@@ -225,7 +311,18 @@ local function request(conn, op, fields, on_reply)
   end)
   if not ok then
     stop(conn)
+    return
   end
+  vim.defer_fn(function()
+    local cb = conn.pending[req]
+    if conn.closed or cb == nil then
+      return
+    end
+    conn.pending[req] = nil
+    if cb then
+      cb({ ok = false, error = "no reply", req = req })
+    end
+  end, REPLY_MS)
 end
 
 ---Write the queue, then repaint every surface that draws it.
@@ -250,7 +347,8 @@ end
 ---
 ---An entry that is kept but not yet confirmed stays, also when the snapshot does not have
 ---it yet. Without this, a snapshot from another client that the queue owner wrote before
----it read the `keep` would remove the entry here and write that to disk.
+---it read the `keep` would remove the entry here and write that to disk. An entry whose
+---`keep` was refused stays for the same reason: the queue owner does not have it.
 ---@param conn CRSyncConn
 ---@param rev integer|nil
 ---@param notes table[]|nil
@@ -282,7 +380,7 @@ local function apply(conn, rev, notes)
 
   local unconfirmed = {}
   for uuid, entry in pairs(here) do
-    if not seen[uuid] and (not conn.confirmed or conn.inflight[uuid]) then
+    if not seen[uuid] and (not conn.confirmed or conn.inflight[uuid] or refused[uuid]) then
       unconfirmed[#unconfirmed + 1] = entry
     end
   end
@@ -374,14 +472,101 @@ local function read(conn)
   end)
 end
 
+---Give entries to the queue owner, in `keep` requests of at most `BATCH_BYTES`, one after
+---the other, and call `done` when every reply came.
+---
+---A refused request is sent again one entry at a time, because the queue owner refuses a
+---whole `keep` when one note in it is bad: one bad entry must not keep the others out. An
+---entry refused on its own, or a request with no reply, goes on `refused`. The reviewer is
+---told once per reason in a session.
+---@param conn CRSyncConn
+---@param entries CRAnnotation[]
+---@param done fun()|nil
+local function keep_entries(conn, entries, done)
+  local work, batch, size = {}, {}, 0
+  local failed = {}
+  for _, entry in ipairs(entries) do
+    -- Measured as written: a byte that `scrub` replaces takes three.
+    local bytes = #scrub(vim.json.encode(to_note(entry)))
+    if bytes > NOTE_BYTES then
+      failed[#failed + 1] = { entry = entry, error = ("larger than %d bytes"):format(NOTE_BYTES) }
+    else
+      if #batch > 0 and size + bytes > BATCH_BYTES then
+        work[#work + 1] = batch
+        batch, size = {}, 0
+      end
+      batch[#batch + 1] = entry
+      size = size + bytes
+    end
+  end
+  if #batch > 0 then
+    work[#work + 1] = batch
+  end
+
+  local function finish()
+    local by_reason = {}
+    for _, f in ipairs(failed) do
+      refused[lower(f.entry.uuid)] = f.error
+      by_reason[f.error] = (by_reason[f.error] or 0) + 1
+    end
+    for reason, n in pairs(by_reason) do
+      if not told[reason] then
+        told[reason] = true
+        warn(
+          ("Queue sync: the queue owner did not take %d annotation%s (%s). %s in Neovim."):format(
+            n,
+            n == 1 and "" or "s",
+            reason,
+            n == 1 and "It stays" or "They stay"
+          )
+        )
+      end
+    end
+    if done then
+      done()
+    end
+  end
+
+  local function step()
+    local next_batch = table.remove(work, 1)
+    if not next_batch or conn.closed then
+      finish()
+      return
+    end
+    for _, entry in ipairs(next_batch) do
+      conn.inflight[lower(entry.uuid)] = true
+    end
+    request(conn, "keep", { notes = vim.tbl_map(to_note, next_batch) }, function(reply)
+      for _, entry in ipairs(next_batch) do
+        conn.inflight[lower(entry.uuid)] = nil
+      end
+      if reply.ok then
+        for _, entry in ipairs(next_batch) do
+          refused[lower(entry.uuid)] = nil
+        end
+      elseif #next_batch > 1 and reply.error ~= "no reply" then
+        for i = #next_batch, 1, -1 do
+          table.insert(work, 1, { next_batch[i] })
+        end
+      else
+        for _, entry in ipairs(next_batch) do
+          failed[#failed + 1] = { entry = entry, error = tostring(reply.error) }
+        end
+      end
+      step()
+    end)
+  end
+  step()
+end
+
 ---The connect is complete: apply what the queue owner holds, and say so once.
 ---@param conn CRSyncConn
----@param hello table The reply to `hello`, which carries the queue as it was then
-local function ready(conn, hello)
+---@param listed table The reply to `list`, which carries the queue as it was then
+local function ready(conn, listed)
   conn.confirmed = true
   conn.ready = true
-  -- The snapshot of the `hello` reply, unless an event with a higher `rev` came after it.
-  apply(conn, hello.rev, hello.queue)
+  -- The snapshot of the `list` reply, unless an event with a higher `rev` came after it.
+  apply(conn, listed.rev, listed.queue)
   info(("Queue sync started: %s"):format(config.get().sync.socket))
 end
 
@@ -389,11 +574,15 @@ end
 ---
 ---The restore first, because `keep` gives the queue owner every entry in the local queue,
 ---and a queue that this session has not read back is missing the entries the last
----session left. Then `hello`, `subscribe` and `keep`.
+---session left. Then `hello`, `subscribe`, `list` and `keep`.
 ---
----Until the queue owner replies to that `keep`, a snapshot does not have the entries that
----only this plugin has, so `apply` keeps every local entry. The snapshot in the `hello`
----reply is applied last, and only when no event came after it.
+---`list` after `subscribe`, not the snapshot in the `hello` reply: a change that another
+---client makes between `hello` and `subscribe` goes only to subscribers, so this client
+---would never see it. After `subscribe`, every change comes as an event with a higher `rev`.
+---
+---Until the queue owner has replied to every `keep`, a snapshot does not have the entries
+---that only this plugin has, so `apply` keeps every local entry. The snapshot of `list` is
+---applied last, and only when no event came after it.
 ---@param conn CRSyncConn
 local function handshake(conn)
   read(conn)
@@ -411,21 +600,20 @@ local function handshake(conn)
         stop(conn)
         return
       end
-      -- Read at this moment, not before `hello`: an entry captured while the connect ran
-      -- is in this `keep`, because `keeping` was false when it was captured.
-      local notes = vim.tbl_map(to_note, queue.entries())
-      conn.keeping = true
-      if #notes == 0 then
-        ready(conn, hello)
-        return
-      end
-      request(conn, "keep", { notes = notes }, function(kept)
-        if not kept.ok then
-          warn(("Queue sync refused the queue: %s"):format(tostring(kept.error)))
+      request(conn, "list", nil, function(listed)
+        if not listed.ok then
           stop(conn)
           return
         end
-        ready(conn, hello)
+        -- Read at this moment, not before `hello`: an entry captured while the connect ran
+        -- is in this `keep`, because `keeping` was false when it was captured.
+        local entries = queue.entries()
+        conn.keeping = true
+        keep_entries(conn, entries, function()
+          if not conn.closed then
+            ready(conn, listed)
+          end
+        end)
       end)
     end)
   end)
@@ -505,11 +693,7 @@ function M.keep(entry)
   if not conn.keeping then
     return
   end
-  local uuid = lower(entry.uuid)
-  conn.inflight[uuid] = true
-  request(conn, "keep", { notes = { to_note(entry) } }, function()
-    conn.inflight[uuid] = nil
-  end)
+  keep_entries(conn, { entry })
 end
 
 return M

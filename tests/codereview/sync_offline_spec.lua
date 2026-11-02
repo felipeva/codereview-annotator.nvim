@@ -108,7 +108,7 @@ describe("a socket that does not exist", function()
   vim.wait(math.max(0, 2100 - (vim.uv.hrtime() / 1e6 - started)))
   capture()
   vim.wait(3000, function()
-    return #owner.requests >= 3
+    return #owner.requests >= 4
   end, 10)
   vim.wait(3000, function()
     return h.notified(messages, "Queue sync started")
@@ -126,13 +126,13 @@ describe("a socket that does not exist", function()
   end)
 
   it("tries again on the next queue operation after that, in the fixed order", function()
-    assert.same({ "hello", "subscribe", "keep" }, owner:ops())
+    assert.same({ "hello", "subscribe", "list", "keep" }, owner:ops())
   end)
 
   it("gives the queue owner every entry in the local queue", function()
     local kept = vim.tbl_map(function(n)
       return n.id:lower()
-    end, owner.requests[3].notes)
+    end, owner.requests[4].notes)
     local here = vim.tbl_map(function(e)
       return e.uuid
     end, queue.entries())
