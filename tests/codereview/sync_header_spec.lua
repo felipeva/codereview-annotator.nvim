@@ -1,15 +1,17 @@
 -- The header of the plugin's own **payload** with `sync` set and with no `sync`.
 --
 -- With `sync` set, the header is the one the **queue owner** writes, `Annotations — N
--- items`, so that the agent reads the same message for the same entries on both paths. No
--- queue owner listens here: the socket is a path that nobody binds, which is the case where
--- the plugin renders the payload itself. The fake queue owner is not used, because a
--- connected submit is rendered by the queue owner and not here.
+-- items`, so that the agent reads the same message for the same entries on both paths.
+-- First no queue owner listens: the socket is a path that nobody binds, and the plugin
+-- renders every payload itself. Last the fake queue owner listens, for the copy to a
+-- register, which the plugin renders also while connected. A connected submit is rendered
+-- by the queue owner, so it is not a case here.
 --
 -- Every payload is read through the surfaces a reviewer uses: a copy to the `+` register,
 -- `<C-s>` and `<C-a>` in the diff, and an immediate send. A review is open for each copy, so that the scope and the
 -- file counts are available to the header and their absence with `sync` set is a result.
 local h = require("tests.helpers")
+local fake = require("tests.fake_queue_owner")
 
 h.ui(110, 40)
 local fixture = h.cd_fixture("mkfixture")
@@ -22,8 +24,8 @@ local socket = vim.fn.tempname() .. ".sock"
 
 local sent = {}
 
----@param with_sync boolean
-local function setup(with_sync)
+---@param socket_path string|nil The socket of `sync`, or nil for no `sync`
+local function setup(socket_path)
   codereview.setup({
     syntax = false,
     send = function(text)
@@ -34,8 +36,8 @@ local function setup(with_sync)
     compose = function(ctx, on_accept)
       on_accept(nil, ctx.preamble and "read the bugs first" or ("re: " .. ctx.label))
     end,
-    sync = with_sync and {
-      socket = socket,
+    sync = socket_path and {
+      socket = socket_path,
       target = function()
         return { tool = "custom", address = "agent", cwd = fixture }
       end,
@@ -81,7 +83,7 @@ end
 local one, several
 
 describe("with sync set and no queue owner", function()
-  setup(true)
+  setup(socket)
   queue.clear()
   capture("bug", 1)
   one = copied()
@@ -139,7 +141,7 @@ describe("with sync set and no queue owner", function()
 end)
 
 describe("without sync", function()
-  setup(false)
+  setup(nil)
   queue.clear()
   capture("bug", 1)
   local plain_one = copied()
@@ -176,5 +178,26 @@ describe("without sync", function()
   it("writes today's header under a preamble", function()
     assert.same(before + 1, #sent)
     assert.same({ "read the bugs first", "", header }, vim.list_slice(covered, 1, 3))
+  end)
+end)
+
+describe("with sync set and a queue owner listening", function()
+  local owner = fake.start()
+  setup(owner.path)
+  capture("bug", 1)
+  -- The entry reached the queue owner, so the copy below is made while it listens.
+  vim.wait(3000, function()
+    return vim.tbl_contains(owner:ops(), "keep")
+  end, 10)
+  vim.wait(200)
+  local connected = copied()
+  owner:stop()
+
+  it("gave the entry to the queue owner", function()
+    assert.is_true(vim.tbl_contains(owner:ops(), "keep"), vim.inspect(owner:ops()))
+  end)
+
+  it("heads a copy with the queue owner's header", function()
+    assert.same("Annotations — 1 item", connected[1])
   end)
 end)
