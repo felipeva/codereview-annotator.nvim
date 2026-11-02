@@ -2,8 +2,8 @@
 ---
 ---What a reviewer asked for should be a fact the plugin holds, not something to scroll an
 ---agent's transcript for. This is where that fact is read: the **entries** of the newest
----archived **batch**, the **preamble** it went out under, the **target** it went to, and
----when it went.
+---archived **batch**, the **preamble** it went out under, the **target** it went to, when it
+---went, and for a batch that the **queue owner** sent, the **payload** that the agent read.
 ---
 ---**Read-only, and that is a claim about the record rather than a feature left unwritten.**
 ---An archived entry says something happened. A surface that let you drop, edit or resubmit
@@ -75,6 +75,7 @@ function M.last(root)
       -- half of it, so both were written the same one, exactly as both were stamped from one
       -- `os.time()` and sent to one target.
       preamble = owned.preamble,
+      text = owned.text,
       entries = entries,
     }
   end
@@ -345,6 +346,16 @@ function M.open()
   -- again: the target itself is a live destination this session may no longer have, and the
   -- record is of where the batch went, not of where one would go now.
   local name = batch.target or ""
+  name = #name > 24 and (name:sub(1, 23) .. "…") or name
+
+  ---Where it went, the one thing this surface will not do, and the key that shows the other
+  ---view, said before a key is pressed rather than only in answer to one.
+  ---@param showing boolean The payload is on screen
+  ---@return string
+  local function footer(showing)
+    local swap = batch.text and (showing and " · p entries" or " · p payload") or ""
+    return (" → %s · read-only%s · q close "):format(name, swap)
+  end
 
   local cfg_win = {
     relative = "editor",
@@ -363,9 +374,7 @@ function M.open()
       os.date("%Y-%m-%d %H:%M", batch.at)
     ),
     title_pos = "center",
-    -- Where it went, and the one thing this surface will not do, said before a key is
-    -- pressed rather than only in answer to one.
-    footer = (" → %s · read-only · q close "):format(#name > 24 and (name:sub(1, 23) .. "…") or name),
+    footer = footer(false),
     footer_pos = "center",
   }
 
@@ -391,9 +400,12 @@ function M.open()
   -- Not merely a consequence of a scratch buffer: this is the record of a batch that has
   -- gone, and nothing typed into it could mean anything.
   vim.bo[buf].modifiable = false
-  for _, m in ipairs(painted.marks) do
-    pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, m.opts)
+  local function mark_rows()
+    for _, m in ipairs(painted.marks) do
+      pcall(vim.api.nvim_buf_set_extmark, buf, NS, m.row, m.col, m.opts)
+    end
   end
+  mark_rows()
 
   local function close()
     if vim.api.nvim_win_is_valid(win) then
@@ -401,8 +413,31 @@ function M.open()
     end
   end
 
+  -- The **payload** that the agent read, which only a batch that the **queue owner** sent
+  -- keeps. It is shown as it went, so the window wraps it: it has no bar to keep.
+  local showing = false
+  local function swap()
+    if not batch.text then
+      info("This batch keeps no payload: only a batch that the queue owner sent keeps one")
+      return
+    end
+    showing = not showing
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, showing and vim.split(batch.text, "\n") or painted.lines)
+    vim.bo[buf].modifiable = false
+    vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
+    if not showing then
+      mark_rows()
+    end
+    vim.wo[win].wrap = showing
+    cfg_win.footer = footer(showing)
+    vim.api.nvim_win_set_config(win, cfg_win)
+  end
+
   vim.keymap.set("n", "x", read_only, { buffer = buf, desc = "An archived entry cannot be dropped" })
   vim.keymap.set("n", "<C-s>", read_only, { buffer = buf, desc = "An archived batch cannot be resubmitted" })
+  -- `p` puts, which a read-only buffer refuses anyway, so the key hides nothing here.
+  vim.keymap.set("n", "p", swap, { buffer = buf, desc = "Show the payload or the entries" })
   vim.keymap.set("n", "q", close, { buffer = buf, desc = "Close" })
   vim.keymap.set("n", "<Esc>", close, { buffer = buf, desc = "Close" })
 end

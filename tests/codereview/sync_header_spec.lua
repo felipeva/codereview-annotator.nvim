@@ -24,6 +24,13 @@ local socket = vim.fn.tempname() .. ".sock"
 
 local sent = {}
 
+---The note of the next capture, when a case needs one of its own.
+---@type string|nil
+local next_note = nil
+
+---U+3000, a space that the queue owner trims from a note and `vim.trim` does not.
+local IDEO = "\227\128\128"
+
 ---@param socket_path string|nil The socket of `sync`, or nil for no `sync`
 local function setup(socket_path)
   codereview.setup({
@@ -34,7 +41,7 @@ local function setup(socket_path)
     -- One stub for both composers: a note repeats the label of its entry, so the same
     -- capture gives the same text with and without `sync`.
     compose = function(ctx, on_accept)
-      on_accept(nil, ctx.preamble and "read the bugs first" or ("re: " .. ctx.label))
+      on_accept(nil, ctx.preamble and "read the bugs first" or next_note or ("re: " .. ctx.label))
     end,
     sync = socket_path and {
       socket = socket_path,
@@ -138,6 +145,16 @@ describe("with sync set and no queue owner", function()
     assert.same(before + 1, #sent)
     assert.same("Annotations — 1 item", vim.split(sent[#sent], "\n")[1])
   end)
+
+  queue.clear()
+  next_note = "spaced" .. IDEO
+  capture("bug", 1)
+  next_note = nil
+  local spaced = copied()
+
+  it("trims a note as the queue owner trims it", function()
+    assert.same("spaced", spaced[#spaced])
+  end)
 end)
 
 describe("without sync", function()
@@ -179,6 +196,18 @@ describe("without sync", function()
     assert.same(before + 1, #sent)
     assert.same({ "read the bugs first", "", header }, vim.list_slice(covered, 1, 3))
   end)
+
+  queue.clear()
+  next_note = "spaced" .. IDEO
+  capture("bug", 1)
+  next_note = nil
+  local spaced = copied()
+
+  it("writes a note as it is", function()
+    assert.same("spaced" .. IDEO, spaced[#spaced])
+  end)
+
+  queue.clear()
 end)
 
 describe("with sync set and a queue owner listening", function()
@@ -191,6 +220,15 @@ describe("with sync set and a queue owner listening", function()
   end, 10)
   vim.wait(200)
   local connected = copied()
+
+  -- Another tool empties the note. The plugin takes the note as the queue owner sends it.
+  local emptied = vim.deepcopy(owner.queue)
+  emptied[1].note = ""
+  owner:push_queue(emptied)
+  vim.wait(3000, function()
+    return queue.entries()[1] ~= nil and queue.entries()[1].note == ""
+  end, 10)
+  local empty = copied()
   owner:stop()
 
   it("gave the entry to the queue owner", function()
@@ -199,5 +237,11 @@ describe("with sync set and a queue owner listening", function()
 
   it("heads a copy with the queue owner's header", function()
     assert.same("Annotations — 1 item", connected[1])
+  end)
+
+  -- The entry ends at its heading, as the queue owner writes it: no blank line, no empty one.
+  it("leaves an empty note out of a copy", function()
+    assert.same("", queue.entries()[1].note)
+    assert.same({ "## Bugs (1) — diagnose and fix these", "", "### 1. @src/main.lua#L1" }, vim.list_slice(empty, 3))
   end)
 end)

@@ -2159,6 +2159,16 @@ are gone from the queue, so `apply` keeps each own entry that a snapshot drops i
 `conn.departed`, until the next `sent`. A lookup in the queue alone finds nothing to
 archive.
 
+**The archive keeps the `text` of `sent`, and does not render the batch again.** The queue
+owner renders the payload when the `send` arrives (`transmit`, from the notes that
+`QueueOps.sending` takes), and other requests run while the agent tool takes it. So an edit
+during the `send`, or an edit that the owner refused, is in the plugin's copy of the entry
+and not in what the agent read. The entries stay the plugin's copy, for the diff and for
+touched; the `text` is the record of the message. A batch that the plugin dispatched itself
+keeps no `text`: `deliver` renders and archives the same entries in one call, so they cannot
+differ. The fake renders its `text` when the `send` comes too: `sync_edit_submit_spec` goes
+red if it renders at the reply.
+
 **Two Neovim processes get the same `sent` and write the same state files.** Each archives
 every checkout, because an entry of a checkout with no Neovim open must still be archived.
 So an entry whose uuid an archive already holds is skipped, or each batch is there twice.
