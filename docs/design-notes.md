@@ -2170,10 +2170,12 @@ and `stop` drops the pending callbacks. So the connection keeps the late callbac
 (`conn.late`), `stop` calls it, and a reply clears it. Without the clear, a later close
 reports a submit that was answered long ago.
 
-**The pending removals are read in the step that sets `keeping`, not before `hello`.** A
-drop or a dispatch before that step is written to the disk, and one after it sends its own
-`remove`. Read before `hello`, a drop while the handshake waits for `list` is in neither:
-the queue owner still holds the entry, and its next snapshot puts it back in the queue.
+**A drop during the handshake goes in the `remove` of that handshake.** The pending
+removals are read from the disk at the start of the handshake, and `keeping` is set only
+after the reply to `list`. A drop or a dispatch between the two is written to the disk,
+which this handshake read already, so `take_out` also puts it in `conn.removing`, which
+the `remove` is made from. Without that, the drop is in neither `remove`: the queue owner
+still holds the entry, and the snapshot of `list` puts it back in the queue.
 `sync_removal_spec` holds the `list` with `math.huge` and drops in that gap.
 
 **The pending removals are guarded from the start of the handshake, not from their

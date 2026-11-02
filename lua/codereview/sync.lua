@@ -928,11 +928,12 @@ end
 ---client makes between `hello` and `subscribe` goes only to subscribers, so this client
 ---would never see it. After `subscribe`, every change comes as an event with a higher `rev`.
 ---
----`remove` before `keep`, and both written in the step that sets `keeping`. A drop or a
----dispatch before that step is on the disk, so this `remove` has it; one after it sends its
----own `remove`. The pending removals are guarded from the start of the handshake: an event
----before the reply to `list` can hold them, and `apply` would put them back in the queue,
----so that `keep` gives them to the queue owner again.
+---`remove` before `keep`, and both written in the step that sets `keeping`. The pending
+---removals are read from the disk at the start of the handshake, and a drop or a dispatch
+---until that step is added to them (`take_out`), so this `remove` has it; one after it
+---sends its own `remove`. They are guarded from the start of the handshake, not from their
+---`remove`: an event before the reply to `list` can hold them, and `apply` would put them
+---back in the queue, so that `keep` gives them to the queue owner again.
 ---
 ---Until the queue owner has replied to every `keep`, a snapshot does not have the entries
 ---that only this plugin has, so `apply` keeps every local entry. The snapshot of `list` is
@@ -964,12 +965,10 @@ local function handshake(conn)
         end
         -- Read at this moment, not before `hello`: an entry captured while the connect ran
         -- is in this `keep`, because `keeping` was false when it was captured. The same for
-        -- an entry that left the queue while the connect ran: it is a pending removal now.
+        -- an entry that left the queue while the connect ran: `take_out` put it in `removing`.
         local entries = queue.entries()
-        for _, uuid in ipairs(state.removals()) do
-          conn.removing[uuid] = true
-        end
-        -- Until `keeping` is set, `removing` holds only pending removals.
+        -- Until `keeping` is set, `removing` holds only pending removals: the ones read at
+        -- the start of the handshake, and the ones made since.
         local removals = vim.tbl_keys(conn.removing)
         table.sort(removals)
         conn.keeping = true
