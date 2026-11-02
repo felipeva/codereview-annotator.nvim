@@ -2162,3 +2162,10 @@ archive.
 **Two Neovim processes get the same `sent` and write the same state files.** Each archives
 every checkout, because an entry of a checkout with no Neovim open must still be archived.
 So an entry whose uuid an archive already holds is skipped, or each batch is there twice.
+
+**A close before the reply to a `send` is not a non-dispatch.** The queue owner may have
+given the batch to the agent already. So the reviewer is told that the result is unknown,
+during the wait or after it. After the wait, only `stop` can say it: `send` has no timer,
+and `stop` drops the pending callbacks. So the connection keeps the late callback
+(`conn.late`), `stop` calls it, and a reply clears it. Without the clear, a later close
+reports a submit that was answered long ago.

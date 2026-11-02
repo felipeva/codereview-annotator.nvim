@@ -17,6 +17,7 @@ local root = assert(vim.uv.fs_realpath(fixture))
 -- A second repository, for a note that another Neovim kept about its own checkout.
 local other = assert(vim.uv.fs_realpath(h.fixture("mkfixture")))
 
+local drafts = require("codereview.drafts")
 local queue = require("codereview.queue")
 local state = require("codereview.state")
 local view = require("codereview.view")
@@ -27,6 +28,8 @@ local messages, restore_notify = h.capture_notify_levels()
 local NOTE = "the note"
 local PREAMBLE = "Read the config change first."
 local TARGET = { short = "pane-7", id = "w1:p7", cwd = root }
+-- What the composer gives for a preamble. A case changes it to compose a second one.
+local preamble_text = PREAMBLE
 
 local codereview = require("codereview")
 codereview.setup({
@@ -36,7 +39,7 @@ codereview.setup({
     { name = "question", key = "q", label = "Questions" },
   },
   compose = function(ctx, on_accept)
-    on_accept(nil, ctx.preamble and PREAMBLE or NOTE)
+    on_accept(nil, ctx.preamble and preamble_text or NOTE)
   end,
   pick_target = function(cb)
     cb(TARGET)
@@ -383,6 +386,95 @@ describe("a sent that another Neovim archived first", function()
   end)
 end)
 
+-- The preamble's draft, under the key the composer reads it from.
+local DRAFT = drafts.key({ preamble = true, root = root })
+
+describe("a late ok after a submit with a preamble", function()
+  capture("src/main.lua", 2)
+  local submitted = said("Submitted")
+  owner:delay("send", 400)
+  view.submit_with_preamble()
+  owner:delay("send", nil)
+  local kept = drafts.get(DRAFT)
+  vim.wait(3000, function()
+    return said("Submitted") > submitted
+  end, 20)
+
+  it("keeps the preamble as a draft while the result is not known", function()
+    assert.same(PREAMBLE, kept)
+  end)
+
+  it("removes the draft when the batch went", function()
+    assert.same(submitted + 1, said("Submitted"))
+    assert.is_nil(drafts.get(DRAFT))
+  end)
+end)
+
+describe("a late ok when a newer preamble was kept as a draft", function()
+  capture("src/main.lua", 2)
+  local submitted = said("Submitted")
+  owner:delay("send", 400)
+  view.submit_with_preamble()
+  owner:delay("send", nil)
+  -- A second submit before the reply is refused, and its preamble is kept as a draft.
+  preamble_text = "a newer preamble"
+  view.submit_with_preamble()
+  preamble_text = PREAMBLE
+  vim.wait(3000, function()
+    return said("Submitted") > submitted
+  end, 20)
+
+  it("keeps the newer draft", function()
+    assert.same(submitted + 1, said("Submitted"))
+    assert.same("a newer preamble", drafts.get(DRAFT))
+  end)
+end)
+
+describe("a late error after a submit with a preamble", function()
+  local entry = capture("src/main.lua", 3)
+  owner:refuse("send", "the agent tool failed")
+  owner:delay("send", 400)
+  view.submit_with_preamble()
+  owner:delay("send", nil)
+  vim.wait(3000, function()
+    return h.notified(messages, "the agent tool failed")
+  end, 20)
+  owner:refuse("send", nil)
+
+  it("keeps the draft and the batch", function()
+    assert.is_true(h.notified(messages, "Not submitted: the queue owner refused it (the agent tool failed)"))
+    assert.same(PREAMBLE, drafts.get(DRAFT))
+    assert.is_not_nil(queued(entry.uuid))
+  end)
+end)
+
+describe("a sent while a review is open", function()
+  local first = capture("src/main.lua", 1)
+  local second = capture("src/nonl.md", 1)
+  view.open("branch")
+  local V = assert(view.current(), "the review did not open")
+  local writes = state.archive_writes()
+  owner:push_queue({})
+  owner:push({
+    event = "sent",
+    ids = { first.uuid:upper(), second.uuid:upper() },
+    target = { tool = "hc", address = "tab-3", cwd = root },
+    preamble = "",
+    text = "the payload",
+    at = "2026-11-02T10:00:00Z",
+  })
+  vim.wait(3000, function()
+    return state.archive_writes() > writes
+  end, 10)
+  vim.wait(100)
+  local winbar = h.winbar(V.win)
+  codereview.close()
+
+  it("judges the archive again, so the winbar shows the untouched tally at once", function()
+    assert.is_truthy(winbar:find("↺2", 1, true), winbar)
+  end)
+end)
+
 describe("<C-c> during the wait", function()
   local entry = capture("src/routes.lua", 2)
   local submitted = said("Submitted")
@@ -429,9 +521,37 @@ describe("a close during the wait", function()
   sync.wait = 200
   owner:delay("send", nil)
 
-  it("ends the wait at once, as a non-dispatch that says so", function()
+  it("ends the wait at once, and says that the result is unknown", function()
     assert.is_true(took < 1000, ("the submit took %d ms"):format(took))
-    assert.is_true(h.notified(messages, "Not submitted: the queue sync stopped before the queue owner replied"))
+    assert.same(1, said("The result is unknown"))
+    assert.is_not_nil(queued(entry.uuid))
+  end)
+end)
+
+describe("a close after the wait", function()
+  -- The close above stopped the sync. A capture is a queue operation, so it connects again.
+  local entry = capture("src/main.lua", 2)
+  vim.wait(3000, function()
+    return said("Queue sync started") == 2
+  end, 10)
+  owner:delay("send", math.huge)
+  codereview.submit()
+  owner:delay("send", nil)
+  local before = said("The result is unknown")
+  owner:drop_clients()
+  vim.wait(3000, function()
+    return said("The result is unknown") > before
+  end, 10)
+
+  it("says once that the result is unknown, and what to do", function()
+    assert.same(before + 1, said("The result is unknown"))
+    assert.is_true(
+      h.notified(
+        messages,
+        "Queue sync stopped before the queue owner replied to the submit. The result is unknown, and the batch is still in the Neovim queue. Check the agent before you submit again."
+      )
+    )
+    assert.same(vim.log.levels.WARN, h.notified_level(messages, "The result is unknown"))
     assert.is_not_nil(queued(entry.uuid))
   end)
 end)

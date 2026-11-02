@@ -84,6 +84,7 @@ end
 ---@field departed table<string, CRAnnotation> Own entries that a snapshot took out of the
 ---       queue, by uuid in lower case, until the next `sent`
 ---@field sending boolean A `send` has had no reply yet
+---@field late fun(reply: table)|nil Gets the reply to a `send` whose wait ran out
 ---@field ready boolean The connect is complete, and the start was announced
 ---@field closed boolean
 
@@ -245,6 +246,12 @@ local function stop(conn)
   end
   if conn.ready then
     info("Queue sync stopped: the queue is kept in Neovim")
+  end
+  -- A `send` has no reply timeout, so without this its caller never hears.
+  if conn.late then
+    local late = conn.late
+    conn.late = nil
+    late({ ok = false, unknown = true })
   end
 end
 
@@ -528,6 +535,9 @@ local EVENTS = {
   ---@param msg table
   sent = function(conn, msg)
     archive_sent(conn, msg)
+    if view then
+      view.judge_archive()
+    end
     repaint()
   end,
 }
@@ -832,8 +842,9 @@ end
 ---@param preamble string|nil
 ---@param late fun(reply: table) Gets the reply that comes after the wait
 ---@return table|false|nil reply nil when no sync runs, so the caller delivers as without
----       one; false when no reply came in time; else the reply, `ok` or `ok = false` with
----       `error`, a sentence that says why
+---       one; false when no reply came in time; `unknown = true` when the connection
+---       closed first; else the reply, `ok` or `ok = false` with `error`, a sentence that
+---       says why. `late` gets the same shapes.
 function M.send(entries, to, preamble, late)
   local conn = current
   if not conn or not conn.ready then
@@ -857,6 +868,7 @@ function M.send(entries, to, preamble, late)
     preamble = payload.preamble(preamble),
   }, function(r)
     conn.sending = false
+    conn.late = nil
     if not r.ok then
       r.error = ("the queue owner refused it (%s)"):format(tostring(r.error))
     end
@@ -871,7 +883,10 @@ function M.send(entries, to, preamble, late)
   end, 10)
   waiting = false
   if not reply and conn.closed then
-    return { ok = false, error = "the queue sync stopped before the queue owner replied" }
+    return { ok = false, unknown = true }
+  end
+  if not reply then
+    conn.late = late
   end
   return reply or false
 end

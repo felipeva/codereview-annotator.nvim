@@ -309,6 +309,17 @@ local function say_refused(reply)
   vim.notify(("Not submitted: %s"):format(tostring(reply.error)), vim.log.levels.ERROR, { title = "Code review" })
 end
 
+---What a submit tells the reviewer when the sync stopped before the queue owner replied.
+---
+---Not a refusal: the queue owner may have delivered the batch. Only the agent can say.
+local function say_unknown()
+  vim.notify(
+    "Queue sync stopped before the queue owner replied to the submit. The result is unknown, and the batch is still in the Neovim queue. Check the agent before you submit again.",
+    vim.log.levels.WARN,
+    { title = "Code review" }
+  )
+end
+
 ---Submit through the **queue owner**, while the **sync** runs.
 ---
 ---It changes neither the queue nor the archive. The queue owner's next snapshot empties the
@@ -316,14 +327,24 @@ end
 ---answer here is only what is known now (ADR-0005), and nothing that comes later can
 ---contradict it.
 ---@param items CRAnnotation[]
----@param preamble string|nil
+---@param ctx { root?: string, preamble?: string }
 ---@return boolean|nil dispatched nil when no sync runs
-local function submit_synced(items, preamble)
-  local count, to = #items, target
+local function submit_synced(items, ctx)
+  local count, to, preamble = #items, target, ctx.preamble
+  local _, repo = destination(to, ctx)
   local reply = require("codereview.sync").send(items, to, preamble, function(late)
     if late.ok then
       -- The target of this submit, also when the reviewer has chosen another since.
       say_submitted(count, to)
+      -- `submit_with_preamble` kept the preamble as a draft when the wait ran out. It went
+      -- with the batch, so the draft goes, as on a dispatch; a newer draft stays.
+      local drafts = require("codereview.drafts")
+      local key = drafts.key({ preamble = true, root = repo })
+      if preamble and drafts.get(key) == preamble then
+        drafts.set(key, nil)
+      end
+    elseif late.unknown then
+      say_unknown()
     else
       say_refused(late)
     end
@@ -337,6 +358,10 @@ local function submit_synced(items, preamble)
         config.get().sync.wait / 1000
       )
     )
+    return false
+  end
+  if reply.unknown then
+    say_unknown()
     return false
   end
   if not reply.ok then
@@ -375,7 +400,7 @@ function M.submit(ctx)
   end
 
   -- While the sync runs, the queue owner delivers the batch, and nothing below runs.
-  local synced = submit_synced(queue.all(), ctx.preamble)
+  local synced = submit_synced(queue.all(), ctx)
   if synced ~= nil then
     return synced
   end

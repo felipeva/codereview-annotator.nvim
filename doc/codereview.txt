@@ -2050,9 +2050,9 @@ the queue owner closes the connection, your entries stay in the queue.
                                                     *codereview-sync-submit*
 While the sync runs, a submit (|codereview.submit()|) does not use the `send`
 adapter. It sends the batch that you see, the target from the `target`
-adapter and the preamble to the queue owner, and the queue owner renders the
-payload and delivers it. The submit waits for the reply up to `wait`. <C-c>
-stops the wait.
+adapter and the preamble to the queue owner. The queue owner renders the
+payload, with its own header, and delivers it. The submit waits for the reply
+up to `wait`. <C-c> stops the wait.
 
     - The queue owner sent it: you see "Submitted N annotations", as without
       a sync.
@@ -2061,7 +2061,14 @@ stops the wait.
     - No reply in time: you see that the result will follow, and the submit
       does not count as a dispatch. When the reply comes, you see it. A
       second submit before that reply is refused, so that a batch does not go
-      twice.
+      twice. A preamble that was kept as a draft goes when the batch goes.
+    - The sync stops before the reply: you see that the result is unknown.
+      The batch is still in the queue. Check the agent before you submit
+      again.
+
+Known limit: when the sync stops before the reply, the plugin cannot know
+whether the batch went. The next connect gives the batch to the queue owner
+again, so a submit after that can send it a second time.
 
 In each case the queue empties only when the queue owner sends a queue that
 no longer holds the entries. The archive (|codereview-persistence-archive|)
