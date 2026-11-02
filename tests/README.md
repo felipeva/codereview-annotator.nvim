@@ -135,6 +135,8 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `sync_offline_spec` | The `sync` option at setup — off by default, the three wrong values and their messages, the path expanded — and the sync with no queue owner: a refused connect and a missing socket that say nothing and leave the queue as it is without a sync, no second attempt sooner than 2 s, and the attempt on the next capture after that, in the fixed order, with every entry in the local queue. Waits about 2 s, once, on purpose |
 | `sync_refusal_spec` | A `keep` the queue owner refuses: one entry whose uuid does not decode at connect, which does not keep the others out and stays in the local queue, said once with the owner's reason; a refused capture that a snapshot without it does not drop, here or on disk, said once; and the next connect, which sends it again and is taken, and says nothing again about the entry refused for the same reason. Waits about 2 s, once, on purpose |
 | `sync_wire_spec` | What goes on the wire: a change another client makes between `hello` and `subscribe`, in the queue after the connect because the connect lists after it subscribes; a note that is not valid UTF-8, which reaches the owner with each bad byte as U+FFFD; and a `keep` whose reply never comes, refused after 5 s, said once and not dropped by a snapshot. Waits about 5 s, once, on purpose |
+| `sync_edit_spec` | A change to an entry while the **sync** runs: an edit and a retype — to an **untyped annotation** too — from the diff and from the queue float, each one `update` with the uuid and the changed field only; a drop from each, one `remove`; the local queue changed before the reply, not undone by a snapshot the owner wrote before it read the `update` or the `remove`, and a later snapshot that differs winning; a refused edit that stays in Neovim and on disk over a snapshot, said once, and a refused drop that comes back at once, said once; an edit of an entry another tool dropped a moment before, kept again with the typed note; an edit of an entry whose `keep` was refused, which sends nothing; a reconcile that marks two entries **stale** and one that clears the mark, each one `update` with the whole `review`, the entry the owner no longer holds leaving, and a reconcile that changes nothing sending nothing; an edit and a drop that get no reply, after 5 s; an edit from the diff with the owner away that connects again with no float open, and the next connect sending each change the owner did not take, in full, after its `keep`; an edit and a retype made in the owner in the float and the overlay, and a drop made there leaving the queue; and with no owner at all, nothing sent and the queue as without a sync. Waits about 5 s and then about 2 s, on purpose |
+| `sync_edit_submit_spec` | Where a change to an entry meets a submit through the queue owner: an edit while the owner gives the batch to the agent tool, which reaches it, leaves with the batch, is archived once with the note as Neovim has it, and is not kept again; an edit the owner reads after the batch went, archived from `sent` while the update guard keeps it, not kept again on `unknown id`, and gone once that reply comes; a drop while the batch goes, out of the queue at once and still archived with the batch that `sent` names; and a submit of an entry whose edit the owner refused, which sends the owner's note and archives Neovim's |
 | `sync_submit_spec` | A submit while the sync runs: `send` with the batch's uuids, the target that `sync.target` maps and the preamble; an `ok`, reported as today, with the queue emptied by the snapshot and the archive written from `sent`, per store; an `ok` that leaves an entry the owner never took in the queue; an `error`, reported with its reason, with the batch kept and nothing archived; a reply after a short wait and after the 5 s reply timeout, still reported, with the batch kept until the snapshot and a second submit refused meanwhile; a `sent` that this process did not cause, archived per checkout with its preamble and target and judged by touched; a `sent` that another Neovim archived first, not archived again; a late `ok` that removes the preamble's draft, a newer draft that stays, and a late error that keeps it; the untouched tally in the winbar at once after a `sent` with a review open; `<C-c>` in the wait; a close in the wait and a close after it, each said once as a result that is unknown. Waits about 5 s, once, on purpose |
 | `sync_header_spec` | The header of the plugin's own payload: with `sync` set and no queue owner listening, `Annotations — 1 item` and `Annotations — 3 items` on a copy, on `<C-s>`, under a preamble on `<C-a>` and on an immediate send, with no scope or file counts although a review is open; without `sync`, today's header with the scope and the file counts; the same groups, numbers and notes under both headers; and, with the fake queue owner listening, the copy to a register, which the plugin renders also while connected. A connected submit is rendered by the queue owner, so it is not a case here |
 | `sync_limit_spec` | A queue larger than the owner's line limit (set to 2 MiB in the fake), which reaches the owner whole because the connect splits its `keep` |
@@ -1224,8 +1226,12 @@ long enough.
     line, as the owner's decoder refuses both;
   - `keep` writes each id in upper case, as the owner does, so a comparison that is not
     case-blind fails here and not in production;
-  - `update` with a JSON `null` for `review` or `origin` clears it; `sent` always carries
-    `preamble` as a string;
+  - `update` decodes `id` (a UUID), `note` and `type` (strings) and `review` (with `kind`)
+    as the owner does, and refuses with `bad request: …`; an id it does not hold gets
+    `unknown id`; a JSON `null` for `review` or `origin` clears it; an `update` that changes
+    nothing sends no `queue` event and keeps `rev`, as the owner's flush does; `sent` always
+    carries `preamble` as a string;
+  - `remove` refuses an id that is not a UUID;
   - `send` decodes `ids` (UUIDs), `target` (a `tool` the owner knows, an `address` and a
     `cwd`) and `preamble` as the owner does, and refuses `bad request: …`; a `send` that
     names no queued id refuses `nothing to send`. Both answer at once;
@@ -1236,7 +1242,9 @@ long enough.
 - **The order is the owner's.** The `queue` event of a change comes before its reply, and
   `sent` comes after the reply to `send`. A change goes to subscribers only. A `send` gives
   the batch to the agent tool before it changes the queue, so `owner:delay("send", ms)`
-  holds the `queue` event, the reply and `sent` together, not only the reply.
+  holds the `queue` event, the reply and `sent` together, not only the reply. The batch is
+  what was queued when the `send` came: `sent` names all of it, also a note that a `remove`
+  took out while the `send` waited, as the owner's `transmit` does.
 - **A spec drives it.** `owner:push_queue(notes)` replaces the queue and sends a `queue`
   event. `owner:push_queue(notes, rev)` sends a stale event with that `rev` and changes
   nothing that the fake holds, so a later push still counts up from its own `rev`.
@@ -1260,7 +1268,7 @@ What it still does not do, so a spec cannot lean on it there:
 - the owner's full type rules: the 16-type cap is there, but a type deleted in Settings, and
   the name the owner gives a type with no label, are not.
 
-Two traps it does not hide:
+Three traps it does not hide:
 
 - **libuv deletes the socket file when the server closes.** A stopped owner therefore gives
   `ENOENT`, not `ECONNREFUSED`. For a refused connect, bind a pipe and do not listen on it —
@@ -1269,6 +1277,12 @@ Two traps it does not hide:
   runs where `vim.notify`, windows and buffers are not allowed, so the plugin and the owner
   both `vim.schedule` each line. A `vim.wait` with a condition runs those; a test that reads
   the queue straight after a push, with no wait, reads it before the snapshot.
+- **A finite `delay` does the request at once, for every op but `send`.** Only the reply
+  waits, so the `queue` event of the change is already on its way. (A `send` that the owner
+  takes holds its change too, as above.) A test of what a snapshot does while a request waits
+  for its reply then reads a screen that this event has already repainted, and the reading
+  cannot fail. Hold the request back with `math.huge`, read the screen, then do the change,
+  the event and the reply by hand — `sync_edit_spec`'s `finish` does.
 
 ## Deliberately not covered
 

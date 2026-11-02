@@ -888,6 +888,31 @@ function M.restore(view, scope_key)
   end
 end
 
+---Called with the entries whose **stale** mark a reconcile changed, or nil.
+---
+---The **sync** sets it at start, so that the queue owner gets each change. A field rather
+---than a require, because the sync requires this module.
+---@type fun(entries: CRAnnotation[])|nil
+M.restaled = nil
+
+---Set the stale mark of an entry, and collect the entry if the mark changed.
+---@param item CRAnnotation
+---@param moved boolean
+---@param changed CRAnnotation[]
+local function mark_stale(item, moved, changed)
+  if (item.stale == true) ~= moved then
+    changed[#changed + 1] = item
+  end
+  item.stale = moved or nil
+end
+
+---@param changed CRAnnotation[]
+local function report_restaled(changed)
+  if #changed > 0 and M.restaled then
+    M.restaled(changed)
+  end
+end
+
 ---Judge working-tree annotations against the files on disk.
 ---
 ---These are the captures that have no scope behind them, so the diff-based rule never
@@ -920,18 +945,19 @@ function M.reconcile_queue(root, path)
   end
 
   local hashes = git.hash_worktree(paths, root)
-  local staled = 0
+  local staled, changed = 0, {}
   for _, item in ipairs(queue.all()) do
     if judged(item) then
       -- A file that has been deleted hashes to nothing, which is at least as stale as one
       -- that merely changed: the lines the note names are gone either way.
       local moved = hashes[item.path] ~= (item.blob or "")
-      item.stale = moved or nil
+      mark_stale(item, moved, changed)
       if moved then
         staled = staled + 1
       end
     end
   end
+  report_restaled(changed)
   return staled
 end
 
@@ -958,7 +984,7 @@ function M.reconcile(view)
     end
   end
 
-  local staled = 0
+  local staled, changed = 0, {}
   for _, item in ipairs(queue.all()) do
     -- A working-tree capture is judged below instead, against the file on disk. Judging it
     -- here as well would compare it against whichever blob this scope happens to show --
@@ -967,12 +993,13 @@ function M.reconcile(view)
     local file = not item.worktree and by_path[item.path]
     if file then
       local moved = (file.blob or "") ~= (item.blob or "")
-      item.stale = moved or nil
+      mark_stale(item, moved, changed)
       if moved then
         staled = staled + 1
       end
     end
   end
+  report_restaled(changed)
 
   return unmarked, staled + M.reconcile_queue(view.root)
 end
