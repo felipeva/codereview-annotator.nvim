@@ -96,6 +96,8 @@ describe("a socket that does not exist", function()
   codereview.setup({ syntax = false, compose = compose, sync = { socket = path, target = target } })
   vim.wait(100)
 
+  local while_missing = vim.deepcopy(messages)
+
   -- The queue owner starts after the failed connect, and a capture comes at once.
   local owner = fake.start(path)
   capture()
@@ -112,6 +114,12 @@ describe("a socket that does not exist", function()
     return h.notified(messages, "Queue sync started")
   end, 10)
   restore()
+
+  it("says nothing about the sync while the socket is missing", function()
+    for _, m in ipairs(while_missing) do
+      assert.is_falsy(m:lower():find("sync", 1, true), m)
+    end
+  end)
 
   it("does not try again sooner than 2 s after the last attempt", function()
     assert.same(0, early)
