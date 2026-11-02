@@ -2045,7 +2045,8 @@ While a queue owner listens on the socket:
       as it is without a sync (|codereview-persistence|).
       An edit or a drop that the queue owner made in its own queue shows
       in Neovim in the same way.
-    - entries that other tools made are not in the queue yet.
+    - entries that other tools made are in your queue too, as mirrored
+      entries (see below).
     - a submit asks the queue owner to deliver the batch (see below).
 
 When no queue owner listens, the plugin keeps its own queue, as it does
@@ -2054,7 +2055,36 @@ change of type or drop, the queue float, a submit or a copy tries again, at
 most once every 2 seconds.
 
 One message says that the sync started, and one says that it stopped. When
-the queue owner closes the connection, your entries stay in the queue.
+the queue owner closes the connection, your entries stay in the queue, and the
+mirrored entries leave it.
+
+                                                  *codereview-sync-mirrored*
+A mirrored entry is an entry that another tool made. It shows in the queue
+float, in every checkout, in the order of the queue owner, with a short label
+in place of a file: what was selected and where, for example: >
+    Area · Helium          a screenshot from the app Helium
+    Text · github.com      text from a page on github.com
+    Text · Slack           text from the app Slack
+    Note                   a note with nothing selected
+    LeadForm.tsx · 12–18 · Zed
+                           lines of a file in another editor
+<
+The queue count includes it, and a submit sends it with your entries. A copy
+to a register (|:CodeReviewCopy|) shows it as a bare note under its label.
+
+You can edit its note (`e`), change its type (`t`) and drop it (`x`) in the
+queue float, as any entry, and the change goes to the queue owner. While the
+queue owner has not replied, the float shows your change. If the queue owner
+refuses the edit, or does not answer in 5 seconds, you are told once and the
+float shows the note of the queue owner again: that is the note that a submit
+sends. The next connect does not send the edit again.
+
+A mirrored entry is never saved, and the archive does not keep it. It has no
+file, so <CR> in the queue float, the overlay and the review view do not
+place it. A drop of a mirrored entry while no queue owner listens is not
+possible: it left the queue when the sync stopped. If the connection closes
+before the queue owner replies to a drop, the entry comes back with the next
+connect, because the queue owner still has it.
 
                                                     *codereview-sync-submit*
 While the sync runs, a submit (|codereview.submit()|) does not use the `send`

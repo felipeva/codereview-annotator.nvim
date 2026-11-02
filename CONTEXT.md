@@ -261,7 +261,8 @@ A typed remark bound to a place in the code. The unit a reviewer creates.
 _Avoid_: comment, remark, note (a note is the prose inside an annotation)
 
 **Entry**:
-An annotation as it sits in the queue. An entry never records which path captured it.
+An annotation as it sits in the queue. An entry never records which path captured it. The
+one exception is a **mirrored entry**, which no path of this plugin captured (ADR-0013).
 _Avoid_: item, record
 
 **Annotation type**:
@@ -349,6 +350,14 @@ The process at the far end of the queue socket. While it listens, it holds the q
 renders the **payload** and delivers the **batch**. The plugin does not name it: any tool
 that speaks the protocol can be one.
 _Avoid_: server, daemon, peer, backend
+
+**Mirrored entry**:
+An **entry** that another tool made, in the **queue** only while the **sync** runs: a
+loose entry of the **bare note** kind, with its **note**, its **annotation type** and a
+short label made from what was selected and where, such as `Area · Helium`. The reviewer
+can edit and drop it as any entry. It is never persisted, nothing places it in a diff or a
+buffer, and it leaves the queue when the sync stops (ADR-0013).
+_Avoid_: foreign entry, remote entry, external note
 
 **Batch**:
 The queue as a single unit of delivery — what one submission sends.
