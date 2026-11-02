@@ -28,7 +28,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | --- | --- |
 | `minimal_init.lua` | The only runtimepath is this plugin plus plenary. Also redirects `XDG_STATE_HOME` and neutralizes git config. |
 | `helpers.lua` | Fixture builders, notification capture, extmark filters, highlight-group sets, anchor lookups. |
-| `sync_manual.lua` | A manual check of the **sync** against a real queue owner, run by hand with `nvim --headless --clean -l tests/sync_manual.lua` (`FAKE=1` runs it against the fake). Not collected, because CI has no queue owner. It stops before it writes anything when the queue is not empty, sends no `send`, records every line through a proxy, and removes every uuid it kept in a `finally` path — see its header. |
+| `sync_manual.lua` | A manual check of the **sync** against a real queue owner, run by hand with `nvim --headless --clean -l tests/sync_manual.lua` (`FAKE=1` runs it against the fake). Not collected, because CI has no queue owner. It stops before it writes anything when the queue is not empty, sends no `send`, records every line through a proxy, and removes every uuid it kept, and each note its stand-in for another tool kept for the **mirrored entries**, in a `finally` path — see its header. |
 | `fake_queue_owner.lua` | A fake **queue owner** on a real Unix socket, for every spec of the **sync** — see "The fake queue owner". |
 | `fixtures/*.sh` | Build a fixture repository from scratch at a given path. Take a target path; safe to run by hand. |
 | `codereview/*_spec.lua` | The suite. Only `*_spec.lua` is collected. |
