@@ -742,15 +742,18 @@ describe("with no queue owner", function()
   wait(function()
     return said("Queue sync stopped") > 1
   end)
-  local n = #owner.requests
+  -- The socket is gone, so no request could arrive at the fake whatever the plugin did. What
+  -- can be seen is what the reviewer is told: the edit and the drop as without a sync, and
+  -- no word about the sync.
+  local warned, edited, dropped = said("Queue sync:"), said("Edited "), said("Dropped ")
   reply = "edited with no owner"
   in_float("typed after the drop", "e")
   in_float("edited in the float", "x")
   vim.wait(200)
   restore_notify()
 
-  it("sends nothing", function()
-    assert.same(n, #owner.requests)
+  it("says the edit and the drop as without a sync, and nothing about the sync", function()
+    assert.same({ warned, edited + 1, dropped + 1 }, { said("Queue sync:"), said("Edited "), said("Dropped ") })
   end)
 
   it("edits and drops in the local queue, and on disk, as without a sync", function()
