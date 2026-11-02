@@ -196,6 +196,8 @@ local function render_at(items, base, opts)
     scope_label = opts.scope_label,
     files = opts.files,
     reviewed = opts.reviewed,
+    -- Set, not connected: the header stays the same while the queue owner comes and goes.
+    sync = config.get().sync ~= nil,
   })
 end
 
