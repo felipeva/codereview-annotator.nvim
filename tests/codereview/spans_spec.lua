@@ -638,8 +638,8 @@ describe("what an annotation records", function()
     annotate.annotate("bug")
     local entry = vim.deepcopy(queue.all()[1])
     -- The queue's own counter, which counts captures in this process and nothing else,
-    -- and the capture stamp beside it, which is the clock and not the line.
-    entry.id, entry.at = nil, nil
+    -- the uuid, which is random, and the capture stamp, which is the clock and not the line.
+    entry.id, entry.uuid, entry.at = nil, nil, nil
     return entry, payload.render(queue.all(), V.root, { types = config.get().types })
   end
 

@@ -9,7 +9,8 @@
 -- note, takes the type off the first and makes the last a nitpick, and exits with nothing
 -- written after that: whatever the next session finds is what the edits wrote. The middle
 -- one because an edit that re-queued would land last, and the ids are printed so the parent
--- can tell an entry that kept its id from one that took a new one. The first one's type is
+-- can tell an entry that kept its id from one that took a new one. The uuids too, for the
+-- same reason. The first one's type is
 -- taken off because an untyped entry has no `type` at all, and a field that is absent is
 -- the one a write can lose without anything failing.
 --
@@ -45,6 +46,9 @@ assert(queue.count() == 3, "the three captures did not all queue")
 local ids = vim.tbl_map(function(item)
   return tostring(item.id)
 end, queue.all())
+local uuids = vim.tbl_map(function(item)
+  return item.uuid
+end, queue.all())
 
 note = "second, as edited"
 require("codereview.annotate").edit_note(queue.all()[2])
@@ -68,4 +72,5 @@ assert(queue.all()[1].type == nil and queue.all()[3].type == "nitpick", "the typ
 -- Printed for the parent: the ids as they were before the edit, and which one was edited.
 print("ids: " .. table.concat(ids, ","))
 print("edited: " .. ids[2])
+print("uuids: " .. table.concat(uuids, ","))
 vim.cmd("qa!")

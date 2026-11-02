@@ -53,4 +53,11 @@ view.toggle_reviewed()
 
 -- Printed so a failing state_spec can show what the writing process believed it saved.
 print("state file: " .. require("codereview.state").path(V.root))
+-- Printed for the parent, which must find the same uuids after the restart.
+print("uuids: " .. table.concat(
+  vim.tbl_map(function(item)
+    return item.uuid
+  end, queue.all()),
+  ","
+))
 vim.cmd("qa!")

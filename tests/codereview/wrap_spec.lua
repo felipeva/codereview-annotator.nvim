@@ -174,13 +174,13 @@ local function left(row)
   return vim.fn.screenpos(V.win, row, 1).col
 end
 
----An entry without the two fields no two captures can share: the id a counter issues, and
----the moment it was made.
+---An entry without the three fields no two captures can share: the id a counter issues,
+---the random uuid, and the moment it was made.
 ---@param entry CRAnnotation
 ---@return table
 local function anonymous(entry)
   local out = vim.deepcopy(entry)
-  out.id, out.at = nil, nil
+  out.id, out.uuid, out.at = nil, nil, nil
   return out
 end
 

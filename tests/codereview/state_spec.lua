@@ -22,6 +22,8 @@ require("codereview").setup({
   end,
 })
 
+local child
+
 describe("the writing process", function()
   -- The child shares this process's throwaway XDG_STATE_HOME and nothing else. It runs
   -- with `--clean` so no user config, and no minimal_init, can hand it a different one.
@@ -36,7 +38,7 @@ describe("the writing process", function()
     text = true,
     env = { XDG_STATE_HOME = vim.env.XDG_STATE_HOME, FIXTURE = fixture },
   })
-  local child = proc:wait(60000)
+  child = proc:wait(60000)
 
   it("exits cleanly", function()
     assert.same(0, child.code, (child.stderr or "") .. (child.stdout or ""))
@@ -74,6 +76,19 @@ describe("a cold start", function()
       end, queue.all())
     )
     assert.same("note on src/fresh.lua", queue.all()[1].note)
+  end)
+
+  -- The entries came from the review path. `-l` prints to stderr, so both streams are read.
+  it("restores each entry under the uuid it had before the restart", function()
+    local out = (child.stdout or "") .. (child.stderr or "")
+    local before = vim.split(out:match("uuids: ([%x%-,]+)") or "", ",", { trimempty = true })
+    assert.same(2, #before, out)
+    assert.same(
+      before,
+      vim.tbl_map(function(i)
+        return i.uuid
+      end, queue.all())
+    )
   end)
 
   it("flags nothing stale, because nothing moved", function()

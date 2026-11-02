@@ -7,6 +7,10 @@ local M = {}
 
 M.root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 
+---An entry's uuid: RFC 4122 form, version 4, variant 10xx. The version and variant digits
+---are pinned, because a pattern of hex digits and dashes alone also matches a hash.
+M.UUID = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x$"
+
 ---Build a fixture repository and return its path.
 ---
 ---Anything after the script name is passed to it after the path, which is how `mkbig` is
