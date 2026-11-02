@@ -19,7 +19,7 @@ change there is felt through.
 | `checkout.lua` | Moving the review to another **checkout**: the listing behind the choice, the picker the plugin ships as the default `pick_checkout` adapter, and the open a **switch** ends in | stateful (view) |
 | `composer.lua` | The shipped composer and its `@` reference picker — the default `compose` adapter, not a lesser one | stateful (float) |
 | `config.lua` | `setup()`, the defaults, and the injected adapters: `send`, `pick_target`, `pick_file`, `compose`, `open_diff`, `pick_checkout`, `file_icon`, `dir_icon` | stateful (options) |
-| `delivery.lua` | Where a batch is going, how that is chosen, the **preamble** composed at submit time, and the submit that empties the queue only on dispatch | stateful (target, queue) |
+| `delivery.lua` | Where a batch is going, how that is chosen, the **preamble** composed at submit time, and the submit that empties the queue only on dispatch, or hands the batch to the **queue owner** while the **sync** runs | stateful (target, queue) |
 | `diff.lua` | Unified-diff parsing, and the intra-line spans within a paired line | pure |
 | `drafts.lua` | Note text abandoned in a composer, keyed by absolute path — or by repository, for a **preamble** — in a store of its own | stateful (disk) |
 | `fade.lua` | The **faded** file rule: which rows one file's fade covers, and which group a faded row carries in place of its own | stateful (editor) |
@@ -34,7 +34,7 @@ change there is felt through.
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that edit, retype, drop, jump, copy and submit, and the one that lists them | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file and what a base revision are called wherever they are named, and how a winbar is assembled from typed segments; and one memo, of the groups a host's icon adapters answered with | stateful (one memo) |
 | `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, and the **sweep** that discards the state of checkouts that are gone | stateful (disk) |
-| `sync.lua` | The **sync**: the queue socket to a **queue owner**, one JSON line per message, requests and their replies, the events, the retry, an entry turned into a note and back, and each change to an entry sent with its guard against a snapshot written before it | stateful (socket, queue) |
+| `sync.lua` | The **sync**: the queue socket to a **queue owner**, one JSON line per message, requests and their replies, the events, the retry, an entry turned into a note and back, each change to an entry sent with its guard against a snapshot written before it, the `send` of a submit, and the **archive** written from each `sent` | stateful (socket, queue, disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
 | `types.lua` | Annotation types: defaults, normalization, labels, the directive that earns a type its keystroke, and the **leading type** rule | pure |

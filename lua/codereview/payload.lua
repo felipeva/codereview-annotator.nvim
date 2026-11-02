@@ -148,9 +148,11 @@ end
 ---Render the whole queue as one message.
 ---@param items CRAnnotation[]
 ---@param base string Directory `@refs` should resolve against
----@param opts { types: CRType[], preamble?: string, scope_label?: string, files?: integer, reviewed?: integer }
+---@param opts { types: CRType[], preamble?: string, scope_label?: string, files?: integer, reviewed?: integer, sync?: boolean }
 ---       `preamble` is the prose the batch is covered by, composed at submit time. It is
----       not an entry and never comes out of the queue.
+---       not an entry and never comes out of the queue. `sync` is true when the host set
+---       the **sync**: the header is then the queue owner's, and the scope and the file
+---       counts are not used.
 ---@return string
 function M.render(items, base, opts)
   local out = {}
@@ -173,13 +175,21 @@ function M.render(items, base, opts)
   local groups = types.group(items, opts.types)
 
   local total = #items
-  local header = ("Code review — %d annotation%s"):format(total, total == 1 and "" or "s")
-  if opts.scope_label then
-    header = header .. (" on %s"):format(opts.scope_label)
-  end
-  if opts.files then
-    local reviewed = opts.reviewed or 0
-    header = header .. (" (%d file%s, %d reviewed)"):format(opts.files, opts.files == 1 and "" or "s", reviewed)
+  local header
+  if opts.sync then
+    -- The header of the **queue owner**, byte for byte, so that the agent reads the same
+    -- message for the same entries whichever side renders it. The owner knows no scope and
+    -- no files, so the header has none of them.
+    header = ("Annotations — %d item%s"):format(total, total == 1 and "" or "s")
+  else
+    header = ("Code review — %d annotation%s"):format(total, total == 1 and "" or "s")
+    if opts.scope_label then
+      header = header .. (" on %s"):format(opts.scope_label)
+    end
+    if opts.files then
+      local reviewed = opts.reviewed or 0
+      header = header .. (" (%d file%s, %d reviewed)"):format(opts.files, opts.files == 1 and "" or "s", reviewed)
+    end
   end
   out[#out + 1] = header
 

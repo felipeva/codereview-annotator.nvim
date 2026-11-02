@@ -46,3 +46,9 @@ its own suite, and no test here starts it.
 A queue owner holds the queue while it listens, so the plugin's entries can change in
 another process. The integer id of an entry stays the plugin's own: a uuid that the plugin
 has not seen gets the next id, in snapshot order.
+
+A submit while the sync runs goes to the queue owner as `send`, and its reply is the
+dispatch of ADR-0005. The reply does not empty the queue and does not write the archive:
+the queue owner's next snapshot empties the queue, and its `sent` event writes the
+archive, whoever caused it. So a reply that comes after the submit's wait cannot send a
+batch twice or lose one.

@@ -18,8 +18,12 @@
 ---  * `update` decodes `id`, `note`, `type` and `review` as the owner does, and refuses with
 ---    `bad request: …`; an id it does not hold gets `unknown id`. A JSON `null` for `review`
 ---    or `origin` clears it. An `update` that changes nothing sends no `queue` event.
----    `remove` and `send` refuse an id that is not a UUID. `send` that names no queued id
----    refuses `nothing to send`.
+---  * `remove` refuses an id that is not a UUID.
+---  * `send` decodes `ids`, `target` and `preamble` as the owner does (`check_send`), and
+---    refuses `bad request: …`. A `send` that names no queued id refuses `nothing to send`.
+---    Both answer at once. Else the owner gives the batch to the agent tool first, and only
+---    then removes it, replies and writes `sent` (`AppModel+Sync.swift`, `serve`): so
+---    `owner:delay("send", ms)` holds all three, not only the reply.
 ---  * Replies and `queue` events carry `rev`, `queue`, a `types` list of the owner's shape and
 ---    `default`. `sent` always carries `preamble` as a string.
 ---
@@ -29,8 +33,9 @@
 ---  * `owner:push_queue(notes)`: replace the queue and send a `queue` event.
 ---    `owner:push_queue(notes, rev)` sends a stale event with that rev and changes nothing.
 ---  * `owner:push(event)`: send any event, for example `sent`.
----  * `owner:delay(op, ms)`: do `op` at once and reply that much later. With `math.huge`,
----    the request is recorded and lost: nothing changes, and no reply comes.
+---  * `owner:delay(op, ms)`: do `op` at once and reply that much later. For `send`, the op
+---    waits too, as the owner's does. With `math.huge`, the request is recorded and lost:
+---    nothing changes, and no reply comes.
 ---    `owner:refuse(op, error)`: reply `ok: false` with that error. Give nil to stop either.
 ---  * `owner:after(op, fn)`: run `fn(owner)` once, just after the reply to the next `op`.
 ---  * `owner.max_line`: set it small to test the line limit.
@@ -234,6 +239,50 @@ local function check_note(note, i)
   end
   if note.review ~= nil then
     return check_review(note.review, at)
+  end
+  return nil
+end
+
+---The tools the owner's `AgentTool` decodes.
+local TOOLS = { herdr = true, hc = true, orca = true, custom = true }
+
+---Why a `send` does not decode as the owner's `QueueRequest`, or nil: `ids` UUIDs, `target`
+---a `SendTarget` (a known `tool`, an `address` and a `cwd`), and `preamble` a string if it is
+---there.
+---@param msg table
+---@return string|nil
+local function check_send(msg)
+  if msg.ids == nil then
+    return "missing ids"
+  end
+  if type(msg.ids) ~= "table" then
+    return "wrong type at ids"
+  end
+  for i, id in ipairs(msg.ids) do
+    if type(id) ~= "string" or not id:match(UUID) then
+      return ("bad value at ids.Index %d"):format(i - 1)
+    end
+  end
+  local target = msg.target
+  if target == nil then
+    return "missing target"
+  end
+  if type(target) ~= "table" then
+    return "wrong type at target"
+  end
+  for _, field in ipairs({ "tool", "address", "cwd" }) do
+    if target[field] == nil then
+      return "missing " .. field
+    end
+    if type(target[field]) ~= "string" then
+      return "wrong type at target." .. field
+    end
+  end
+  if not TOOLS[target.tool] then
+    return "bad value at target.tool"
+  end
+  if not opt_string(msg.preamble) then
+    return "wrong type at preamble"
   end
   return nil
 end
@@ -457,18 +506,15 @@ function Owner:answer(client, msg, line)
     if type(msg.ids) ~= "table" then
       return { ok = false, error = "bad request: missing ids" }
     end
-    for i, id in ipairs(msg.ids) do
+    for i, id in ipairs(msg.op == "remove" and msg.ids or {}) do
       if type(id) ~= "string" or not id:match(UUID) then
         return { ok = false, error = ("bad request: bad value at ids.Index %d"):format(i - 1) }
       end
     end
     if msg.op == "send" then
-      local any = false
-      for _, id in ipairs(msg.ids) do
-        any = any or self:find(id) ~= nil
-      end
-      if not any then
-        return { ok = false, error = "nothing to send" }
+      local refusal = self:send_refusal(msg)
+      if refusal then
+        return refusal
       end
     end
     local removed = {}
@@ -499,6 +545,22 @@ function Owner:answer(client, msg, line)
   return { ok = false, error = "unknown op" }
 end
 
+---The answer the owner gives a `send` before it gives the batch to the agent tool, or nil.
+---@param msg table
+---@return table|nil
+function Owner:send_refusal(msg)
+  local bad = check_send(msg)
+  if bad then
+    return { ok = false, error = "bad request: " .. bad }
+  end
+  for _, id in ipairs(msg.ids) do
+    if self:find(id) then
+      return nil
+    end
+  end
+  return { ok = false, error = "nothing to send" }
+end
+
 ---@param client table
 ---@param line string
 function Owner:receive(client, line)
@@ -520,28 +582,36 @@ function Owner:receive(client, line)
     return
   end
   local refused = self.refusals[msg.op]
-  local reply, after
-  if refused then
-    reply = { ok = false, error = refused }
-  else
-    reply, after = self:answer(client, msg, line)
-  end
-  reply.req = msg.req
-  local hook = self.hooks[msg.op]
-  self.hooks[msg.op] = nil
-  local function send()
-    self:write(client, reply)
-    if after then
-      after()
+  ---Do the op, and give what writes its answer.
+  local function answer()
+    local reply, after
+    if refused then
+      reply = { ok = false, error = refused }
+    else
+      reply, after = self:answer(client, msg, line)
     end
-    if hook then
-      hook(self)
+    reply.req = msg.req
+    local hook = self.hooks[msg.op]
+    self.hooks[msg.op] = nil
+    return function()
+      self:write(client, reply)
+      if after then
+        after()
+      end
+      if hook then
+        hook(self)
+      end
     end
   end
-  if ms then
-    vim.defer_fn(send, ms)
+  if not ms then
+    answer()()
+  elseif msg.op == "send" and (refused or self:send_refusal(msg) == nil) then
+    -- The agent tool takes the batch before anything changes.
+    vim.defer_fn(function()
+      answer()()
+    end, ms)
   else
-    send()
+    vim.defer_fn(answer(), ms)
   end
 end
 

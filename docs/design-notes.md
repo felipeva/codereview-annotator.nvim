@@ -2136,3 +2136,36 @@ in true colour alone draws nothing on a terminal without it, so a cell reads the
 the fallback worked or a tint mark was drawn anyway. overlay_tint_child therefore reports, with
 `termguicolors` off, the tint marks, the signs and whether a tint group exists; removing the
 gate turns that reading from `tints=0 ... group=0` into `tints=7 ... group=1`.
+
+## The sync
+
+**A `send` has no reply timeout, and a reply after the submit's wait is still its result.**
+Every other request counts as refused after 5 s, because the queue owner answers it at once.
+It answers `send` only when the agent tool has taken the batch, and its tools wait 15 s or
+30 s. Under the 5 s limit, a slow `send` reads as refused, and the real `ok` that comes
+later finds no callback. So `request` takes its time per op (`REPLY_MS_OF`), and `send` has none.
+`sync_submit_spec` makes the fake reply after 5.3 s: with `send` under the 5 s limit, its
+"reports the reply when it comes" goes red.
+
+**The reply to a `send` changes nothing here; the snapshot and `sent` do.** The queue owner
+writes the `queue` event that takes the batch out, then the reply, then `sent`. An `ok`
+alone must not empty the queue: an entry whose `keep` was refused is in the batch that the
+reviewer submits, and the queue owner does not have it, so it does not send it. The archive
+is written only from `sent`, so a late reply, a `<C-c>` in the wait or a batch from another
+tool all archive the same way.
+
+**`sent` names ids, and comes after the snapshot that removed them.** By then the entries
+are gone from the queue, so `apply` keeps each own entry that a snapshot drops in
+`conn.departed`, until the next `sent`. A lookup in the queue alone finds nothing to
+archive.
+
+**Two Neovim processes get the same `sent` and write the same state files.** Each archives
+every checkout, because an entry of a checkout with no Neovim open must still be archived.
+So an entry whose uuid an archive already holds is skipped, or each batch is there twice.
+
+**A close before the reply to a `send` is not a non-dispatch.** The queue owner may have
+given the batch to the agent already. So the reviewer is told that the result is unknown,
+during the wait or after it. After the wait, only `stop` can say it: `send` has no timer,
+and `stop` drops the pending callbacks. So the connection keeps the late callback
+(`conn.late`), `stop` calls it, and a reply clears it. Without the clear, a later close
+reports a submit that was answered long ago.
