@@ -46,6 +46,7 @@ describe("the session after it", function()
   local out = (child.stdout or "") .. (child.stderr or "")
   local ids = vim.tbl_map(tonumber, vim.split(out:match("ids: ([%d,]+)") or "", ",", { trimempty = true }))
   local edited = tonumber(out:match("edited: (%d+)"))
+  local uuids = vim.split(out:match("uuids: ([%x%-,]+)") or "", ",", { trimempty = true })
 
   it("was told which entries the child queued, and which one it edited", function()
     assert.same(3, #ids, out)
@@ -83,6 +84,25 @@ describe("the session after it", function()
       ids,
       vim.tbl_map(function(item)
         return item.id
+      end, restored)
+    )
+  end)
+
+  it("was told three distinct uuids in RFC 4122 form, from the capture path", function()
+    assert.same(3, #uuids, out)
+    local distinct = {}
+    for _, u in ipairs(uuids) do
+      assert.is_truthy(u:match(h.UUID), u)
+      distinct[u] = true
+    end
+    assert.same(3, vim.tbl_count(distinct))
+  end)
+
+  it("restores every entry under the uuid it had before the edit", function()
+    assert.same(
+      uuids,
+      vim.tbl_map(function(item)
+        return item.uuid
       end, restored)
     )
   end)

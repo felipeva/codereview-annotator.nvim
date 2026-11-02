@@ -724,11 +724,14 @@ function M.restore_queue(root)
   -- queue is the queue.
   local loose = read_global()
   local data = root and M.load(root) or nil
-  if read_owned then
-    queue.replace(root, data and data.queue or {})
+  -- An entry written before the uuid existed gets one as it is read, and the store is
+  -- written back at once. If not, a session that only reads the queue issues a different
+  -- uuid at each restore. This write occurs once for each such store, and never again.
+  if read_owned and queue.replace(root, data and data.queue or {}) > 0 then
+    M.save(root, data)
   end
-  if read_loose then
-    queue.replace_loose(loose.queue)
+  if read_loose and queue.replace_loose(loose.queue) > 0 then
+    write_global(loose)
   end
   -- Taken once both stores have been read, because an id is unique across the pair and the
   -- entries carrying one are split between them. Restoring the queue alone is not enough:

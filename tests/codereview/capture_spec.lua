@@ -77,6 +77,11 @@ describe("annotating the current file", function()
     assert.same("bug", queue.all()[1].type)
   end)
 
+  it("gives the entry a uuid in RFC 4122 form", function()
+    local uuid = queue.all()[1].uuid
+    assert.is_truthy(tostring(uuid):match(h.UUID), tostring(uuid))
+  end)
+
   it("carries the note the composer collected", function()
     assert.same("the note", queue.all()[1].note)
   end)

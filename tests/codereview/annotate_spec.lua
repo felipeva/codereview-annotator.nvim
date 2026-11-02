@@ -43,6 +43,10 @@ describe("annotating an added line", function()
     assert.same({ "bug", "line" }, { e.type, e.kind })
   end)
 
+  it("gives the entry a uuid in RFC 4122 form", function()
+    assert.is_truthy(tostring(e.uuid):match(h.UUID), tostring(e.uuid))
+  end)
+
   -- A pure addition exists on disk at the post-image line number, so it can travel as a
   -- bare `@path#Lline` and the reader can open it.
   it("does not need to inline its diff", function()

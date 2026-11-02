@@ -526,12 +526,12 @@ describe("archived entries", function()
 end)
 
 describe("annotating a soloed file", function()
-  ---An entry without the two fields no two captures can share.
+  ---An entry without the three fields no two captures can share.
   ---@param entry table
   ---@return table
   local function anonymous(entry)
     local out = vim.deepcopy(entry)
-    out.id, out.at = nil, nil
+    out.id, out.uuid, out.at = nil, nil, nil
     return out
   end
 

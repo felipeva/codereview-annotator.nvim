@@ -17,10 +17,17 @@
 ---of one **batch** by sorting on it. A counter per checkout would issue 1 in a fresh
 ---checkout while a loose entry restored as 1 rode along beside it. It is seeded per
 ---checkout instead, from that checkout's **archive**, as each is read back -- see `seed`.
+---
+---**A uuid beside the id, issued at the same seam.** The id is unique in one process and
+---its stores only; the uuid is unique across processes too, so a tool outside this process
+---can name an entry by it. Nothing in this plugin resolves by the uuid -- drop, the archive
+---and the anchors use the id.
 local M = {}
 
 ---@class CRAnnotation
 ---@field id integer            Stable across repaints; what `x` removes by
+---@field uuid string           RFC 4122 version 4. Stable for the life of the entry, also
+---                             across restarts; nothing here resolves by it
 ---@field type string           Annotation type name, e.g. "bug"
 ---@field kind "line"|"range"|"hunk"|"file"
 ---@field path string           Repository-relative
@@ -63,6 +70,34 @@ local current = nil
 
 local next_id = 1
 
+---A random RFC 4122 version 4 uuid.
+---
+---From `vim.uv.random`, not `math.random`: two processes that start in the same second
+---with the same seed issue the same sequence, and a uuid must be unique across processes.
+---@return string
+local function uuid()
+  local b = { vim.uv.random(16):byte(1, 16) }
+  b[7] = b[7] % 16 + 0x40 -- version 4
+  b[9] = b[9] % 64 + 0x80 -- variant 10xx
+  return ("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x"):format(unpack(b))
+end
+
+---Give each entry that has no uuid a new one, and count them.
+---
+---For entries read back from a store: an entry written before the uuid existed has none.
+---@param list CRAnnotation[]
+---@return integer filled
+local function fill_uuids(list)
+  local filled = 0
+  for _, item in ipairs(list) do
+    if not item.uuid then
+      item.uuid = uuid()
+      filled = filled + 1
+    end
+  end
+  return filled
+end
+
 ---@param checkout string|nil
 ---@return CRAnnotation[]
 local function list_for(checkout)
@@ -88,6 +123,7 @@ end
 ---@return CRAnnotation
 function M.add(item)
   item.id = next_id
+  item.uuid = uuid()
   next_id = next_id + 1
   -- Stamped where the id is issued, because this is the one seam every capture passes
   -- through: the review path and the buffer path both end here. An entry with no
@@ -182,9 +218,10 @@ end
 ---A whole entry rather than the fields that changed, because the one edit that clears a
 ---field -- a type taken off, which makes an **untyped annotation** -- is a nil, and a table
 ---of changes cannot tell a nil from a field nobody mentioned. The copy is the caller's; the
----slot is this module's, and so are the two things an edit must not move: the id, which
----`x` and the archive both resolve by, and the position, which is the order the **payload**
----lists a group in. Both are kept here rather than trusted to the caller.
+---slot is this module's, and so are the things an edit must not move: the id, which `x`
+---and the archive both resolve by, the uuid, which names the entry outside this process,
+---and the position, which is the order the **payload** lists a group in. All three are kept
+---here rather than trusted to the caller.
 ---
 ---Filed in whichever store already holds the entry. An edit changes a note and a type and
 ---never a path, so the store an entry was filed in stays the right one.
@@ -196,6 +233,7 @@ function M.update(id, item)
     for i, old in ipairs(list) do
       if old.id == id then
         item.id = id
+        item.uuid = old.uuid
         list[i] = item
         return item
       end
@@ -214,23 +252,32 @@ function M.clear()
 end
 
 ---Replace one checkout's queue, e.g. when restoring persisted state.
+---
+---An entry without a uuid gets one here, in the list it was given. The caller must write
+---that list back when the count is not 0, or the next restore issues a different uuid.
 ---@param checkout string|nil
 ---@param list CRAnnotation[]
+---@return integer filled How many entries got a new uuid
 function M.replace(checkout, list)
   list = list or {}
   per_checkout[checkout or NO_CHECKOUT] = list
   for _, item in ipairs(list) do
     next_id = math.max(next_id, (item.id or 0) + 1)
   end
+  return fill_uuids(list)
 end
 
 ---Replace the entries that belong to no checkout.
+---
+---Fills missing uuids as `replace` does, with the same duty for the caller.
 ---@param list CRAnnotation[]
+---@return integer filled How many entries got a new uuid
 function M.replace_loose(list)
   loose = list or {}
   for _, item in ipairs(loose) do
     next_id = math.max(next_id, (item.id or 0) + 1)
   end
+  return fill_uuids(loose)
 end
 
 ---Reserve ids up to and including `highest`, for entries that are no longer in the queue.
