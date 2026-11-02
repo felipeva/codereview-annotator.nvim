@@ -131,6 +131,11 @@ takes commits off the start of the branch included, works on any git.
         it says so rather than opening onto nothing. Also bound to `gb` in the
         diff and in the file tree, which opens this same float.
 
+        For a batch that the queue owner sent (|codereview-sync-submit|), `p`
+        shows the payload that the agent read, and `p` again shows the
+        annotations. A batch that the plugin dispatched keeps no payload, and
+        `p` says so.
+
         Read-only, and that is a claim about the record: an archived entry
         says something happened, and a surface that let you drop, edit or
         resubmit one would be claiming the plugin can revise what an agent
@@ -2006,6 +2011,16 @@ half. A record written before batches could carry one simply lacks the field
 and reads back with none, exactly as one written before the archive existed
 lacks the archive.
 
+A batch that the queue owner sent (|codereview-sync-submit|) also keeps the
+payload that the agent read, as the queue owner rendered it: the field `text`
+of the record, in both halves. |:CodeReviewLastBatch| shows it on `p`. The
+queue owner renders the payload when it gets the batch, so after an edit in
+that moment, or an edit that it refused, the annotation in the record is your
+copy and the payload is what the agent read. A batch that the plugin
+dispatched itself keeps no payload, because the plugin rendered it from the
+annotations in the record. A record written before the archive kept a payload
+reads back with none.
+
 ==============================================================================
 12. SYNC                                                   *codereview-sync*
 
@@ -2083,10 +2098,10 @@ In each case the queue empties only when the queue owner sends a queue that
 no longer holds the entries. The archive (|codereview-persistence-archive|)
 is written only when the queue owner says that a batch went. This is also
 true for a batch that another Neovim or another tool submitted: each
-checkout archives its own entries in it, with the preamble and the target
-that the queue owner names. So the diff shows them as archived, and touched
-works on them. An immediate send (|codereview-immediate-send|) and a copy
-(|:CodeReviewCopy|) do not go through the queue owner.
+checkout archives its own entries in it, with the preamble, the target and
+the payload that the queue owner names. So the diff shows them as archived,
+and touched works on them. An immediate send (|codereview-immediate-send|)
+and a copy (|:CodeReviewCopy|) do not go through the queue owner.
 
 With `sync` set, the payload that the plugin renders has the header of the
 queue owner, with no scope and no file counts: >
@@ -2095,9 +2110,11 @@ queue owner, with no scope and no file counts: >
 For one entry, the header says "item". This header is used whether or not a
 queue owner listens: on a submit while no queue owner listens, on a copy to
 the + register (|:CodeReviewCopy|) and on an |codereview-immediate-send|. A
-preamble stays above it (|codereview-preamble|). The groups, the numbers and
-the text of each entry do not change. Without `sync`, the header is as shown
-in |codereview-preamble|.
+preamble stays above it (|codereview-preamble|). The groups and the numbers do
+not change. Each note is written as the queue owner writes it: with no spaces
+or line breaks at its ends, and not at all when nothing else is left. Then the
+annotation ends at its heading, or at its code. Without `sync`, the header is
+as shown in |codereview-preamble|, and each note is written as it is.
 
 An annotation that the queue owner does not take -- it refuses it, or it does
 not answer in 5 seconds -- stays in Neovim and is saved as without a sync.
@@ -2116,7 +2133,7 @@ still in the queue that the queue owner submits. You are told once per reason.
 A drop while no queue owner listens is not sent. A drop or an edit while a
 submit is on its way does not change that batch: the queue owner took it when
 the submit came, and the archive keeps the batch with your copy of each
-annotation.
+annotation, and with the payload that the agent read.
 
 Each entry goes to the queue owner with what the plugin needs to make the
 same entry again, and a mark that this plugin made it. The plugin does not

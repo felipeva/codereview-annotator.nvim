@@ -166,6 +166,15 @@ describe("a submit that the queue owner sends", function()
     assert.same({ PREAMBLE, "w1:p7" }, { loose.preamble, loose.target })
     assert.is_string(repo.snapshot)
   end)
+
+  -- The fake renders the `text` of `sent` as `Owner:render` says, from the notes it held
+  -- when the `send` came.
+  it("archives the text of sent in both stores", function()
+    local want =
+      table.concat({ PREAMBLE, "", "Annotations — 2 items", "", "### 1.", "", NOTE, "", "### 2.", "", NOTE }, "\n")
+    assert.same(want, state.archive(root)[1].text)
+    assert.same(want, state.global_archive()[1].text)
+  end)
 end)
 
 describe("an ok reply alone", function()
@@ -333,6 +342,32 @@ describe("a sent that this process did not cause", function()
 
   it("archives the entry of another checkout in that checkout", function()
     assert.same({ ELSEWHERE:lower() }, uuids_of(state.archive(other)[1]))
+  end)
+
+  -- The event's own field, in each record of the batch: not a payload that this process
+  -- renders again.
+  it("archives the event's text with each record", function()
+    assert.same("the payload", state.archive(root)[1].text)
+    assert.same("the payload", state.global_archive()[1].text)
+    assert.same("the payload", state.archive(other)[1].text)
+  end)
+
+  it("shows that text in the float of the last batch, on p, and the entries again on p", function()
+    codereview.last_batch()
+    local win = vim.api.nvim_get_current_win()
+    local buf = vim.api.nvim_win_get_buf(win)
+    local footer = function()
+      return vim.api.nvim_win_get_config(win).footer[1][1]
+    end
+    local entries = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    assert.is_truthy(footer():find("p payload", 1, true), footer())
+    h.feed("p")
+    assert.same({ "the payload" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    assert.is_truthy(footer():find("p entries", 1, true), footer())
+    assert.is_false(vim.bo[buf].modifiable)
+    h.feed("p")
+    assert.same(entries, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    vim.api.nvim_win_close(win, true)
   end)
 
   it("archives nothing again when the same sent comes again", function()

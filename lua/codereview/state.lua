@@ -32,6 +32,9 @@ local VERSION = 1
 ---@field target string         Short name of where it went; "local" for the adapter's default
 ---@field snapshot string|nil   Commit object recording the working tree at that moment
 ---@field preamble string|nil   The prose it went under, absent when it went under none
+---@field text string|nil       The **payload** as the **queue owner** rendered it, from its
+---       `sent` event. Absent for a batch that the plugin dispatched itself, and for a record
+---       written before the archive kept it.
 ---@field entries CRAnnotation[]
 
 ---How many dispatched batches a store keeps, oldest dropped on write.
@@ -471,7 +474,9 @@ end
 ---       to both halves rather than to either: a preamble is about the **dispatch**, exactly
 ---       as the stamp and the target are, and neither half is the thing it was written
 ---       about.
-function M.archive_batch(items, target, root, preamble)
+---@param text string|nil The payload that the queue owner sent, or nil. Written to both
+---       halves, for the reason the preamble is.
+function M.archive_batch(items, target, root, preamble, text)
   local owned, loose, elsewhere = partition(items, root)
   -- An archive records what was *sent*, and everything in the batch went. So the split
   -- here stays the one it has always been -- a repository-relative path to the repository's
@@ -493,7 +498,7 @@ function M.archive_batch(items, target, root, preamble)
     -- No snapshot: these entries have no repository whose working tree could be recorded,
     -- and a snapshot of whichever checkout happened to be current would describe nothing
     -- they are about.
-    push(doc.archive, { at = at, target = target, preamble = preamble, entries = loose })
+    push(doc.archive, { at = at, target = target, preamble = preamble, text = text, entries = loose })
     write_global(doc)
   end
 
@@ -508,6 +513,7 @@ function M.archive_batch(items, target, root, preamble)
     -- dispatch, and it is only that if it is taken at that moment.
     snapshot = require("codereview.git").snapshot(root),
     preamble = preamble,
+    text = text,
     entries = owned,
   })
   M.save(root, data)
