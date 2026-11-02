@@ -1205,8 +1205,9 @@ long enough.
   `hello first`. `keep` writes each id in upper case, as the real queue owner does, so a
   comparison that is not case-blind fails here and not in production. The `queue` event of
   a change comes before the reply, and `sent` comes after the reply to `send`.
-- **A spec drives it.** `owner:push_queue(notes, rev)` replaces the queue and sends a
-  `queue` event; give a lower `rev` to test that it is ignored. `owner:push(event)` sends
+- **A spec drives it.** `owner:push_queue(notes)` replaces the queue and sends a `queue`
+  event. `owner:push_queue(notes, rev)` sends a stale event with that `rev` and changes
+  nothing that the fake holds, so a later push still counts up from its own `rev`. `owner:push(event)` sends
   any event, `sent` included. `owner:delay(op, ms)` and `owner:refuse(op, error)` change how
   it replies to one op. `owner:drop_clients()` closes the connections as a queue owner that
   quits does, and `owner:stop()` closes the server too.

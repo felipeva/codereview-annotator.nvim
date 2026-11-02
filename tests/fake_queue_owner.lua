@@ -18,7 +18,8 @@
 ---What a spec controls:
 ---  * `owner.requests`: every request it received, decoded, in order. `owner:ops()` gives the
 ---    `op` of each.
----  * `owner:push_queue(notes, rev)`: replace the queue and send a `queue` event.
+---  * `owner:push_queue(notes)`: replace the queue and send a `queue` event.
+---    `owner:push_queue(notes, rev)` sends a stale event with that rev and changes nothing.
 ---  * `owner:push(event)`: send any event, for example `sent`.
 ---  * `owner:delay(op, ms)`: reply to `op` that much later. `owner:refuse(op, error)`: reply
 ---    `ok: false` with that error. Give nil to stop either.
@@ -66,10 +67,16 @@ end
 
 ---Replace the queue and send a `queue` event.
 ---@param notes table[]
----@param rev integer|nil Defaults to the next rev. A lower one tests that it is ignored.
+---@param rev integer|nil Defaults to the next rev. With a rev given, the event is a stale
+---       one, as a real queue owner can never send: the queue and the rev that the fake
+---       holds stay as they are, so a later push still counts up from them.
 function Owner:push_queue(notes, rev)
+  if rev then
+    self:push({ event = "queue", rev = rev, queue = notes, types = {} })
+    return
+  end
   self.queue = notes
-  self.rev = rev or (self.rev + 1)
+  self.rev = self.rev + 1
   self:push({ event = "queue", rev = self.rev, queue = self.queue, types = {} })
 end
 

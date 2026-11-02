@@ -338,6 +338,51 @@ describe("a snapshot with a lower rev", function()
   end)
 end)
 
+describe("a snapshot with the overlay on", function()
+  if vim.api.nvim_win_get_config(0).relative ~= "" then
+    vim.cmd("close")
+  end
+  view.close()
+  vim.cmd("silent! only")
+  vim.cmd("edit " .. vim.fn.fnameescape(vim.fs.joinpath(fixture, "src/main.lua")))
+  local buf = vim.api.nvim_get_current_buf()
+  assert.is_true(codereview.overlay("inline"))
+  local overlay = require("codereview.overlay")
+
+  ---Every chunk of text the captions on the buffer draw, as one string.
+  local function drawn()
+    local text = {}
+    for _, ns in ipairs({ overlay.NS, overlay.NS_ANCHOR }) do
+      for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+        for _, row in ipairs(m[4].virt_lines or {}) do
+          for _, chunk in ipairs(row) do
+            text[#text + 1] = chunk[1]
+          end
+        end
+      end
+    end
+    return table.concat(text)
+  end
+  local before = drawn()
+
+  local range = queue.all()[2]
+  local held = vim.deepcopy(owner.queue)
+  for _, n in ipairs(held) do
+    if n.id:lower() == range.uuid then
+      n.note = "retold in the other tool"
+    end
+  end
+  owner:push_queue(held)
+  vim.wait(3000, function()
+    return entry_of(range.uuid).note == "retold in the other tool"
+  end, 10)
+
+  it("repaints the overlay", function()
+    assert.is_falsy(before:find("retold in the other tool", 1, true))
+    assert.is_truthy(drawn():find("retold in the other tool", 1, true))
+  end)
+end)
+
 describe("the queue owner closing the connection", function()
   local held = vim.tbl_map(function(e)
     return e.uuid

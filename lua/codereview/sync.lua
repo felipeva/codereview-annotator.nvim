@@ -228,17 +228,19 @@ local function request(conn, op, fields, on_reply)
   end
 end
 
----Repaint every surface that draws the queue, and write the queue.
+---Write the queue, then repaint every surface that draws it.
+---
+---The write first, so that an error in a paint cannot keep the snapshot off the disk.
 local function repaint()
   if not view then
     return
   end
+  view.persist()
   view.paint()
   if config.overlay() then
     require("codereview.overlay").paint()
   end
   view.repaint_queue_float()
-  view.persist()
 end
 
 ---Make a snapshot of the queue owner the plugin's queue.
