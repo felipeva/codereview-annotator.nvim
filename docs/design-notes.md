@@ -2169,3 +2169,28 @@ during the wait or after it. After the wait, only `stop` can say it: `send` has 
 and `stop` drops the pending callbacks. So the connection keeps the late callback
 (`conn.late`), `stop` calls it, and a reply clears it. Without the clear, a later close
 reports a submit that was answered long ago.
+
+**The pending removals are read in the step that sets `keeping`, not before `hello`.** A
+drop or a dispatch before that step is written to the disk, and one after it sends its own
+`remove`. Read before `hello`, a drop while the handshake waits for `list` is in neither:
+the queue owner still holds the entry, and its next snapshot puts it back in the queue.
+`sync_removal_spec` holds the `list` with `math.huge` and drops in that gap.
+
+**The pending removals are guarded from the start of the handshake, not from their
+`remove`.** `subscribe` comes before the reply to `list`, so an event can come between
+them, and it still holds the entries that the queue owner did not remove yet. Before the
+`keep` replies, `apply` keeps every entry that it gets, so the entry is in the queue again,
+and the `keep` of the connect gives it back to the queue owner after the `remove`.
+`sync_restart_spec` pushes that event with `after("subscribe", …)`.
+
+**Every write of the store with no root writes every key.** `write_global` builds the
+document from the keys that it names. A key that it does not name is lost at the next
+capture, because `save_global` reads the document and writes it again. The pending
+removals and the unsent list are two of those keys. Empty lists are left out, so that a
+host without `sync` gets the same file as before.
+
+**A drop or a dispatch records its uuid whether or not the queue owner knew the entry.** No
+record says which entries the queue owner holds, and none can be true after a restart. A
+`remove` of an id that the queue owner does not hold is ok, with `removed: []`, and changes
+nothing (`QueueOps.swift`, `apply`, `.remove`). So the cost is a uuid on the disk for at
+most 7 days, and a filter would be a second copy of the queue owner's queue.

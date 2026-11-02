@@ -237,8 +237,9 @@ end
 
 ---Whatever is still inside the window, by each record's own stamp.
 ---
----One rule for the queued annotations and the archived batches alike: both are stamped
----when written, and neither has anything else that could ever decide it is finished with.
+---One rule for the queued annotations, the archived batches and the marks of the **sync**
+---alike: each is stamped when written, and none has anything else that could ever decide
+---it is finished with.
 ---@param records table[]|nil
 ---@param now integer
 ---@return table[]
@@ -252,16 +253,27 @@ local function unswept(records, now)
   return fresh
 end
 
+---A uuid that the **sync** must still give to the **queue owner**, and when it was written.
+---@class CRSyncMark
+---@field uuid string In lower case
+---@field at integer
+
+---@class CRGlobalDoc
+---@field queue CRAnnotation[]
+---@field archive CRBatch[]
+---@field removals CRSyncMark[] The **pending removals**
+---@field unsent CRSyncMark[] The entries with a change that the queue owner does not have
+
 ---The whole store, swept.
 ---
 ---Read as one document rather than one key at a time, because a write has to put the
 ---other key back: `save_global` used to encode the queue and nothing else, which with an
 ---archive beside it would delete a dispatched batch every time an annotation was queued.
----@return { queue: CRAnnotation[], archive: CRBatch[] }
+---@return CRGlobalDoc
 local function read_global()
   local file = M.global_path()
   if vim.fn.filereadable(file) == 0 then
-    return { queue = {}, archive = {} }
+    return { queue = {}, archive = {}, removals = {}, unsent = {} }
   end
   local ok, decoded = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
@@ -269,21 +281,35 @@ local function read_global()
     })
   end)
   if not ok or type(decoded) ~= "table" or decoded.version ~= VERSION then
-    return { queue = {}, archive = {} }
+    return { queue = {}, archive = {}, removals = {}, unsent = {} }
   end
 
   -- The sweep, on load rather than on a timer: this is the only moment the store is
   -- read, so it is the only moment anything is in a position to drop from it.
   local now = os.time()
-  return { queue = unswept(decoded.queue, now), archive = unswept(decoded.archive, now) }
+  return {
+    queue = unswept(decoded.queue, now),
+    archive = unswept(decoded.archive, now),
+    removals = unswept(decoded.removals, now),
+    unsent = unswept(decoded.unsent, now),
+  }
 end
 
----@param doc { queue: CRAnnotation[], archive: CRBatch[] }
+---@param doc CRGlobalDoc
 ---@return boolean ok
 local function write_global(doc)
   local file = M.global_path()
   vim.fn.mkdir(vim.fs.dirname(file), "p")
-  local ok, encoded = pcall(vim.json.encode, { version = VERSION, queue = doc.queue, archive = doc.archive })
+  -- Each key of the document, also the ones this write did not change: a key that is not
+  -- written here is lost at the next capture. Empty lists are left out, so a host without
+  -- `sync` gets the same file as before.
+  local ok, encoded = pcall(vim.json.encode, {
+    version = VERSION,
+    queue = doc.queue,
+    archive = doc.archive,
+    removals = #doc.removals > 0 and doc.removals or nil,
+    unsent = #doc.unsent > 0 and doc.unsent or nil,
+  })
   if not ok then
     return false
   end
@@ -314,6 +340,78 @@ function M.save_global(items)
   local doc = read_global()
   doc.queue = items
   return write_global(doc)
+end
+
+--- What the sync must still give to the queue owner -------------------------------
+
+---In this store, and not in a checkout's, because it is about the queue owner's queue,
+---which belongs to no checkout. With the age limit of this store: a uuid older than 7 days
+---is swept, as an entry is.
+
+---The **pending removals**: the uuids of the entries that were dropped or dispatched while
+---no queue owner took a `remove`.
+---@return string[]
+function M.removals()
+  return vim.tbl_map(function(mark)
+    return mark.uuid
+  end, read_global().removals)
+end
+
+---Add pending removals. A uuid that is there already keeps its stamp.
+---@param uuids string[] In lower case
+function M.add_removals(uuids)
+  local doc = read_global()
+  local held = {}
+  for _, mark in ipairs(doc.removals) do
+    held[mark.uuid] = true
+  end
+  local now = os.time()
+  for _, uuid in ipairs(uuids) do
+    if not held[uuid] then
+      held[uuid] = true
+      doc.removals[#doc.removals + 1] = { uuid = uuid, at = now }
+    end
+  end
+  write_global(doc)
+end
+
+---Clear pending removals, after the queue owner replied to their `remove`.
+---@param uuids string[] In lower case
+function M.clear_removals(uuids)
+  local doc = read_global()
+  local gone = {}
+  for _, uuid in ipairs(uuids) do
+    gone[uuid] = true
+  end
+  doc.removals = vim.tbl_filter(function(mark)
+    return not gone[mark.uuid]
+  end, doc.removals)
+  write_global(doc)
+end
+
+---The uuids of the entries with a change that the queue owner does not have, as a set.
+---@return table<string, true>
+function M.unsent()
+  local set = {}
+  for _, mark in ipairs(read_global().unsent) do
+    set[mark.uuid] = true
+  end
+  return set
+end
+
+---Put an entry on the unsent list, or take it off. Put on again, it gets a new stamp: the
+---age is the age of the last change.
+---@param uuid string In lower case
+---@param on boolean
+function M.set_unsent(uuid, on)
+  local doc = read_global()
+  doc.unsent = vim.tbl_filter(function(mark)
+    return mark.uuid ~= uuid
+  end, doc.unsent)
+  if on then
+    doc.unsent[#doc.unsent + 1] = { uuid = uuid, at = os.time() }
+  end
+  write_global(doc)
 end
 
 ---Forget every annotation with no repository behind it, queued or already dispatched.

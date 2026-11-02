@@ -52,6 +52,7 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `codereview/drafts_child.lua` | Spawned by `drafts_spec` to abandon a half-written note and exit — deliberately not a spec. |
 | `codereview/edit_child.lua` | Spawned by `edit_restart_spec` to queue three bugs from a buffer, edit the middle one's note, take the type off the first and make the last a nitpick, and exit with nothing written after that — deliberately not a spec. |
 | `codereview/uuid_child.lua` | Spawned twice by `uuid_restart_spec` to restore the queue, print each entry's uuid and exit, with nothing else done — deliberately not a spec. |
+| `codereview/sync_restart_child.lua` | Spawned twice by `sync_restart_spec` and twice by `sync_unsent_restart_spec`, with `sync` set: once with the fake queue owner listening, to capture bare notes and exit after the sync started, and once with no queue owner, to drop, submit, capture or edit in the queue float and exit — deliberately not a spec. |
 | `codereview/drop_child.lua` | Spawned by `drop_restart_spec` to queue two bugs from a buffer, drop the first with `x` in the queue float with no review view open, and exit with nothing written after that — deliberately not a spec. |
 | `codereview/interactive_init.lua` | The config `interactive_spec` drives, picker stub included — deliberately not a spec. |
 | `codereview/trim_child.lua` | Spawned twice by `trim_spec` — once to trim two branches and exit, once to report what a later session's branch review holds — deliberately not a spec. |
@@ -139,6 +140,9 @@ Use `make test-file`, not `:PlenaryBustedFile` — that command spawns a child *
 | `sync_edit_submit_spec` | Where a change to an entry meets a submit through the queue owner: an edit while the owner gives the batch to the agent tool, which reaches it, leaves with the batch, is archived once with the note as Neovim has it, and is not kept again; an edit the owner reads after the batch went, archived from `sent` while the update guard keeps it, not kept again on `unknown id`, and gone once that reply comes; a drop while the batch goes, out of the queue at once and still archived with the batch that `sent` names; and a submit of an entry whose edit the owner refused, which sends the owner's note and archives Neovim's |
 | `sync_submit_spec` | A submit while the sync runs: `send` with the batch's uuids, the target that `sync.target` maps and the preamble; an `ok`, reported as today, with the queue emptied by the snapshot and the archive written from `sent`, per store; an `ok` that leaves an entry the owner never took in the queue; an `error`, reported with its reason, with the batch kept and nothing archived; a reply after a short wait and after the 5 s reply timeout, still reported, with the batch kept until the snapshot and a second submit refused meanwhile; a `sent` that this process did not cause, archived per checkout with its preamble and target and judged by touched; a `sent` that another Neovim archived first, not archived again; a late `ok` that removes the preamble's draft, a newer draft that stays, and a late error that keeps it; the untouched tally in the winbar at once after a `sent` with a review open; `<C-c>` in the wait; a close in the wait and a close after it, each said once as a result that is unknown. Waits about 5 s, once, on purpose |
 | `sync_header_spec` | The header of the plugin's own payload: with `sync` set and no queue owner listening, `Annotations — 1 item` and `Annotations — 3 items` on a copy, on `<C-s>`, under a preamble on `<C-a>` and on an immediate send, with no scope or file counts although a review is open; without `sync`, today's header with the scope and the file counts; the same groups, numbers and notes under both headers; and, with the fake queue owner listening, the copy to a register, which the plugin renders also while connected. A connected submit is rendered by the queue owner, so it is not a case here |
+| `sync_removal_spec` | **Pending removals** in one session: without `sync`, a drop, an edit and a submit that write neither list to the store with no root; a drop while the handshake waits for the reply to `list`, which is a pending removal on the disk until that handshake sends it in a `remove` after `list` and before `keep`, and which does not come back; a drop while the sync runs, sent at once and never written; and a pending removal and an unsent edit older than 7 days, swept when the store is read, so that only the newer removal goes, and is cleared after a reply that removed nothing |
+| `sync_restart_spec` | Pending removals across two genuine restarts: a child captures three notes with the fake owner listening, a second child with no owner drops one, submits the other two and captures a fourth, and this process connects — `remove` with the three after `list` and before `keep`, the fourth alone in `keep`, an event between `subscribe` and the `list` reply that still holds the three not bringing them back, and the store cleared after the reply |
+| `sync_unsent_restart_spec` | An edit with no queue owner across two genuine restarts: a child captures with the fake owner listening, a second child with no owner edits the note, and this process connects — the edit sent with `update` after `keep`, the typed note with the owner, in the queue and on disk, and the unsent list cleared |
 | `sync_limit_spec` | A queue larger than the owner's line limit (set to 2 MiB in the fake), which reaches the owner whole because the connect splits its `keep` |
 | `sweep_spec` | Sweeping the stored state of **checkouts** that are gone: the checkout and the save stamp a document now records, the stamp every entry carries at capture, and the three conditions a sweep needs — the directory gone, its parent still there, and a document aged past seven days — each held by a case of its own, including the parent that is also gone which is never swept at any age; then the four documents a sweep must refuse to read as a checkout's, the whole document going rather than the queue inside it, the two figures it reports and the sum it must not report, the silence when it takes nothing, the absence of any prompt, and the **switch** it runs on — with nothing swept by setup or by a capture |
 
@@ -1268,7 +1272,7 @@ What it still does not do, so a spec cannot lean on it there:
 - the owner's full type rules: the 16-type cap is there, but a type deleted in Settings, and
   the name the owner gives a type with no label, are not.
 
-Three traps it does not hide:
+Four traps it does not hide:
 
 - **libuv deletes the socket file when the server closes.** A stopped owner therefore gives
   `ENOENT`, not `ECONNREFUSED`. For a refused connect, bind a pipe and do not listen on it —
@@ -1283,6 +1287,10 @@ Three traps it does not hide:
   for its reply then reads a screen that this event has already repainted, and the reading
   cannot fail. Hold the request back with `math.huge`, read the screen, then do the change,
   the event and the reply by hand — `sync_edit_spec`'s `finish` does.
+- **`SystemObj:wait` runs only fast events, so the fake cannot answer a child.** The fake
+  handles each line with `vim.schedule`, which is not a fast event. A child that talks to it
+  is waited for with `vim.wait` on a flag that the `on_exit` callback sets —
+  `sync_restart_spec` does.
 
 ## Deliberately not covered
 

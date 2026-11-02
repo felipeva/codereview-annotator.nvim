@@ -350,6 +350,15 @@ renders the **payload** and delivers the **batch**. The plugin does not name it:
 that speaks the protocol can be one.
 _Avoid_: server, daemon, peer, backend
 
+**Pending removal**:
+The uuid of an **entry** that was dropped or **dispatched** while no **queue owner** could take
+a `remove`: with no connection, or during a connect before its `keep`. Kept in the store
+for entries with no repository, so a restart does not lose it, and swept after 7 days. The
+next connect removes it from the queue owner's queue before it gives the plugin's entries,
+so an entry that went to the agent does not come back. A submit through the queue owner
+never makes one: its batch leaves the queue only by the queue owner's snapshot.
+_Avoid_: tombstone, deletion, outbox
+
 **Batch**:
 The queue as a single unit of delivery — what one submission sends.
 
