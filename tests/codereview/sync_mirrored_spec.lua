@@ -384,6 +384,59 @@ describe("a copy to a register", function()
   end)
 end)
 
+describe("a copy of a mirrored entry with an empty note", function()
+  local EMPTY = "7C2D3E4F-5A6B-4C7D-8E9F-0A1B2C3D4E5F"
+  local held = vim.deepcopy(owner.queue)
+  owner:push_queue(vim.list_extend(vim.deepcopy(held), {
+    foreign(EMPTY, {
+      note = "  ",
+      selection = { area = { imagePath = "/tmp/empty.png" } },
+      source = { appName = "Preview" },
+    }),
+  }))
+  wait(function()
+    return entry_of(EMPTY) ~= nil
+  end)
+  vim.fn.setreg("+", "")
+  codereview.copy()
+  local lines = vim.split(vim.fn.getreg("+"), "\n")
+  local at
+  for i, line in ipairs(lines) do
+    if line:match("^### %d+%. Area · Preview$") then
+      at = i
+    end
+  end
+  owner:push_queue(held)
+  wait(function()
+    return entry_of(EMPTY) == nil
+  end)
+
+  it("renders its heading only, as the queue owner leaves an empty note out", function()
+    assert.is_not_nil(at, table.concat(lines, "\n"))
+    local after = lines[at + 1]
+    assert.is_true(after == nil or (after == "" and (lines[at + 2] or ""):match("^##") ~= nil), after)
+  end)
+end)
+
+describe("a sent that names only a mirrored entry", function()
+  local batches = #state.global_archive() + #state.archive(root)
+  owner:push({
+    event = "sent",
+    ids = { PAGE },
+    target = { tool = "custom", address = "agent", cwd = root },
+    preamble = "",
+    text = "Annotations — 1 item\n\n## Questions (1)\n\n### 1. Selected text from Helium",
+    at = "2026-11-02T10:00:00Z",
+  })
+  vim.wait(150)
+
+  it("archives nothing, also with the text of the event", function()
+    assert.same(batches, #state.global_archive() + #state.archive(root))
+    assert.is_falsy(stores():find(PAGE:lower(), 1, true))
+    assert.is_falsy(stores():find("selected text from helium", 1, true))
+  end)
+end)
+
 describe("an edit of a mirrored entry from the queue float", function()
   owner:delay("update", math.huge)
   reply = "edited in Neovim"
@@ -524,6 +577,12 @@ describe("a submit that holds mirrored entries", function()
     for _, uuid in ipairs({ AREA, PAGE, NONE, FILE }) do
       assert.is_true(vim.tbl_contains(r.ids, uuid:lower()), uuid)
     end
+  end)
+
+  it("keeps the text of sent with the batch", function()
+    local archived = state.archive(root)[1]
+    assert.same("string", type(archived.text))
+    assert.is_truthy(archived.text:find("Annotations —", 1, true))
   end)
 
   it("archives the plugin's own entries from sent, and no mirrored entry", function()
