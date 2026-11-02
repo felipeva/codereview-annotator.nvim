@@ -175,6 +175,20 @@ local function late_snapshot(notes)
   owner:push(vim.tbl_extend("force", { event = "queue" }, owner:snapshot(nil, notes)))
 end
 
+---Do at last a request that the fake held back with `delay(op, math.huge)`, as the queue
+---owner does it: the change, its `queue` event, then the reply.
+---
+---Held back, so a spec can read the screen while the queue owner has not read the request.
+---With a finite delay the fake does the request at once, and its own event repaints the
+---screen before a spec can read it: a reading then cannot see a guard that is missing.
+---@param r table The request, as the fake recorded it
+---@param change fun() Changes `owner.queue` as the request does
+local function finish(r, change)
+  change()
+  owner:changed()
+  owner:write(owner.clients[#owner.clients], { ok = true, req = r.req })
+end
+
 ---Run the loop long enough for an event that was pushed to be applied.
 local function settle()
   vim.wait(150)
@@ -333,20 +347,21 @@ describe("a drop from the queue float", function()
 end)
 
 describe("an edit that waits for its reply", function()
-  local before = vim.deepcopy(owner.queue)
-  owner:delay("update", 300)
+  owner:delay("update", math.huge)
   reply = "edited before the reply"
-  in_float("note three", "e")
+  local r = next_request("update", function()
+    in_float("note three", "e")
+  end)
   local at_once = entry_of(C3.uuid).note
   -- A snapshot that still holds the old note, written before the queue owner read the edit.
-  late_snapshot(before)
+  late_snapshot(owner.queue)
   settle()
   local during = entry_of(C3.uuid).note
-  wait(function()
-    return #sent("update") > 0 and held(C3).note == "edited before the reply"
-  end)
-  vim.wait(300)
   owner:delay("update", nil)
+  finish(r, function()
+    owner.queue[owner:find(C3.uuid)].note = r.note
+  end)
+  settle()
 
   it("shows in the local queue before the reply arrives", function()
     assert.same("edited before the reply", at_once)
@@ -371,14 +386,18 @@ describe("an edit that waits for its reply", function()
 end)
 
 describe("a drop that waits for its reply", function()
-  local before = vim.deepcopy(owner.queue)
-  owner:delay("remove", 300)
-  in_float("note four", "x")
-  late_snapshot(before)
+  owner:delay("remove", math.huge)
+  local r = next_request("remove", function()
+    in_float("note four", "x")
+  end)
+  late_snapshot(owner.queue)
   settle()
   local during = entry_of(C4.uuid)
-  vim.wait(400)
   owner:delay("remove", nil)
+  finish(r, function()
+    table.remove(owner.queue, owner:find(C4.uuid))
+  end)
+  settle()
 
   it("is not undone by a snapshot that still holds the entry", function()
     assert.is_nil(during)

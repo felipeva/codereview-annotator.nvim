@@ -1256,7 +1256,7 @@ What it still does not do, so a spec cannot lean on it there:
 - the owner's full type rules: the 16-type cap is there, but a type deleted in Settings, and
   the name the owner gives a type with no label, are not.
 
-Two traps it does not hide:
+Three traps it does not hide:
 
 - **libuv deletes the socket file when the server closes.** A stopped owner therefore gives
   `ENOENT`, not `ECONNREFUSED`. For a refused connect, bind a pipe and do not listen on it —
@@ -1265,6 +1265,11 @@ Two traps it does not hide:
   runs where `vim.notify`, windows and buffers are not allowed, so the plugin and the owner
   both `vim.schedule` each line. A `vim.wait` with a condition runs those; a test that reads
   the queue straight after a push, with no wait, reads it before the snapshot.
+- **A finite `delay` does the request at once.** Only the reply waits, so the `queue` event
+  of the change is already on its way. A test of what a snapshot does while a request waits
+  for its reply then reads a screen that this event has already repainted, and the reading
+  cannot fail. Hold the request back with `math.huge`, read the screen, then do the change,
+  the event and the reply by hand — `sync_edit_spec`'s `finish` does.
 
 ## Deliberately not covered
 
