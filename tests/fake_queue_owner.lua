@@ -118,12 +118,13 @@ end
 ---`createdAt` is ISO 8601. This fake asks for whole seconds with `Z`, which is what the
 ---plugin writes: the owner also takes an offset.
 ---@param note any
----@param i integer The index of the note, from 0, as the owner's error names it
+---@param i integer The index of the note, from 0. The owner's decoder names an index of an
+---       array `Index 0` in the path of its error, so the fake does too.
 ---@return string|nil
 local function check_note(note, i)
-  local at = ("notes.%d."):format(i)
+  local at = ("notes.Index %d."):format(i)
   if type(note) ~= "table" then
-    return "wrong type at notes." .. i
+    return "wrong type at notes.Index " .. i
   end
   for _, field in ipairs({ "id", "type", "note", "selection", "source", "createdAt" }) do
     if note[field] == nil then

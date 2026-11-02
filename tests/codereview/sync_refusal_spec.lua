@@ -104,12 +104,12 @@ describe("one entry that the queue owner cannot decode, at connect", function()
   end)
 
   it("is said once, with the queue owner's reason", function()
-    assert.same(1, said("did not take 1 annotation (bad request: bad value at notes.0.id)"))
+    assert.same(1, said("did not take 1 annotation (bad request: bad value at notes.Index 0.id)"))
   end)
 end)
 
 describe("a keep that the queue owner refuses", function()
-  local REASON = "bad request: wrong type at notes.0.note"
+  local REASON = "bad request: wrong type at notes.Index 0.note"
   owner:refuse("keep", REASON)
   vim.cmd("enew")
   codereview.annotate("bug")
@@ -162,7 +162,7 @@ describe("a keep that the queue owner refuses", function()
     end)
 
     it("says nothing again about an entry refused for the same reason", function()
-      assert.same(1, said("bad value at notes.0.id"))
+      assert.same(1, said("bad value at notes.Index 0.id"))
     end)
 
     it("still keeps the entry that cannot be decoded in the local queue", function()
