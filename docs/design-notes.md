@@ -2179,3 +2179,23 @@ during the wait or after it. After the wait, only `stop` can say it: `send` has 
 and `stop` drops the pending callbacks. So the connection keeps the late callback
 (`conn.late`), `stop` calls it, and a reply clears it. Without the clear, a later close
 reports a submit that was answered long ago.
+
+**A mirrored entry must never reach `to_note`.** `to_note` writes this plugin's `origin`
+into each note, so a `keep` of a **mirrored entry** gives the queue owner a bare note of
+this plugin, which is then persisted and archived. Two paths kept every local entry: the
+`keep` of the connect, and the revive of an edit that got `unknown id`. The first is not
+only a reconnect: a `queue` event can come between `subscribe` and the reply to `list`, and
+`apply` puts its mirrored entries in the queue before the `keep` reads it.
+`sync_mirrored_spec` holds `list` back to make that event land there.
+
+**A refused edit of a mirrored entry does not go on `unsent`.** For an entry of this
+plugin, `unsent` keeps the edit in Neovim until the next connect sends it. No connect sends
+a mirrored entry, so the edit would win over each snapshot and then be lost, and the screen
+would show a note that the queue owner does not submit. `send_unsent` also sends the whole
+`review`, which would give a note of another tool a review it never had. So a refusal, and
+no reply, apply the last snapshot again.
+
+**A mirrored entry has the key of a bare note, `note:0`, and not nil.** `queue.by_key`
+indexes by the key, and a nil key raises "table index is nil" in the paint of the review
+view. With the bare note's key, jump, the overlay and the diff skip a mirrored entry with
+no branch of their own (ADR-0013).

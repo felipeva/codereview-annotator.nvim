@@ -84,7 +84,7 @@ local function entry_state(entry)
   -- A bare note is about no file, so there is no location to print and no tag to print it
   -- with; every branch below reads a path this one does not have.
   if entry.kind == "note" then
-    return "(no file)", state
+    return entry.label or "(no file)", state
   end
   -- Outside a checkout there is no repository-relative path, and the absolute one is the
   -- only name the file has.

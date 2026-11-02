@@ -246,6 +246,81 @@ local function to_entry(note)
   }
 end
 
+---A string with text in it, trimmed, or nil.
+---@param value any
+---@return string|nil
+local function present(value)
+  if type(value) ~= "string" then
+    return nil
+  end
+  value = vim.trim(value)
+  return value ~= "" and value or nil
+end
+
+---The host of a URL, without `www.`: `https://www.github.com/acme/web` gives `github.com`.
+---@param url any
+---@return string|nil
+local function host(url)
+  local authority = type(url) == "string" and url:match("^%a[%w+.-]*://([^/?#]*)")
+  if not authority then
+    return nil
+  end
+  local name = authority:gsub("^.*@", ""):gsub(":%d*$", ""):gsub("^www%.", "")
+  return name ~= "" and name or nil
+end
+
+---The label of a note that another tool made: what it is and where it came from, on one
+---line, for example `Area · Helium`, `Text · github.com` or `Note`.
+---
+---The rule of the queue owner's own label (`Annotation.label`, CaptureLabel.swift), which
+---has two parts: the place, and the kind with its origin. A line has room for one part, so
+---a note without a file gives the second: the kind (`Text`, `Area` or `Note`), then the site
+---of the page, else `herdr`, else the app. The owner leaves out `Note` and an origin that
+---repeats the place, because its card shows the place and a symbol beside them. This line
+---shows neither, so it keeps both. A note with a file gives the place, the file's name and
+---its lines, then the editor or the app, as the owner does.
+---@param note table
+---@return string
+local function label_of(note)
+  local selection = type(note.selection) == "table" and note.selection or {}
+  local source = type(note.source) == "table" and note.source or {}
+  local text = type(selection.text) == "table" and selection.text or nil
+  local file = text and type(text.file) == "table" and present(text.file.path) and text.file or nil
+  if file then
+    local place = vim.fs.basename(file.path)
+    if type(file.first) == "number" then
+      local last = type(file.last) == "number" and file.last or file.first
+      place = place
+        .. (file.first == last and (" · %d"):format(file.first) or (" · %d–%d"):format(file.first, last))
+    end
+    return ("%s · %s"):format(place, present(source.editor) or present(source.appName) or "File")
+  end
+  local kind = text and "Text" or type(selection.area) == "table" and "Area" or "Note"
+  local from = host(source.url) or (source.editor == "herdr" and "herdr") or present(source.appName)
+  return from and ("%s · %s"):format(kind, from) or kind
+end
+
+---The **mirrored entry** of a note that another tool made: a loose entry of the **bare
+---note** kind, with the note, the type and a label (ADR-0013).
+---
+---No anchor, no path and no file, so it has no place in a diff or a buffer. The key is the
+---one that every bare note has (`NOTE_KEY` in capture.lua): no diff row has it, and
+---`queue.by_key` needs a key.
+---@param note table A note without this plugin's origin
+---@return CRAnnotation
+local function to_mirrored(note)
+  return {
+    uuid = lower(note.id),
+    type = type(note.type) == "string" and note.type ~= "" and note.type or nil,
+    note = type(note.note) == "string" and note.note or "",
+    kind = "note",
+    key = "note:0",
+    inline = false,
+    mirrored = true,
+    label = label_of(note),
+  }
+end
+
 ---The host's types, in the host's order.
 ---@return table[]
 local function host_types()
@@ -258,8 +333,11 @@ end
 
 --- The connection --------------------------------------------------------------
 
----Close a connection. The plugin's own entries stay in the queue: nothing here removes
----them.
+local repaint
+
+---Close a connection. The plugin's own entries stay in the queue. The **mirrored
+---entries** leave it: only the queue owner holds them and can render them, and a submit
+---without it would send a screenshot as a bare note.
 ---@param conn CRSyncConn
 local function stop(conn)
   if conn.closed then
@@ -271,6 +349,14 @@ local function stop(conn)
   end
   if current == conn then
     current = nil
+  end
+  local entries = queue.entries()
+  local kept = vim.tbl_filter(function(entry)
+    return not entry.mirrored
+  end, entries)
+  if #kept < #entries then
+    queue.replace_every(kept, state.checkout_of)
+    repaint()
   end
   if conn.ready then
     info("Queue sync stopped: the queue is kept in Neovim")
@@ -383,7 +469,7 @@ end
 ---Write the queue, then repaint every surface that draws it.
 ---
 ---The write first, so that an error in a paint cannot keep the snapshot off the disk.
-local function repaint()
+function repaint()
   if not view then
     return
   end
@@ -409,6 +495,8 @@ end
 ---queue owner wrote before it read them does not undo them. While an `update` waits, the
 ---local entry stays as it is, also when the snapshot does not hold it. While a `remove`
 ---waits, the entry does not come back. An entry on `unsent` keeps its local change too.
+---
+---A note that another tool made becomes a **mirrored entry**, under the same guards.
 ---@param conn CRSyncConn
 ---@param rev integer|nil nil applies `notes` again, after a request that changed nothing
 ---@param notes table[]|nil
@@ -430,12 +518,11 @@ local function apply(conn, rev, notes)
 
   local items, seen = {}, {}
   for _, note in ipairs(notes or {}) do
-    -- #284 handles the notes of other tools. Until then they are not in this queue.
     local uuid = type(note) == "table" and type(note.id) == "string" and lower(note.id)
-    if uuid and own(note) and not conn.removing[uuid] then
+    if uuid and not conn.removing[uuid] then
       local entry = here[uuid]
       if not (entry and (conn.updating[uuid] or unsent[uuid])) then
-        entry = to_entry(note)
+        entry = own(note) and to_entry(note) or to_mirrored(note)
         entry.id = ids[uuid]
       end
       items[#items + 1] = entry
@@ -783,6 +870,11 @@ end
 ---reviewer made now, the entry goes back to the queue owner with `keep`, so the note that
 ---the reviewer typed is not lost. Without it, the last snapshot is applied again, and the
 ---entry leaves. Any other refusal, and no reply, puts the entry on `unsent`, said once.
+---
+---A **mirrored entry** is never on `unsent` and never kept again. No connect keeps it, so
+---nothing would send its change, and a `keep` would give the queue owner a note with this
+---plugin's origin. So a refusal, and no reply, apply the last snapshot again: the queue
+---float shows the note that the queue owner holds, which is the note that it submits.
 ---@param conn CRSyncConn|nil
 ---@param entry CRAnnotation An entry that is in the queue
 ---@param fields table The fields of the note that changed
@@ -790,7 +882,9 @@ end
 local function send_update(conn, entry, fields, revive)
   local uuid = lower(entry.uuid)
   if not conn or not conn.keeping then
-    unsent[uuid] = true
+    if not entry.mirrored then
+      unsent[uuid] = true
+    end
     return
   end
   if refused[uuid] then
@@ -806,11 +900,21 @@ local function send_update(conn, entry, fields, revive)
     end
     if reply.error == "unknown id" then
       local now = local_entry(uuid)
-      if revive and now and not delivered[uuid] then
+      if revive and now and not now.mirrored and not delivered[uuid] then
         keep_entries(conn, { now })
       else
         reapply(conn)
       end
+      return
+    end
+    if entry.mirrored then
+      warn_once(
+        "update mirrored: " .. tostring(reply.error),
+        ("Queue sync: the queue owner did not take an edit (%s). The annotation shows the note that the queue owner has."):format(
+          tostring(reply.error)
+        )
+      )
+      reapply(conn)
       return
     end
     unsent[uuid] = true
@@ -880,8 +984,12 @@ local function handshake(conn)
           return
         end
         -- Read at this moment, not before `hello`: an entry captured while the connect ran
-        -- is in this `keep`, because `keeping` was false when it was captured.
-        local entries = queue.entries()
+        -- is in this `keep`, because `keeping` was false when it was captured. Not a
+        -- **mirrored entry** that a snapshot before this reply gave: a `keep` would make it
+        -- a note of this plugin if the other tool dropped it meanwhile.
+        local entries = vim.tbl_filter(function(entry)
+          return not entry.mirrored
+        end, queue.entries())
         conn.keeping = true
         keep_entries(conn, entries, function()
           if not conn.closed then

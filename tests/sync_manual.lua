@@ -29,9 +29,24 @@
 --          owner's lines back while a raw `remove` takes the entry out,
 --      6.7 an `update` that changes nothing, on a raw connection that subscribed, beside one
 --          that changes the note, which must give an event.
+--   7. The **mirrored entries** (#284). A second raw connection, with a client name of its
+--      own, stands in for another tool: it keeps four notes in the shape the queue owner
+--      stores its own (a text note with a page, a text note with only an app, an area note
+--      that points at a PNG outside the queue owner's folders, and an untyped quick note):
+--      7.1 each one in Neovim as a mirrored entry, loose, labelled, in order, in the count,
+--      7.2 an edit and a change of type from the plugin's paths, each beside what the queue
+--          owner stored, and the next snapshot keeping them,
+--      7.3 a drop, which takes the note out of the queue owner,
+--      7.4 the plugin's state files, which hold no mirrored entry (also after 7.5),
+--      7.5 the plugin's connection closing: the mirrored entries leave Neovim, the queue
+--          owner keeps them, and the reconnect brings them back,
+--      7.6 a copy to a register, which names each by its label.
+--      `SHOT` is the path of the PNG, which the check writes; the default is a temporary
+--      file of Neovim's.
 --
--- It never sends `send`. In a `finally` path it removes every uuid that the plugin kept, with
--- a raw `remove`, and shows that the queue is then what step 0 read. Every raw line is
+-- It never sends `send`. In a `finally` path it removes every uuid that the plugin kept, and
+-- each note that step 7 kept, with a raw `remove`, and shows that the queue is then what step
+-- 0 read. Every raw line is
 -- printed. It exits 0 when every check passed, 1 when one failed, 2 when it refused to start.
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h")
 vim.opt.runtimepath:prepend(root)
@@ -66,8 +81,9 @@ say("socket:", SOCKET)
 ---Send `hello` (no types) and then each request on one new connection, and give the reply
 ---to each request, by its index.
 ---@param requests table[]
+---@param client string|nil The name in `hello`
 ---@return table[] replies, string[] lines
-local function raw(requests)
+local function raw(requests, client)
   local pipe = vim.uv.new_pipe(false)
   local lines, buffer, failed = {}, "", nil
   pipe:connect(SOCKET, function(err)
@@ -86,7 +102,7 @@ local function raw(requests)
         buffer = buffer:sub(i + 1)
       end
     end)
-    local all = { { op = "hello", protocol = 1, client = "codereview.nvim manual check" } }
+    local all = { { op = "hello", protocol = 1, client = client or "codereview.nvim manual check" } }
     vim.list_extend(all, requests)
     for i, r in ipairs(all) do
       pipe:write(vim.json.encode(vim.tbl_extend("force", r, { req = "raw" .. i })) .. "\n")
@@ -235,6 +251,10 @@ proxy:listen(4, function()
 end)
 
 --- The plugin --------------------------------------------------------------------
+
+---The ids of the notes that step 7 kept as another tool, for the cleanup.
+---@type string[]
+local others = {}
 
 local h = require("tests.helpers")
 local fixture = h.fixture("mkfixture")
@@ -735,6 +755,186 @@ local function main()
   check(replies[3].ok and replies[2].rev == replies[4].rev, "6.7 an update that changes nothing keeps rev")
   check(#events == 1 and replies[6].rev == replies[4].rev + 1, "6.7 only the update that changes gives an event")
   rewrite, hold = nil, false
+
+  say("--- step 7: the mirrored entries")
+  local OTHER = "manual check, another tool"
+  local shot = vim.env.SHOT or (vim.fn.tempname() .. ".png")
+  -- A 1x1 PNG, so that the path points at a real image. Not `writefile`: it writes a
+  -- newline byte inside an item as NUL.
+  local png = assert(io.open(shot, "wb"))
+  png:write(
+    vim.base64.decode(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+  )
+  png:close()
+  say("7.0 the PNG: " .. shot)
+  local now = os.date("!%Y-%m-%dT%H:%M:%SZ")
+  local function other(type_id, note, selection, source)
+    local id = uuid():upper()
+    others[#others + 1] = id
+    return { id = id, type = type_id, note = note, selection = selection, source = source, createdAt = now }
+  end
+  local notes = {
+    other("bug", "the wording is wrong", { text = { _0 = "Sign in to continue" } }, {
+      appName = "Helium",
+      bundleID = "net.imput.helium",
+      windowTitle = "PR 411",
+      url = "https://www.github.com/acme/web/pull/411",
+      pageTitle = "PR 411",
+    }),
+    other("issue", "said in the channel", { text = { _0 = "it crashes on save" } }, {
+      appName = "Slack",
+      bundleID = "com.tinyspeck.slackmacgap",
+      windowTitle = "general",
+    }),
+    other("nitpick", "the button is cut off", { area = { imagePath = shot } }, {
+      appName = "Helium",
+      bundleID = "net.imput.helium",
+      windowTitle = "Checkout",
+    }),
+    other("", "a thought on its own", { none = vim.empty_dict() }, vim.empty_dict()),
+  }
+  local PAGE, APP, AREA, QUICK = others[1], others[2], others[3], others[4]
+  local want = { [PAGE] = "Text · github.com", [APP] = "Text · Slack", [AREA] = "Area · Helium", [QUICK] = "Note" }
+  local count_before = codereview.count()
+  mark = #record
+  local kept_reply, kept_lines = raw({ { op = "keep", notes = notes } }, OTHER)
+  say("7.0 the other tool, raw:")
+  for _, line in ipairs(kept_lines) do
+    say("<", line)
+  end
+  check((kept_reply[1] or {}).ok, "7.0 the queue owner takes the four notes of the other tool")
+  vim.wait(5000, function()
+    for _, id in ipairs(others) do
+      if not entry_of(id) then
+        return false
+      end
+    end
+    return true
+  end, 10)
+  vim.wait(300)
+  say("7.0 what the plugin received:")
+  for k = mark + 1, #record do
+    say(record[k].dir, record[k].line)
+  end
+
+  -- 7.1
+  local last_id = 0
+  for _, id in ipairs(others) do
+    local e = entry_of(id)
+    say(("7.1 %s: %s"):format(id, e and vim.inspect(e, { newline = " ", indent = "" }) or "not in the queue"))
+    check(
+      e ~= nil and e.mirrored == true and e.kind == "note",
+      "7.1 a mirrored entry of the bare-note kind: " .. want[id]
+    )
+    check(e ~= nil and e.path == nil and e.abs_path == nil, "7.1 loose, with no path: " .. want[id])
+    check(e ~= nil and e.label == want[id], ("7.1 the label %q (got %q)"):format(want[id], tostring(e and e.label)))
+    check(e ~= nil and e.id > last_id, "7.1 in snapshot order: " .. want[id])
+    last_id = e and e.id or last_id
+  end
+  check(entry_of(QUICK) and entry_of(QUICK).type == nil, "7.1 the untyped quick note is untyped in Neovim")
+  check(
+    codereview.count() == count_before + 4,
+    ("7.1 the count is %d + 4 (got %d)"):format(count_before, codereview.count())
+  )
+
+  -- 7.2 An edit of the note, and a change of type.
+  compose_text = "edited in Neovim, a mirrored entry"
+  mark = traced(function()
+    annotate.edit_note(entry_of(PAGE))
+  end, "update")
+  compose_text = "the note"
+  side_by_side("7.2 edit", sent_op("update", mark), PAGE)
+  check((reply_to("update", mark) or {}).ok, "7.2 the queue owner takes the edit")
+  local st = stored_of(PAGE) or {}
+  check(st.note == "edited in Neovim, a mirrored entry", "7.2 the queue owner stores the new note")
+  check(st.review == nil and st.origin == nil, "7.2 the edit gives the note no review and no origin")
+  check(entry_of(PAGE).note == "edited in Neovim, a mirrored entry", "7.2 the next snapshot keeps the edit")
+  vim.ui.select = function(items, _, cb)
+    cb(items[2], 2)
+  end
+  mark = traced(function()
+    annotate.change_type(entry_of(QUICK))
+  end, "update")
+  vim.ui.select = select
+  side_by_side("7.2 type", sent_op("update", mark), QUICK)
+  check((reply_to("update", mark) or {}).ok, "7.2 the queue owner takes the type")
+  st = stored_of(QUICK) or {}
+  check(st.type == "fix", "7.2 the queue owner stores the type fix")
+  check(st.review == nil and st.origin == nil, "7.2 the type gives the note no review and no origin")
+  check(entry_of(QUICK).type == "fix", "7.2 the next snapshot keeps the type")
+
+  -- 7.3 A drop.
+  mark = traced(function()
+    annotate.drop_entry(entry_of(APP))
+  end, "remove")
+  check((reply_to("remove", mark) or {}).ok, "7.3 the queue owner takes the remove")
+  check(stored_of(APP) == nil, "7.3 the note leaves the queue owner")
+  check(entry_of(APP) == nil, "7.3 the mirrored entry leaves Neovim")
+
+  -- 7.4 The state files, every one of them.
+  local function state_files(when)
+    local files = vim.fn.globpath(vim.env.XDG_STATE_HOME, "**/*", true, true)
+    local clean = true
+    for _, file in ipairs(files) do
+      if vim.fn.isdirectory(file) == 0 then
+        local text = table.concat(vim.fn.readfile(file, "b"), "\n")
+        say(("7.4 %s, %s (%d bytes):"):format(when, file, #text))
+        say(text)
+        for _, id in ipairs(others) do
+          if text:lower():find(id:lower(), 1, true) then
+            clean = false
+            say("7.4 holds " .. id)
+          end
+        end
+      end
+    end
+    check(#files > 0 and clean, "7.4 no state file holds a mirrored entry, " .. when)
+  end
+  state_files("before the close")
+
+  -- 7.5 The plugin's connection closes, then comes back.
+  local stopped = said("Queue sync stopped")
+  local ids_before = {}
+  for _, id in ipairs({ PAGE, AREA, QUICK }) do
+    ids_before[id] = entry_of(id).id
+  end
+  pair.close()
+  vim.wait(3000, function()
+    return said("Queue sync stopped") > stopped
+  end, 10)
+  for _, id in ipairs({ PAGE, AREA, QUICK }) do
+    check(entry_of(id) == nil, "7.5 the close takes the mirrored entry out of Neovim: " .. want[id])
+    check(stored_of(id) ~= nil, "7.5 the queue owner still holds it: " .. want[id])
+  end
+  check(entry_of(L) ~= nil, "7.5 the plugin's own entries stay")
+  state_files("after the close")
+  local started = said("Queue sync started")
+  vim.wait(2100)
+  codereview.queue()
+  vim.api.nvim_win_close(vim.api.nvim_get_current_win(), true)
+  vim.wait(8000, function()
+    return said("Queue sync started") > started
+  end, 10)
+  vim.wait(500)
+  for _, id in ipairs({ PAGE, AREA, QUICK }) do
+    local e = entry_of(id)
+    check(e ~= nil and e.mirrored == true, "7.5 the reconnect brings it back: " .. want[id])
+    check(e ~= nil and e.id == ids_before[id], "7.5 with the id it had: " .. want[id])
+  end
+  check(entry_of(PAGE).note == "edited in Neovim, a mirrored entry", "7.5 the edit is still there")
+
+  -- 7.6 A copy, which the plugin renders itself.
+  vim.fn.setreg("+", "")
+  codereview.copy()
+  local copied = vim.fn.getreg("+")
+  say("7.6 the copy:")
+  say(copied)
+  for _, id in ipairs({ PAGE, AREA, QUICK }) do
+    check(copied:find("%. " .. vim.pesc(want[id]) .. "\n") ~= nil, "7.6 the copy heads it with its label: " .. want[id])
+  end
+  check(copied:find("edited in Neovim, a mirrored entry", 1, true) ~= nil, "7.6 the copy holds the edited note")
 end
 
 local ok, err = xpcall(main, debug.traceback)
@@ -759,6 +959,9 @@ for _, r in ipairs(record) do
       end
     end
   end
+end
+for _, id in ipairs(others) do
+  ids[#ids + 1] = id
 end
 say("--- cleanup: remove " .. #ids .. " ids")
 local after_replies, after_lines = raw({ { op = "remove", ids = ids }, { op = "list" } })

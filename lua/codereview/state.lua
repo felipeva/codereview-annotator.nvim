@@ -216,6 +216,10 @@ M.checkout_of = checkout_of
 ---    misfiling this split exists to refuse, and writing it into a queue that is not being
 ---    shown would overwrite entries nothing has read back. The reviewer is told -- see
 ---    `say_unfiled`.
+---
+---A **mirrored entry** is in none of the three, so no store and no archive ever holds it
+---(ADR-0013). It is the queue owner's: written here, it would come back as a bare note of
+---this plugin when no queue owner listens.
 ---@param items CRAnnotation[]
 ---@param root string|nil The checkout being written; nil outside every checkout, where
 ---       nothing with a repository behind it can be filed at all
@@ -226,6 +230,9 @@ local function partition(items, root)
   -- so it is already resolved; putting it through anyway is what stops the comparison
   -- depending on which of the two it came from.
   root = root and canonical(root) or nil
+  items = vim.tbl_filter(function(item)
+    return not item.mirrored
+  end, items)
   for _, item in ipairs(items) do
     if not item.path then
       loose[#loose + 1] = item

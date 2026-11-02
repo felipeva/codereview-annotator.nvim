@@ -95,7 +95,7 @@ local function describe(entry, base)
   -- for the `@ref`-versus-inline rules below to decide -- and every one of them would be
   -- reading a path that is not there.
   if entry.kind == "note" then
-    return "(no file)", nil
+    return entry.label or "(no file)", nil
   end
 
   local rel = M.relative_to(entry.abs_path, base)

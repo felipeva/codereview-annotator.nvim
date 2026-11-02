@@ -48,14 +48,23 @@ codereview.setup({
     end,
   },
 })
-vim.wait(5000, function()
-  return h.notified(messages, "Queue sync started")
+-- The connect is four `keep` requests of 700 KiB, each answered after a snapshot of the whole
+-- queue that the plugin decodes, applies and writes to the store. That takes about 0.4 s
+-- here, and 2.7 s with two whole suites running beside it, so a bare 5 s wait failed on a
+-- busy CI runner. The wait ends when the connect is complete, or when the fake closes the
+-- connection for a line over its limit, so a failing run does not wait for the ceiling.
+vim.wait(60000, function()
+  local client = owner.clients[1]
+  return h.notified(messages, "Queue sync started") or (client ~= nil and client.pipe:is_closing())
 end, 10)
 restore_notify()
 
 describe("a queue larger than the queue owner's line limit", function()
   it("goes to the queue owner whole, in lines under the limit", function()
     assert.is_true(h.notified(messages, "Queue sync started"))
+    -- A `keep` that waited past the plugin's 5 s reply timeout says so here, not as a late
+    -- start.
+    assert.is_false(h.notified(messages, "did not take"))
     local held = vim.tbl_map(function(n)
       return n.id:lower()
     end, owner.queue)
