@@ -2072,6 +2072,17 @@ that the queue owner names. So the diff shows them as archived, and touched
 works on them. An immediate send (|codereview-immediate-send|) and a copy
 (|:CodeReviewCopy|) do not go through the queue owner.
 
+With `sync` set, the payload that the plugin renders has the header of the
+queue owner, with no scope and no file counts: >
+    Annotations — 3 items
+<
+For one entry, the header says "item". This header is used whether or not a
+queue owner listens: on a submit while no queue owner listens, on a copy to
+the + register (|:CodeReviewCopy|) and on an |codereview-immediate-send|. A
+preamble stays above it (|codereview-preamble|). The groups, the numbers and
+the text of each entry do not change. Without `sync`, the header is as shown
+in |codereview-preamble|.
+
 An annotation that the queue owner does not take -- it refuses it, or it does
 not answer in 5 seconds -- stays in Neovim and is saved as without a sync.
 You are told once per reason in a session. The next connect gives it to the

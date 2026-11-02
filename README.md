@@ -374,6 +374,9 @@ was this dropped on purpose?
 worth a look before we ship this
 ````
 
+With `sync` set, the header is `Annotations — 3 items`, as the queue owner writes it, with no
+scope and no file counts. See `:help codereview-sync`.
+
 After a submit, `:CodeReview since-batch` shows what the agent changed. The winbar shows
 `↺N`: the number of annotated files the agent did not touch.
 
