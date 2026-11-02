@@ -380,13 +380,15 @@ _Avoid_: destination, recipient, agent (an agent is the software; a target is th
 
 **Submit**:
 Render the batch and hand it to the host's delivery adapter, clearing the queue if the
-adapter reports a **dispatch**.
+adapter reports a **dispatch**. While the **sync** runs, the **queue owner** renders and
+delivers the batch instead, and the queue empties only through its next snapshot.
 _Avoid_: send (reserved for the adapter), flush, publish
 
 **Dispatch**:
 A payload handed off to the send adapter, said of the handoff and not of its arrival — the
 adapter cannot know synchronously that an agent took it. A dispatch is the one thing that
-empties the queue.
+empties the queue. While the **sync** runs, the queue owner's `ok` reply is the dispatch,
+and its snapshot, not the reply, empties the queue.
 _Avoid_: delivered, sent, accepted
 
 **Immediate send**:
@@ -396,8 +398,9 @@ _Avoid_: quick note, one-off, direct send
 **Archive**:
 The batches already dispatched from a **checkout**, kept after the queue that held them was
 cleared — the **entries** as they went and the **preamble** they went under. Only a
-**dispatch** writes it, so a payload copied to a register is not in it. Read-only, which is
-a claim about the record and not a feature left unwritten.
+**dispatch** writes it, so a payload copied to a register is not in it. While the **sync**
+runs, the queue owner's `sent` event writes it, also for a batch that another process
+submitted. Read-only, which is a claim about the record and not a feature left unwritten.
 _Avoid_: history, sent queue, outbox
 
 **Snapshot**:

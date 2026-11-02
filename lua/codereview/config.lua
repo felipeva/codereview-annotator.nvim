@@ -214,7 +214,10 @@ M.defaults = {
   ---
   ---`target` is an adapter. It turns the target that `pick_target` gives into the queue
   ---owner's target, `{ tool, address, cwd }`. The host says who, as it does for `send`.
-  ---@type { socket: string, target: fun(target: table|nil): { tool: string, address: string, cwd: string } }|nil
+  ---
+  ---`wait` is how long a submit waits for the queue owner's reply, in milliseconds. 5000
+  ---when not given. With no reply in that time, the submit says that the result will follow.
+  ---@type { socket: string, target: fun(target: table|nil): { tool: string, address: string, cwd: string }, wait: integer|nil }|nil
   sync = nil,
 
   --- Adapters (all optional) ---
@@ -511,6 +514,16 @@ local function validate_sync(sync)
     error(
       ("codereview.setup: `sync.target` must be a function that gives { tool, address, cwd } — got %s"):format(
         vim.inspect(sync.target)
+      ),
+      0
+    )
+  end
+  if sync.wait == nil then
+    sync.wait = 5000
+  elseif type(sync.wait) ~= "number" or sync.wait < 0 then
+    error(
+      ("codereview.setup: `sync.wait` must be a number of milliseconds, 0 or more — got %s"):format(
+        vim.inspect(sync.wait)
       ),
       0
     )
