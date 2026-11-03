@@ -190,17 +190,6 @@ describe(":CodeReviewBase with an unknown ref", function()
   end)
 end)
 
-describe(":CodeReviewBase with no argument", function()
-  local msgs, restore = h.capture_notify()
-  vim.cmd("CodeReviewBase")
-  restore()
-
-  it("reports the usage and stores nothing", function()
-    assert.is_true(h.notified(msgs, "Usage"), vim.inspect(msgs))
-    assert.equal("feat/A", stored(root).child)
-  end)
-end)
-
 describe("reviewed marks under a base branch", function()
   local key = "branch:" .. merge_base("feat/A")
   view.mark_reviewed(assert(h.file_index(current(), "k1.txt")))

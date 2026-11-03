@@ -54,6 +54,16 @@ function M.setup(opts)
   end, {
     nargs = "?",
     desc = "Measure the branch review of the current branch from another branch",
+    -- From the list `gm` offers, so the command and the key offer the same branches.
+    complete = function(lead)
+      local root = require("codereview.state").current_checkout()
+      if not root then
+        return {}
+      end
+      return vim.tbl_filter(function(name)
+        return name:sub(1, #lead) == lead
+      end, require("codereview.git").base_branch_choices(root))
+    end,
   })
 
   -- Takes no arguments and needs no review open, for the reason the copy above does not:
@@ -152,10 +162,10 @@ end
 
 ---Store the **base branch** the current branch's review is measured from, and draw an open
 ---branch review again from it.
----@param ref string|nil A branch, local or remote-tracking. nil reports the usage.
+---@param ref string|nil A branch, local or remote-tracking. nil opens the picker `gm` opens.
 function M.base(ref)
   if not ref then
-    vim.notify("Usage: :CodeReviewBase {branch}", vim.log.levels.WARN, { title = "Code review" })
+    require("codereview.view").pick_base_branch()
     return
   end
   require("codereview.view").set_base_branch(ref)

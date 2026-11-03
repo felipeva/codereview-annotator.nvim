@@ -2153,6 +2153,32 @@ function M.set_base_branch(ref)
   end
 end
 
+---Pick the **base branch** from a list, and store it through `set_base_branch`.
+---
+---Plain `vim.ui.select` and no adapter: a host that wants another picker has already replaced
+---that. Works with no review open, as the command does. With a review open on another scope
+---it refuses, as `commit_list` does: a base branch is for a branch review.
+function M.pick_base_branch()
+  local v = M.current()
+  if v and without_checkout("listing the branches") then
+    return
+  end
+  if v and v.scope.name ~= "branch" then
+    info(("A base branch is for a branch review — this review is %s"):format(v.scope.label))
+    return
+  end
+  local root = require("codereview.state").current_checkout()
+  if not root then
+    warn("not inside a git repository")
+    return
+  end
+  vim.ui.select(git.base_branch_choices(root), { prompt = "Measure the branch review from:" }, function(ref)
+    if ref then
+      M.set_base_branch(ref)
+    end
+  end)
+end
+
 ---Read the last dispatched **batch** back, from inside a review.
 ---
 ---The surface is `archive`'s, and it consults no view: a batch has already gone, so nothing
