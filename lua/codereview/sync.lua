@@ -9,9 +9,11 @@
 ---own knowledge of an entry, so the transport cannot be the host's. The host still says
 ---where, with the socket path, and who, with the `target` adapter.
 ---
----**When no queue owner listens, nothing here does anything.** A failed connect is silent,
+---**When no queue owner listens, nothing here sends anything.** A failed connect is silent,
 ---and the plugin keeps its own queue exactly as it does without `sync`. The next queue
----operation tries again, at most once every 2 s.
+---operation tries again, at most once every 2 s. Two things are written to the disk for
+---the next connect: each drop and each dispatch, as a **pending removal**, and each edit,
+---on `unsent`.
 ---
 ---Two paths, kept apart so that later work adds to each without changing the other:
 ---
@@ -126,6 +128,9 @@ local told = {}
 ---In a snapshot, the local entry wins over the note of the queue owner, so the change
 ---stays on screen and on disk. The next connect sends the change with `update`, after its
 ---`keep`, and the reply takes the entry off this list.
+---
+---Also on disk, in the store with no root (`state.unsent`), and read at `start`. If not, a
+---restart before the next connect forgets the change, and the queue owner's old note wins.
 ---@type table<string, true>
 local unsent = {}
 
@@ -335,6 +340,19 @@ end
 
 local repaint
 
+---Write the uuids of each `remove` with no reply as **pending removals**: such a `remove` is
+---not known to have reached the queue owner, so the next connect sends it again. A uuid
+---that is a pending removal already keeps its stamp.
+---
+---For each end of a connection: its close (`stop`), and the exit of Neovim, which closes
+---it without `stop`.
+---@param conn CRSyncConn
+local function write_unanswered(conn)
+  if next(conn.removing) then
+    state.add_removals(vim.tbl_keys(conn.removing))
+  end
+end
+
 ---Close a connection. The plugin's own entries stay in the queue. The **mirrored
 ---entries** leave it: only the queue owner holds them and can render them, and a submit
 ---without it would send a screenshot as a bare note.
@@ -344,6 +362,7 @@ local function stop(conn)
     return
   end
   conn.closed = true
+  write_unanswered(conn)
   if not conn.pipe:is_closing() then
     conn.pipe:close()
   end
@@ -494,7 +513,8 @@ end
 ---The same guard for an `update` and a `remove` that have no reply yet: a snapshot that the
 ---queue owner wrote before it read them does not undo them. While an `update` waits, the
 ---local entry stays as it is, also when the snapshot does not hold it. While a `remove`
----waits, the entry does not come back. An entry on `unsent` keeps its local change too.
+---waits, the entry does not come back. An entry on `unsent` keeps its local change too,
+---but not a **mirrored entry**: no connect sends its change, so it would keep it forever.
 ---
 ---A note that another tool made becomes a **mirrored entry**, under the same guards.
 ---@param conn CRSyncConn
@@ -521,7 +541,7 @@ local function apply(conn, rev, notes)
     local uuid = type(note) == "table" and type(note.id) == "string" and lower(note.id)
     if uuid and not conn.removing[uuid] then
       local entry = here[uuid]
-      if not (entry and (conn.updating[uuid] or unsent[uuid])) then
+      if not (entry and (conn.updating[uuid] or (unsent[uuid] and not entry.mirrored))) then
         entry = own(note) and to_entry(note) or to_mirrored(note)
         entry.id = ids[uuid]
       end
@@ -849,6 +869,19 @@ local function warn_once(key, msg)
   end
 end
 
+---Put an entry on `unsent`, or take it off, in memory and, with `sync` set, on disk.
+---@param uuid string In lower case
+---@param on boolean
+local function set_unsent(uuid, on)
+  if not on and not unsent[uuid] then
+    return
+  end
+  unsent[uuid] = on or nil
+  if config.get().sync then
+    state.set_unsent(uuid, on)
+  end
+end
+
 ---@param uuid string In lower case
 ---@return CRAnnotation|nil
 local function local_entry(uuid)
@@ -883,14 +916,14 @@ local function send_update(conn, entry, fields, revive)
   local uuid = lower(entry.uuid)
   if not conn or not conn.keeping then
     if not entry.mirrored then
-      unsent[uuid] = true
+      set_unsent(uuid, true)
     end
     return
   end
   if refused[uuid] then
     return
   end
-  unsent[uuid] = nil
+  set_unsent(uuid, false)
   conn.updating[uuid] = (conn.updating[uuid] or 0) + 1
   request(conn, "update", vim.tbl_extend("force", { id = entry.uuid }, fields), function(reply)
     local n = conn.updating[uuid] - 1
@@ -917,7 +950,7 @@ local function send_update(conn, entry, fields, revive)
       reapply(conn)
       return
     end
-    unsent[uuid] = true
+    set_unsent(uuid, true)
     warn_once(
       "update: " .. tostring(reply.error),
       ("Queue sync: the queue owner did not take an edit (%s). It stays in Neovim, and the next connect sends it again."):format(
@@ -928,10 +961,14 @@ local function send_update(conn, entry, fields, revive)
 end
 
 ---Every change on `unsent`, in full, for the entries that are still in the queue.
+---
+---Not for a **mirrored entry**, also when its uuid is on the list that `start` read from the
+---disk. `send_update` puts no mirrored entry on it, but the list on the disk can hold a uuid
+---that this session did not put there.
 ---@param conn CRSyncConn
 local function send_unsent(conn)
   for _, entry in ipairs(queue.entries()) do
-    if unsent[lower(entry.uuid)] then
+    if unsent[lower(entry.uuid)] and not entry.mirrored then
       send_update(conn, entry, { note = entry.note or "", type = entry.type or "", review = review_of(entry) }, false)
     end
   end
@@ -948,15 +985,83 @@ local function ready(conn, listed)
   info(("Queue sync started: %s"):format(config.get().sync.socket))
 end
 
+---Send `remove` for uuids, and guard them until the reply: a snapshot does not bring
+---them back.
+---
+---A refusal, and no reply, apply the last snapshot again: the entry comes back if the queue
+---owner still holds it, so the screen shows what goes in the next submit. Said once.
+---@param conn CRSyncConn
+---@param uuids string[] In lower case
+---@param pending boolean They are **pending removals**, to clear from the disk after the
+---       reply. Cleared after any reply, also a refusal: the entry is then back in the queue,
+---       and a pending removal for an entry in the queue would remove it at the next connect.
+local function send_remove(conn, uuids, pending)
+  for _, uuid in ipairs(uuids) do
+    conn.removing[uuid] = true
+  end
+  request(conn, "remove", { ids = uuids }, function(reply)
+    for _, uuid in ipairs(uuids) do
+      conn.removing[uuid] = nil
+    end
+    if pending then
+      state.clear_removals(uuids)
+    end
+    if reply.ok then
+      return
+    end
+    warn_once(
+      "remove: " .. tostring(reply.error),
+      ("Queue sync: the queue owner did not drop an annotation (%s). It is back in the queue."):format(
+        tostring(reply.error)
+      )
+    )
+    reapply(conn)
+  end)
+end
+
+---Take entries out of the queue of the queue owner, or, when it cannot take a `remove` now,
+---make them **pending removals**.
+---
+---It can take one once the `keep` of the connect is written. Before that, and with no
+---connection, the uuids go on the disk, and the next connect sends them before its `keep`.
+---With a connection that is not that far yet, they are guarded at once, as `send_remove`
+---guards them: a snapshot of the handshake does not bring them back.
+---@param entries CRAnnotation[] The entries that left the queue
+local function take_out(entries)
+  local uuids = vim.tbl_map(function(entry)
+    return lower(entry.uuid)
+  end, entries)
+  local conn = current
+  if conn and conn.keeping then
+    send_remove(conn, uuids, false)
+    return
+  end
+  if not config.get().sync then
+    return
+  end
+  state.add_removals(uuids)
+  for _, uuid in ipairs(conn and uuids or {}) do
+    conn.removing[uuid] = true
+  end
+end
+
 ---The fixed order on connect.
 ---
 ---The restore first, because `keep` gives the queue owner every entry in the local queue,
 ---and a queue that this session has not read back is missing the entries the last
----session left. Then `hello`, `subscribe`, `list` and `keep`.
+---session left. Then `hello`, `subscribe`, `list`, `remove` with the **pending removals**,
+---and `keep`.
 ---
 ---`list` after `subscribe`, not the snapshot in the `hello` reply: a change that another
 ---client makes between `hello` and `subscribe` goes only to subscribers, so this client
 ---would never see it. After `subscribe`, every change comes as an event with a higher `rev`.
+---
+---`remove` before `keep`, and both written in the step that sets `keeping`. The pending
+---removals are read from the disk at the start of the handshake, and a drop or a dispatch
+---until that step is added to them (`take_out`), so this `remove` has it; one after it
+---sends its own `remove`. They are guarded from the start of the handshake, not from their
+---`remove`: an event before the reply to `list` can hold them, and `apply` would put them
+---back in the queue, so that `keep` gives them to the queue owner again.
 ---
 ---Until the queue owner has replied to every `keep`, a snapshot does not have the entries
 ---that only this plugin has, so `apply` keeps every local entry. The snapshot of `list` is
@@ -967,6 +1072,9 @@ local function handshake(conn)
   local staled = state.ensure_queue()
   if staled > 0 then
     info(queue.stale_phrase(staled))
+  end
+  for _, uuid in ipairs(state.removals()) do
+    conn.removing[uuid] = true
   end
   request(conn, "hello", { protocol = PROTOCOL, client = CLIENT, types = host_types() }, function(hello)
     if not hello.ok then
@@ -986,11 +1094,19 @@ local function handshake(conn)
         -- Read at this moment, not before `hello`: an entry captured while the connect ran
         -- is in this `keep`, because `keeping` was false when it was captured. Not a
         -- **mirrored entry** that a snapshot before this reply gave: a `keep` would make it
-        -- a note of this plugin if the other tool dropped it meanwhile.
+        -- a note of this plugin if the other tool dropped it meanwhile. An entry that left
+        -- the queue while the connect ran is in `removing`: `take_out` put it there.
         local entries = vim.tbl_filter(function(entry)
           return not entry.mirrored
         end, queue.entries())
+        -- Until `keeping` is set, `removing` holds only pending removals: the ones read at
+        -- the start of the handshake, and the ones made since.
+        local removals = vim.tbl_keys(conn.removing)
+        table.sort(removals)
         conn.keeping = true
+        if #removals > 0 then
+          send_remove(conn, removals, true)
+        end
         keep_entries(conn, entries, function()
           if not conn.closed then
             send_unsent(conn)
@@ -1047,6 +1163,16 @@ end
 function M.start(review_view)
   view = review_view
   state.restaled = M.restale
+  unsent = state.unsent()
+  -- The exit does nothing else: no request, and no repaint.
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = vim.api.nvim_create_augroup("CodeReviewSync", { clear = true }),
+    callback = function()
+      if current and not current.closed then
+        write_unanswered(current)
+      end
+    end,
+  })
   if current then
     stop(current)
   end
@@ -1109,12 +1235,12 @@ function M.restale(entries)
   end
 end
 
----Take an entry out of the queue of the queue owner.
+---Take a dropped entry out of the queue of the queue owner.
 ---
----Before the `keep` of the connect is written, or with no connection, nothing is sent.
----
----A refusal, and no reply, apply the last snapshot again: the entry comes back if the queue
----owner still holds it, so the screen shows what goes in the next submit. Said once.
+---Before the `keep` of the connect is written, or with no connection, it is a **pending
+---removal** (`take_out`). So is a `remove` that has no reply when the connection closes
+---(`stop`). With no connection, this is a queue operation like any other, and
+---it tries to connect.
 ---
 ---An entry in a batch that the queue owner is giving to the agent tool still goes: the
 ---queue owner took the batch when the `send` came. Its `sent` names the entry, and the
@@ -1122,31 +1248,26 @@ end
 ---@param entry CRAnnotation The entry that left the queue
 function M.remove(entry)
   local conn = current
-  if not conn then
-    M.wake()
-    return
+  if conn and conn.keeping then
+    -- A `send` that the queue owner took before it read this `remove` still names the entry
+    -- in its `sent`, so it is kept for the archive, as `apply` keeps an entry a snapshot
+    -- takes out.
+    conn.departed[lower(entry.uuid)] = entry
   end
-  if not conn.keeping then
-    return
-  end
-  local uuid = lower(entry.uuid)
-  conn.removing[uuid] = true
-  -- A `send` that the queue owner took before it read this `remove` still names the entry in
-  -- its `sent`, so it is kept for the archive, as `apply` keeps an entry a snapshot takes out.
-  conn.departed[uuid] = entry
-  request(conn, "remove", { ids = { entry.uuid } }, function(reply)
-    conn.removing[uuid] = nil
-    if reply.ok then
-      return
-    end
-    warn_once(
-      "remove: " .. tostring(reply.error),
-      ("Queue sync: the queue owner did not drop an annotation (%s). It is back in the queue."):format(
-        tostring(reply.error)
-      )
-    )
-    reapply(conn)
-  end)
+  take_out({ entry })
+  M.wake()
+end
+
+---Take the entries of a **dispatch** through the `send` adapter out of the queue of the
+---queue owner. It is a submit while the sync does not run (`M.send` gave nil), so the
+---queue owner can still hold the batch.
+---
+---A submit through the queue owner does not come here: its batch leaves the queue only by
+---the queue owner's snapshot. So a `send` that has no reply when the connection closes
+---(the result is unknown) never makes a pending removal.
+---@param entries CRAnnotation[] The batch that went
+function M.dispatched(entries)
+  take_out(entries)
 end
 
 ---Ask the queue owner to deliver a **batch**, and wait for its reply up to `sync.wait`.

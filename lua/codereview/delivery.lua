@@ -405,7 +405,8 @@ function M.submit(ctx)
     return synced
   end
 
-  local dispatched, reason = M.deliver(queue.all(), target, ctx)
+  local batch = queue.all()
+  local dispatched, reason = M.deliver(batch, target, ctx)
   if not dispatched then
     -- Nothing more to add: the batch is still queued, and a queue that still counts what
     -- it holds is how a reviewer sees that for themselves.
@@ -413,6 +414,8 @@ function M.submit(ctx)
     return false
   end
   queue.clear()
+  -- With `sync` set, the queue owner can hold this batch, and it must not come back.
+  require("codereview.sync").dispatched(batch)
 
   -- Written whether or not a review is open: a batch submitted with none still has to
   -- put the emptied queue on disk, or the entries it just sent come back on the next

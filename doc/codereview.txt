@@ -1968,6 +1968,11 @@ entry could be judged obsolete, so nothing would ever clear it: entries older
 than **seven days** are dropped when it is read. Each is stamped once, when
 first written, so queueing something else does not restart the clock.
 
+With |codereview-sync| set, this store also holds the ids that the sync must
+still give to the queue owner: the pending removals
+(|codereview-sync-pending-removal|) and the annotations with an edit that the
+queue owner does not have. They are dropped after seven days in the same way.
+
 That bounds the store's growth but not its staleness. An old note can still
 claim a line span that has since moved, and nothing will flag it -- the
 accepted cost of not making those annotations second-class.
@@ -2069,6 +2074,18 @@ without a sync. A connect that fails says nothing. The next capture, edit,
 change of type or drop, the queue float, a submit or a copy tries again, at
 most once every 2 seconds.
 
+                                              *codereview-sync-pending-removal*
+The queue owner can still hold an annotation that you drop, or submit
+through the `send` adapter, while no queue owner listens. So the plugin
+keeps its id as a pending removal, and the next connect removes it from the
+queue of the queue owner before it gives your annotations: an annotation that
+went to the agent does not come back. The same is true for a drop or a submit
+while a connect is not complete yet, and for a drop that the queue owner did
+not answer before the connection closed or before you quit Neovim. Pending removals are saved in the store
+for annotations with no repository (|codereview-persistence-norepo|), so a
+restart of Neovim does not lose them. After 7 days, they are removed from
+the store.
+
 One message says that the sync started, and one says that it stopped. When
 the queue owner closes the connection, your entries stay in the queue, and the
 mirrored entries leave it.
@@ -2122,7 +2139,9 @@ up to `wait`. <C-c> stops the wait.
 
 Known limit: when the sync stops before the reply, the plugin cannot know
 whether the batch went. The next connect gives the batch to the queue owner
-again, so a submit after that can send it a second time.
+again, so a submit after that can send it a second time. This batch is not a
+pending removal (|codereview-sync-pending-removal|), because it did not leave
+the Neovim queue. If you know that it went, drop it: then it is one.
 
 In each case the queue empties only when the queue owner sends a queue that
 no longer holds the entries. The archive (|codereview-persistence-archive|)
@@ -2155,15 +2174,17 @@ An edit, a change of type or a stale mark that the queue owner does not take
 stays in Neovim in the same way, also when the queue owner sends its queue
 again. You are told once per reason, and the next connect sends the change
 again. An edit that you make while no queue owner listens is sent at the next
-connect too. If the queue owner no longer has the annotation, because another
-tool dropped or sent it a moment before, the annotation goes back to the queue
+connect too, also after a restart of Neovim: the plugin saves which
+annotations have such a change, beside the pending removals, and for 7 days.
+If the queue owner no longer has the annotation, because another tool
+dropped or sent it a moment before, the annotation goes back to the queue
 owner with your edit. A drop that the queue owner refuses, or does not answer
 in 5 seconds, is undone: the annotation is back in your queue, because it is
 still in the queue that the queue owner submits. You are told once per reason.
-A drop while no queue owner listens is not sent. A drop or an edit while a
-submit is on its way does not change that batch: the queue owner took it when
-the submit came, and the archive keeps the batch with your copy of each
-annotation, and with the payload that the agent read.
+A drop while no queue owner listens is a pending removal. A drop or an edit
+while a submit is on its way does not change that batch: the queue owner took
+it when the submit came, and the archive keeps the batch with your copy of
+each annotation, and with the payload that the agent read.
 
 Each entry goes to the queue owner with what the plugin needs to make the
 same entry again, and a mark that this plugin made it. The plugin does not

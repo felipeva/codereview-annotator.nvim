@@ -2199,3 +2199,56 @@ no reply, apply the last snapshot again.
 indexes by the key, and a nil key raises "table index is nil" in the paint of the review
 view. With the bare note's key, jump, the overlay and the diff skip a mirrored entry with
 no branch of their own (ADR-0013).
+
+**A drop during the handshake goes in the `remove` of that handshake.** The pending
+removals are read from the disk at the start of the handshake, and `keeping` is set only
+after the reply to `list`. A drop or a dispatch between the two is written to the disk,
+which this handshake read already, so `take_out` also puts it in `conn.removing`, which
+the `remove` is made from. Without that, the drop is in neither `remove`: the queue owner
+still holds the entry, and the snapshot of `list` puts it back in the queue.
+`sync_removal_spec` holds the `list` with `math.huge` and drops in that gap.
+
+**The pending removals are guarded from the start of the handshake, not from their
+`remove`.** `subscribe` comes before the reply to `list`, so an event can come between
+them, and it still holds the entries that the queue owner did not remove yet. Before the
+`keep` replies, `apply` keeps every entry that it gets, so the entry is in the queue again,
+and the `keep` of the connect gives it back to the queue owner after the `remove`.
+`sync_restart_spec` pushes that event with `after("subscribe", …)`.
+
+**Every write of the store with no root writes every key.** `write_global` builds the
+document from the keys that it names. A key that it does not name is lost at the next
+capture, because `save_global` reads the document and writes it again. The pending
+removals and the unsent list are two of those keys. Empty lists are left out, so that a
+host without `sync` gets the same file as before.
+
+**A drop or a dispatch records its uuid whether or not the queue owner knew the entry.** No
+record says which entries the queue owner holds, and none can be true after a restart. A
+`remove` of an id that the queue owner does not hold is ok, with `removed: []`, and changes
+nothing (`QueueOps.swift`, `apply`, `.remove`). So the cost is a uuid on the disk for at
+most 7 days, and a filter would be a second copy of the queue owner's queue.
+
+**A close before the reply to a `remove` makes a pending removal.** The queue owner may not
+have read the `remove`, and `stop` drops the callbacks, so nothing would send it again. The
+next connect's snapshot then holds the entry, and it comes back. So `stop` writes every
+uuid in `conn.removing` to the disk before the connection goes. A uuid there is either a
+live drop with no reply or a pending removal already on the disk, which keeps its stamp. A
+`remove` that got a refusal or no reply in 5 s is no longer in `conn.removing`: it was
+undone, and it is not written. `sync_removal_spec` holds the `remove` with `math.huge` and
+closes the connection.
+
+**A mirrored entry on the unsent list on the disk is neither sent nor kept over a
+snapshot.** `send_update` never puts a mirrored entry on `unsent`, but `start` reads the
+list from the disk, and that list can hold a uuid that this session did not put there. Two
+guards follow from it: `send_unsent` skips a mirrored entry, and in `apply` an unsent mark
+wins over a snapshot only for an entry of this plugin. Without the first, the connect sends
+the note of another tool with this plugin's `review`. Without the second, Neovim shows its
+old note over each change that the queue owner makes, for up to 7 days.
+`sync_removal_spec` writes such a list by hand.
+
+**The exit of Neovim does not call `stop`, so it writes the unanswered `remove`s itself.**
+`:qa` ends the process with the connection open: no read callback gets the end of the
+stream, so `stop` never runs, and a drop whose `remove` had no reply is lost. A
+`VimLeavePre` autocmd calls `write_unanswered`, the function that `stop` calls, so the two
+ends of a connection cannot drift. It does nothing else: no request, and no repaint. `start`
+makes it in the `CodeReviewSync` augroup with `clear`, so a second `setup()` replaces it.
+`sync_restart_spec` quits a child with `:qa` while the fake holds the `remove`.

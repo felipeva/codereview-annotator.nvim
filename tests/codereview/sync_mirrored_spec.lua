@@ -152,10 +152,31 @@ local function raw(file)
   return table.concat(vim.fn.readfile(file), "\n"):lower()
 end
 
----The two state files that this checkout's entries can be written to.
+---The two state files that this checkout's entries can be written to, without the
+---**pending removals**. A dropped mirrored entry can be one, as any dropped entry can: its
+---uuid is not the entry.
 ---@return string
 local function stores()
-  return raw(state.global_path()) .. "\n" .. raw(state.path(root))
+  local global = raw(state.global_path())
+  if global ~= "" then
+    local doc = vim.json.decode(global, { luanil = { object = true, array = true } })
+    doc.removals = nil
+    global = vim.json.encode(doc)
+  end
+  return global .. "\n" .. raw(state.path(root))
+end
+
+---The pending removals on the disk, in lower case.
+---@return string[]
+local function removals()
+  local global = raw(state.global_path())
+  if global == "" then
+    return {}
+  end
+  local doc = vim.json.decode(global, { luanil = { object = true, array = true } })
+  return vim.tbl_map(function(m)
+    return m.uuid
+  end, doc.removals or {})
 end
 
 ---Answer a request that the fake held back with `delay(op, math.huge)`, as the queue owner
@@ -652,8 +673,12 @@ describe("the queue owner closing the connection", function()
     end
   end)
 
+  -- The close made the drop a pending removal, because the queue owner did not read its
+  -- `remove`.
+  local pending = removals()
+
   -- The next connect: a queue operation 2 s after the last attempt. Its `list` is held, and
-  -- a snapshot comes before the reply, so the mirrored entry is in the queue before the
+  -- a snapshot comes before the reply, so a mirrored entry is in the queue before the
   -- connect keeps anything. An edit of it then cannot be sent yet.
   local from = #owner.requests + 1
   owner:delay("list", math.huge)
@@ -666,11 +691,12 @@ describe("the queue owner closing the connection", function()
   owner:delay("list", nil)
   owner:changed()
   wait(function()
-    return entry_of(AREA) ~= nil
+    return entry_of(NONE) ~= nil
   end)
+  local area_during = entry_of(AREA)
   reply = "edited before the keep"
-  in_float("back again", "e")
-  local edited = entry_of(AREA).note
+  in_float("left behind", "e")
+  local edited = entry_of(NONE).note
   local list = sent("list")[#sent("list")]
   owner:write(owner.clients[#owner.clients], vim.tbl_extend("force", { ok = true, req = list.req }, owner:snapshot()))
   wait(function()
@@ -678,24 +704,37 @@ describe("the queue owner closing the connection", function()
   end)
   vim.wait(150)
 
-  it("sends nothing for the mirrored entry: not the drop whose remove had no reply, not the edit", function()
+  it("writes the mirrored drop whose remove had no reply as a pending removal", function()
+    assert.same({ AREA:lower() }, pending)
+  end)
+
+  it("sends that drop with remove before keep, and nothing for the edit before the keep", function()
     assert.same("edited before the keep", edited)
     local after = { unpack(owner.requests, from) }
     assert.same(
-      { "hello", "subscribe", "list", "keep" },
+      { "hello", "subscribe", "list", "remove", "keep" },
       vim.tbl_map(function(r)
         return r.op
       end, after)
     )
+    assert.same({ AREA:lower() }, after[4].ids)
     for _, r in ipairs(after) do
       local text = vim.json.encode(r):lower()
-      assert.is_falsy(text:find(AREA:lower(), 1, true), r.op)
+      assert.is_falsy(text:find(NONE:lower(), 1, true), r.op)
     end
+    assert.is_falsy(vim.json.encode(after[5]):lower():find(AREA:lower(), 1, true))
   end)
 
-  it("shows it again from the snapshot, with the note the queue owner holds", function()
-    assert.is_true(entry_of(AREA).mirrored)
-    assert.same("back again", entry_of(AREA).note)
+  it("does not bring the dropped mirrored entry back, also from a snapshot before the keep", function()
+    assert.is_nil(area_during)
+    assert.is_nil(entry_of(AREA))
+    assert.is_nil(owner:find(AREA))
+    assert.same({}, removals())
+  end)
+
+  it("shows the edited one again from the snapshot, with the note the queue owner holds", function()
+    assert.is_true(entry_of(NONE).mirrored)
+    assert.same("left behind", entry_of(NONE).note)
   end)
 end)
 
