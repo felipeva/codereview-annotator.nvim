@@ -425,6 +425,13 @@ A set that cannot be assembled is refused with the list still open and your
 cursor still on the row. Nothing is stored, and the review behind the list is
 the review that was there.
 
+The list starts at the merge base with the |codereview-base-branch|, as the
+review does. A trim is kept per branch and belongs to the base branch it was
+made under: when the base branch changes, by a pick or because a stored
+branch no longer exists, the trim is dropped and you are told once. A merge
+of the default branch into your branch moves the merge base but not the base
+branch, so the trim stays.
+
 In the queue float:
 
     <CR>            jump to the annotation under the cursor; with no
@@ -558,8 +565,9 @@ checkout (|codereview-persistence|), and never in `git config`, which every
 checkout of the repository shares. Each branch keeps its own. On a detached
 `HEAD` it is kept for the session only, and you are told so once. A stored
 branch that no longer exists falls back to the default branch, so the review
-still opens. Reviewed marks are kept per merge base, so two base branches
-with one merge base share their marks.
+still opens. A change of base branch, for any cause, drops the trim
+(|codereview-commits|). Reviewed marks are kept per merge base, so two base
+branches with one merge base share their marks.
 
 What a base branch does not solve, and when to store it again:
     - A rebased base branch. After `feat/A` is rebased, the merge base of

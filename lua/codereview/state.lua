@@ -459,7 +459,7 @@ end
 ---because two branches are two readings: trimming one says nothing about the other.
 ---
 ---The sentences below are said here, which is the one place in this module that says
----anything. Both are about the **store** and nothing above it can see either fact -- by the
+---anything. All of them are about the **store** and nothing above it can see one -- by the
 ---time a scope is resolved the trim is either usable or gone -- and saying them here is also
 ---what keeps one sentence one sentence: the surfaces that read a trim are the review and the
 ---commit list, and a rule copied into both is a rule that says it twice.
@@ -476,19 +476,41 @@ local session_trims = {}
 
 ---Roots already told that a detached `HEAD` keeps no trim.
 ---
----Said once, when a trim is set. Of the three cases where a trim is refused or limited this
----is the only one a reviewer could take for a defect -- the other two say what they refused
+---Said once, when a trim is set. Of the four cases where a trim is refused or limited this
+---is the only one a reviewer could take for a defect -- the other three say what they refused
 ---at the moment they refuse it, and this one refuses nothing until the session ends.
 local said_detached = {}
 
+---A stored trim and the **base branch** it was made under.
+---
+---A record and not the bare set, because a trim is a selection out of the commits one base
+---branch gives, and the same set under another base branch is a selection the reviewer never
+---made: a prefix taken off under `feat/A` is a hole under the default branch. Keyed by the
+---base branch and not by the merge base, because merging the default branch into the branch
+---moves the merge base, and a trim survives that merge.
+---@class CRStoredTrim
+---@field skipped string[]
+---@field base_branch string|nil nil for a trim stored before the record had it
+
 ---@param root string
 ---@param branch string
----@param skipped string[]|nil nil removes it
-local function store_trim(root, branch, skipped)
+---@param trim CRStoredTrim|nil nil removes it
+local function store_trim(root, branch, trim)
   local data = M.load(root)
   data.trims = data.trims or {}
-  data.trims[branch] = skipped
+  data.trims[branch] = trim
   M.save(root, data)
+end
+
+---A stored value as a record. A document written before the record existed holds the bare
+---set, and reads as a trim with no base branch recorded.
+---@param value table|nil
+---@return CRStoredTrim|nil
+local function as_record(value)
+  if value and value.skipped == nil then
+    return { skipped = value }
+  end
+  return value
 end
 
 ---The branch's trim, checked before it is handed back.
@@ -507,37 +529,67 @@ end
 ---
 ---Checked on every read rather than once per session, because the history can be rewritten
 ---while a review is open -- a reviewer rebases in another window and comes back to the diff.
+---
+---**A trim made under another base branch is dropped the same way.** The comparison is with
+---the base branch the scope resolved to, after its fallback, so every cause of a change drops
+---the trim alike: a pick, and a stored ref that no longer resolves. A trim with no base branch
+---recorded, stored before the record had one, was made under the default branch, so an upgrade
+---drops nothing. The detached-`HEAD` trim of the session is held to the same rule.
 ---@param root string
+---@param base_branch string|nil What the review is measured from; nil is the default branch
 ---@return string[]|nil skipped nil when the whole branch is in the review
-function M.trim(root)
+function M.trim(root, base_branch)
   local git = require("codereview.git")
   local branch = git.current_branch(root)
-  if not branch then
-    return session_trims[root]
+  local stored
+  if branch then
+    stored = as_record((M.load(root).trims or {})[branch])
+  else
+    stored = session_trims[root]
+  end
+  if not stored then
+    return nil
   end
 
-  local stored = (M.load(root).trims or {})[branch]
-  if not stored or git.all_ancestors(stored, root) then
-    return stored
+  local made_under = stored.base_branch or git.default_branch(root)
+  local now = base_branch or git.default_branch(root)
+  local lost
+  if made_under ~= now then
+    lost = ("The trim was lost — it was made under %s and the review is now measured from %s, so the full branch is open"):format(
+      made_under,
+      now
+    )
+  elseif branch and not git.all_ancestors(stored.skipped, root) then
+    lost = "The trim was lost — a commit it took out is not in this branch any more, so the full branch is open"
   end
-  store_trim(root, branch, nil)
-  info("The trim was lost — a commit it took out is not in this branch any more, so the full branch is open")
+  if not lost then
+    return stored.skipped
+  end
+
+  if branch then
+    store_trim(root, branch, nil)
+  else
+    session_trims[root] = nil
+  end
+  info(lost)
   return nil
 end
 
 ---@param root string
 ---@param skipped string[]|nil The commits to take out; nil removes the trim
-function M.set_trim(root, skipped)
+---@param base_branch string|nil What the review was measured from; nil is the default branch
+function M.set_trim(root, skipped, base_branch)
+  local trim = skipped and { skipped = skipped, base_branch = base_branch }
   local branch = require("codereview.git").current_branch(root)
   if not branch then
-    session_trims[root] = skipped
+    session_trims[root] = trim
     if skipped and not said_detached[root] then
       said_detached[root] = true
       info("HEAD is detached — this trim is not kept for the next session")
     end
     return
   end
-  store_trim(root, branch, skipped)
+  store_trim(root, branch, trim)
 end
 
 --- The base branch --------------------------------------------------------------

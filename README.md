@@ -82,9 +82,10 @@ branch that already contains `HEAD`. Or name the branch:
 The plugin keeps the base branch per branch, in this checkout, and draws an open branch review
 again at once. It never guesses a base branch, and it does not read `@{upstream}`. On a
 detached `HEAD` it is kept for the session only. A branch that no longer exists falls back to
-the default branch. Two gaps, where you must pick again: after the base branch is rebased, the
-merge base goes back to the default branch and its old commits show again; and a renamed
-branch loses its base branch, as it loses its trim.
+the default branch. A change of base branch, for any cause, drops the
+[commit selection](#commit-list). Two gaps, where you must pick again: after the base branch
+is rebased, the merge base goes back to the default branch and its old commits show again;
+and a renamed branch loses its base branch, as it loses its trim.
 
 ## Keymaps
 
@@ -193,7 +194,10 @@ Read-only. `q` or `<Esc>` closes it.
 
 Uncheck the oldest commits to start the review later in the branch. Uncheck a commit in the
 middle (a formatter run, a rename) to skip only that one. Uncommitted work always stays in.
-The plugin keeps the selection per branch.
+The plugin keeps the selection per branch. The selection belongs to the base branch it was
+made under: when the base branch changes, the plugin drops the selection and tells you once.
+A merge of the default branch into your branch does not change the base branch, so the
+selection stays.
 
 ## Annotations
 
