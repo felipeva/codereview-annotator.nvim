@@ -574,7 +574,10 @@ for a stale remote-tracking branch that was never pruned. Then the plugin
 removes the base branch from the store, tells you once, and measures the
 review from the default branch, so the review still opens. A base branch
 whose merge base is at or after the one with the default branch is kept,
-also when it merged your branch in and the review is empty.
+also when it merged your branch in after you stored it and the review is
+empty; the list `gm` opens does not offer such a branch. In a repository with
+no default branch, there is nothing to compare with: a stored base branch is
+used as it is, and is dropped only when it no longer exists.
 
 A change of base branch, for any cause, drops the trim (|codereview-commits|).
 Reviewed marks are kept per merge base, so two base branches with one merge

@@ -631,6 +631,36 @@ end)
 
 codereview.close()
 
+describe("a review opened on the squash copy with a deleted base branch stored", function()
+  -- At the default branch's point, so only the ref being gone can drop it.
+  git_at(sq, { "branch", "gone", "master" })
+  state.set_base_branch(sq_root, "gone")
+  git_at(sq, { "branch", "-D", "-q", "gone" })
+  local before_doc = (state.load(sq_root).base_branches or {}).child
+  local msgs, restore = h.capture_notify()
+  local opened = view.open("branch", sq_root)
+  view.set_scope("branch")
+  restore()
+
+  it("was in the store before the open", function()
+    assert.equal("gone", before_doc)
+  end)
+
+  it("still opens, from the default branch, and the winbar says so", function()
+    assert.is_truthy(opened)
+    assert.equal(merge_base(DEFAULT, sq), current().scope.before)
+    assert.same({ "k1.txt" }, paths(current().files))
+    assert.is_truthy(h.winbar(current().win):find("branch vs origin/master", 1, true), h.winbar(current().win))
+  end)
+
+  it("is dropped, and said once over an open and a redraw", function()
+    assert.is_nil((state.load(sq_root).base_branches or {}).child)
+    assert.equal(1, count(msgs, "The base branch gone was dropped"), vim.inspect(msgs))
+  end)
+end)
+
+codereview.close()
+
 describe("a base branch of the session on a detached HEAD, in the squash copy", function()
   git_at(sq, { "checkout", "-q", "--detach", "child" })
   state.set_base_branch(sq_root, "feat/A")
@@ -650,4 +680,73 @@ describe("a base branch of the session on a detached HEAD, in the squash copy", 
   end)
 
   git_at(sq, { "checkout", "-q", "child" })
+end)
+
+--- No default branch ----------------------------------------------------------------
+
+-- A copy whose trunk is `develop`, with no remote: `default_branch` has nothing to read. A
+-- stored base branch is then the only branch review there is, so it is not compared with
+-- anything, and only a gone one is dropped.
+local nd = h.fixture("mkstack")
+local nd_root = assert(vim.uv.fs_realpath(nd))
+git_at(nd, { "branch", "-m", "master", "develop" })
+git_at(nd, { "remote", "remove", "origin" })
+
+describe("a copy with no default branch", function()
+  local scope, msgs, err = resolve_told(nd_root)
+
+  it("has no default branch", function()
+    assert.is_nil(git.default_branch(nd_root))
+  end)
+
+  it("gives no branch review with nothing stored", function()
+    assert.is_nil(scope)
+    assert.equal("could not determine the default branch", err)
+    assert.equal(0, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
+end)
+
+describe("feat/A stored in a copy with no default branch", function()
+  state.set_base_branch(nd_root, "feat/A")
+  local scope, msgs, err = resolve_told(nd_root)
+
+  it("is measured from the merge base with feat/A", function()
+    assert.is_not_nil(scope, err)
+    assert.equal(merge_base("feat/A", nd), scope.before)
+    assert.equal("branch vs feat/A", scope.label)
+    assert.same({ "k1.txt" }, paths(assert(git.collect(scope, nd_root, {}))))
+  end)
+
+  it("is kept, and nothing is said", function()
+    assert.equal("feat/A", (state.load(nd_root).base_branches or {}).child)
+    assert.equal(0, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
+end)
+
+describe("a deleted base branch stored in a copy with no default branch", function()
+  git_at(nd, { "branch", "gone", "feat/A" })
+  state.set_base_branch(nd_root, "gone")
+  git_at(nd, { "branch", "-D", "-q", "gone" })
+  local before_doc = (state.load(nd_root).base_branches or {}).child
+  local scope, msgs, err = resolve_told(nd_root)
+
+  it("was in the store before the resolve", function()
+    assert.equal("gone", before_doc)
+  end)
+
+  it("is dropped, and said once, with no default branch to fall back to", function()
+    assert.is_nil((state.load(nd_root).base_branches or {}).child)
+    assert.equal(1, count(msgs, "The base branch gone was dropped"), vim.inspect(msgs))
+    assert.equal(1, count(msgs, "no default branch"), vim.inspect(msgs))
+  end)
+
+  it("then gives the error a review with nothing stored gives", function()
+    assert.is_nil(scope)
+    assert.equal("could not determine the default branch", err)
+  end)
+
+  it("says nothing on the next resolve", function()
+    local _, again = resolve_told(nd_root)
+    assert.equal(0, count(again, DROPPED), vim.inspect(again))
+  end)
 end)

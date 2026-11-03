@@ -757,30 +757,32 @@ function M.resolve_scope(spec, root)
     -- edge as the trim below, for the same reason.
     local state = require("codereview.state")
     local stored = state.base_branch(root)
-    local branch = M.default_branch(root)
-    if not branch then
-      return nil, "could not determine the default branch"
-    end
-    local base = M.merge_base(branch, "HEAD", root)
-    if not base then
-      return nil, ("no merge base with %s"):format(branch)
-    end
+    local default = M.default_branch(root)
+    local default_base = default and M.merge_base(default, "HEAD", root)
+    local branch, base = default, default_base
     -- Checked on every resolve, and here rather than in the store's getter, because the
     -- merge base the check computes is the one the review then reads from. A stored base
     -- branch has gone wrong when it gives no merge base, or one strictly behind the default
     -- branch's: it then reads more than the default branch would. That is a parent
     -- squash-merged with the branch rebased onto master, or a stale remote-tracking ref --
     -- see `docs/design-notes.md`. A merge base at or past the default branch's is kept,
-    -- `HEAD` included.
+    -- `HEAD` included. With no default branch there is nothing to compare with, and the
+    -- stored base branch is the only branch review there is, so only a gone one is dropped.
     if stored and stored ~= state.DEFAULT_BASE_BRANCH then
       local stored_base = M.merge_base(stored, "HEAD", root)
       if not stored_base then
-        state.drop_base_branch(root, stored, branch, "gone")
-      elseif stored_base ~= base and M.is_ancestor(stored_base, base, root) then
-        state.drop_base_branch(root, stored, branch, "behind")
+        state.drop_base_branch(root, stored, default, "gone")
+      elseif default_base and stored_base ~= default_base and M.is_ancestor(stored_base, default_base, root) then
+        state.drop_base_branch(root, stored, default, "behind")
       else
         branch, base = stored, stored_base
       end
+    end
+    if not branch then
+      return nil, "could not determine the default branch"
+    end
+    if not base then
+      return nil, ("no merge base with %s"):format(branch)
     end
 
     -- The **trim**, read here rather than taken as an argument -- the shape `since-batch`

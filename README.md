@@ -87,7 +87,9 @@ The plugin checks a stored base branch each time it reads the branch review. If 
 longer exists, or if it shows more than the default branch does, the plugin drops it, tells you
 once, and measures from the default branch again. A base branch shows more after `feat/A` was
 squash-merged into the default branch and you rebased onto it, and when it is a remote-tracking
-branch that nobody pruned. A change of base branch, for any cause, drops the
+branch that nobody pruned. In a repository with no default branch, there is nothing to compare
+with: the plugin uses a stored base branch as it is, and drops it only when it no longer
+exists. A change of base branch, for any cause, drops the
 [commit selection](#commit-list). Two gaps, where you must pick again: after the base branch
 is rebased, the merge base goes back to the default branch and its old commits show again;
 and a renamed branch loses its base branch, as it loses its trim.

@@ -1037,9 +1037,12 @@ own is today). The check runs in `resolve_scope`'s branch case and not in the st
 because the merge base with the stored ref is the one the review then reads from: one more
 `merge-base` and one `--is-ancestor`, the second skipped when the two bases are equal, and
 nothing when nothing or the default marker is stored. The healthy path also reads the default
-branch now (one `symbolic-ref`), which it skipped before the check; and with no default branch
-to read, a stored base branch cannot be checked, so the scope fails as it does with nothing
-stored. The drop goes through the setter, so
+branch now (one `symbolic-ref`), which it skipped before the check. A repository with no
+default branch to read (a trunk named `develop`, no `origin/HEAD`) has nothing to compare
+with, and there the stored base branch is the only branch review there is: so the ancestry
+check is skipped and a stored ref that gives a merge base is used as it is, with nothing said.
+One that gives none is still dropped and said once, and the scope then fails with the error a
+review with nothing stored gives, because there is nothing to fall back to. The drop goes through the setter, so
 the detached-`HEAD` value of the session is held to the same rule, and the entry being gone is
 what says it once. The trim made under the dropped base branch needs no code of its own: the
 resolved base branch changed, so the rule above drops it. `mkstack.sh <path> squash` builds the
