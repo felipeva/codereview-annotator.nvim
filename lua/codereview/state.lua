@@ -459,7 +459,7 @@ end
 ---because two branches are two readings: trimming one says nothing about the other.
 ---
 ---The sentences below are said here, which is the one place in this module that says
----anything. Both are about the **store** and nothing above it can see either fact -- by the
+---anything. All of them are about the **store** and nothing above it can see one -- by the
 ---time a scope is resolved the trim is either usable or gone -- and saying them here is also
 ---what keeps one sentence one sentence: the surfaces that read a trim are the review and the
 ---commit list, and a rule copied into both is a rule that says it twice.
@@ -476,8 +476,8 @@ local session_trims = {}
 
 ---Roots already told that a detached `HEAD` keeps no trim.
 ---
----Said once, when a trim is set. Of the three cases where a trim is refused or limited this
----is the only one a reviewer could take for a defect -- the other two say what they refused
+---Said once, when a trim is set. Of the four cases where a trim is refused or limited this
+---is the only one a reviewer could take for a defect -- the other three say what they refused
 ---at the moment they refuse it, and this one refuses nothing until the session ends.
 local said_detached = {}
 
@@ -555,7 +555,7 @@ function M.trim(root, base_branch)
   local now = base_branch or git.default_branch(root)
   local lost
   if made_under ~= now then
-    lost = ("The trim was lost — it was made against %s and the review is now measured from %s, so the full branch is open"):format(
+    lost = ("The trim was lost — it was made under %s and the review is now measured from %s, so the full branch is open"):format(
       made_under,
       now
     )

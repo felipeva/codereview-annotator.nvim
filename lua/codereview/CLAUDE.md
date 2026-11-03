@@ -104,8 +104,9 @@ function-locally, as `keymaps` does: an edit from the float and one from the dif
 one path, and that path is `annotate`'s. `overlay` is handed the view by `init`, through its
 toggle, and does the same for the **margin**'s keys, so the margin is a third surface on
 that one path. `trim_float` reads none at all: what it takes beside the view is the
-repository and the commit the branch starts at, both as plain values, because a second
-derivation of *where does this branch start* is a second chance to answer it differently.
+repository, the commit the branch starts at and its **base branch**, all as plain values,
+because a second derivation of *where does this branch start* is a second chance to answer it
+differently.
 The view keeps the one refusal only the view can make — the **scope** on screen.
 `view_layout` and `view_panel` do read view state, but never their own copy of it: the
 `CRView` table is handed in beside the view and mutated in place, exactly as `syntax` and
