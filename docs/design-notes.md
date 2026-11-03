@@ -1036,7 +1036,10 @@ at `HEAD` (the parent merged `child` in; the review is empty, as a branch with n
 own is today). The check runs in `resolve_scope`'s branch case and not in the store's getter,
 because the merge base with the stored ref is the one the review then reads from: one more
 `merge-base` and one `--is-ancestor`, the second skipped when the two bases are equal, and
-nothing when nothing or the default marker is stored. The drop goes through the setter, so
+nothing when nothing or the default marker is stored. The healthy path also reads the default
+branch now (one `symbolic-ref`), which it skipped before the check; and with no default branch
+to read, a stored base branch cannot be checked, so the scope fails as it does with nothing
+stored. The drop goes through the setter, so
 the detached-`HEAD` value of the session is held to the same rule, and the entry being gone is
 what says it once. The trim made under the dropped base branch needs no code of its own: the
 resolved base branch changed, so the rule above drops it. `mkstack.sh <path> squash` builds the
