@@ -311,6 +311,7 @@ end
 ---@field untracked boolean Whether untracked files belong in this scope
 ---@field identity string   What makes this the same scope again; the view keys its
 ---                         per-scope progress on it
+---@field base_branch string|nil The **base branch** a `branch` scope is measured from
 
 ---Every scope with a name, in the order `gs` moves through them. A bare revspec is
 ---resolved separately, and completion offers exactly this list.
@@ -735,8 +736,10 @@ function M.resolve_scope(spec, root)
     -- one scope that needs it into every caller of scope resolution, and scope resolution
     -- is exactly what has to stay one function. What comes back is already checked: the
     -- store drops a set holding a commit `HEAD` no longer descends from, and says so, so a
-    -- commit this repository cannot read from never reaches the anchor below.
-    local skipped = state.trim(root)
+    -- commit this repository cannot read from never reaches the anchor below. It drops a set
+    -- made under another base branch too, which is why the name handed in is the one after
+    -- the fallback above: every cause of a change of base branch drops the trim alike.
+    local skipped = state.trim(root, branch)
     -- Only the first answer, deliberately. A refusal belongs to the **pick**, which asks
     -- before it stores anything and still has the reviewer in front of it; here a set that
     -- cannot be built gives the whole branch back, which is what an unresolvable trim has
@@ -785,6 +788,8 @@ function M.resolve_scope(spec, root)
       -- pre-image does. A trimmed review is the same branch review and reads the same
       -- progress back, which is what leaves a reviewer's marks where they left them.
       identity = base,
+      -- What a trim stored from this review is recorded under.
+      base_branch = branch,
     }
   end
 

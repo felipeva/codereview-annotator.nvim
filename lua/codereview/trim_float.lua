@@ -2,9 +2,9 @@
 ---
 ---A module of its own, in the shape of `queue_float.lua`: a float needs a buffer, a window
 ---and keys, and none of the review view's mutable state. What it acts through is handed in
------ the view module for the one action `<CR>` runs, and the repository and the commit the
----branch starts at as plain values -- so nothing here reads the view, which is what keeps
----this module out of the cycle `view` and `annotate` already sit in.
+----- the view module for the one action `<CR>` runs, and the repository, the commit the
+---branch starts at and its base branch as plain values -- so nothing here reads the view,
+---which is what keeps this module out of the cycle `view` and `annotate` already sit in.
 ---
 ---What a row carries is a checkbox, the short sha, the subject, how much the commit changed
 ---and the relative date. The checkbox is on every row because the question a reviewer
@@ -338,7 +338,8 @@ end
 ---@param view table The view module, which `<CR>` runs the trim through
 ---@param root string The repository the branch belongs to
 ---@param base string Where the branch starts: the review's own scope identity
-function M.open(view, root, base)
+---@param base_branch string|nil The **base branch** the review is measured from
+function M.open(view, root, base, base_branch)
   local commits, err = git.branch_commits(root, base)
   if not commits then
     info(err or "could not read the commits on this branch")
@@ -352,7 +353,7 @@ function M.open(view, root, base)
   -- Every box, read back out of the stored trim rather than off the scope's pre-image. The
   -- two agree on where the review starts, but a pre-image is one commit and a trim can have
   -- a hole in it: only the stored set says which of the rows above that commit are in.
-  local skipped = require("codereview.state").trim(root)
+  local skipped = require("codereview.state").trim(root, base_branch)
   local taken = {}
   for _, sha in ipairs(skipped or {}) do
     taken[sha] = true

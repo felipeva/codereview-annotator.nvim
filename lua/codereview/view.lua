@@ -2054,11 +2054,11 @@ end
 
 ---List the commits on the branch, from inside a review, and trim it to the ones checked.
 ---
----The surface is `trim_float`'s, and both the repository and the commit the branch starts at
----are handed to it rather than looked up: the review already knows both, and a second answer
----to either question is a second chance to answer it differently -- a `git fetch` in another
----window moves the default branch, and a list derived a second time would then be drawn
----against a base this review is not reading. The **identity** is what is handed over and
+---The surface is `trim_float`'s, and the repository, the commit the branch starts at and the
+---**base branch** are handed to it rather than looked up: the review already knows all three,
+---and a second answer to any of them is a second chance to answer it differently -- a
+---`git fetch` in another window moves the default branch, and a list derived a second time
+---would then be drawn against a base this review is not reading. The **identity** is what is handed over and
 ---never the pre-image, because the pre-image is exactly what a trim narrows.
 ---
 ---What stays here is the one refusal only the view can make. Which **scope** is on screen
@@ -2077,7 +2077,7 @@ function M.commit_list()
     info(("Commits are listed for a branch review — this review is %s"):format(v.scope.label))
     return
   end
-  trim_float.open(M, v.root, v.scope.identity)
+  trim_float.open(M, v.root, v.scope.identity, v.scope.base_branch)
 end
 
 ---Read the branch review with `skipped` taken out of it, or the whole branch with nothing
@@ -2121,7 +2121,7 @@ function M.trim_to(skipped)
     info(refused)
     return
   end
-  require("codereview.state").set_trim(v.root, skipped)
+  require("codereview.state").set_trim(v.root, skipped, v.scope.base_branch)
   M.set_scope("branch")
 end
 
