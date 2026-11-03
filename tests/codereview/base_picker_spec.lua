@@ -288,6 +288,24 @@ end)
 
 --- The command --------------------------------------------------------------------
 
+describe(":CodeReviewBase with no argument in a scope other than branch", function()
+  local seen = stub_select("feat/A")
+  local msgs, restore = h.capture_notify()
+  vim.cmd("CodeReviewBase")
+  restore()
+  seen.restore()
+
+  it("was on another scope", function()
+    assert.equal("worktree", current().scope.name)
+  end)
+
+  it("refuses as gm does: the sentence, no picker, nothing stored", function()
+    assert.is_true(h.notified(msgs, "A base branch is for a branch review"), vim.inspect(msgs))
+    assert.is_nil(seen.items)
+    assert.equal(state.DEFAULT_BASE_BRANCH, stored().child)
+  end)
+end)
+
 describe(":CodeReviewBase with no argument", function()
   view.set_scope("branch")
   local seen = stub_select("feat/A")
@@ -326,3 +344,52 @@ describe(":CodeReviewBase with no argument and no review open", function()
     assert.equal("origin/feat/A", stored().child)
   end)
 end)
+
+--- A trim under the old base branch ----------------------------------------------
+
+-- One more commit on `child`, as `trim_base_spec` adds, so a trim under `feat/A` leaves a
+-- commit in. Last in this file: it moves `HEAD`, which every listing above reads.
+vim.fn.writefile({ "k2" }, vim.fs.joinpath(fixture, "k2.txt"))
+git_at({ "add", "-A" })
+git_at({ "commit", "-qm", "feat: add k2" })
+local k1 = h.git_lines(fixture, { "rev-parse", "HEAD~1" })[1]
+
+describe("a pick from the picker over a trim made under feat/A", function()
+  assert(view.open("branch"), "the branch review did not open")
+  vim.cmd("CodeReviewBase feat/A")
+  view.trim_to({ k1 })
+  local trimmed = current().scope
+  local trim_before = vim.deepcopy((state.load(root).trims or {}).child)
+
+  local seen = stub_select("master")
+  local msgs, restore = h.capture_notify()
+  vim.api.nvim_set_current_win(current().win)
+  h.feed("gm")
+  restore()
+  seen.restore()
+
+  it("was a trim recorded under feat/A, in the review", function()
+    assert.equal("feat/A", trim_before and trim_before.base_branch)
+    assert.equal(k1, trimmed.before)
+    assert.equal("branch vs feat/A · last 1", trimmed.label)
+  end)
+
+  it("drops the trim from the store", function()
+    assert.equal("master", stored().child)
+    assert.is_nil((state.load(root).trims or {}).child)
+  end)
+
+  it("tells the reviewer once", function()
+    local n = #vim.tbl_filter(function(msg)
+      return type(msg) == "string" and msg:find("The trim was lost", 1, true) ~= nil
+    end, msgs)
+    assert.equal(1, n, vim.inspect(msgs))
+  end)
+
+  it("draws the whole branch from the merge base with master", function()
+    assert.equal(merge_base("master"), current().scope.before)
+    assert.equal("branch vs master", current().scope.label)
+  end)
+end)
+
+codereview.close()
