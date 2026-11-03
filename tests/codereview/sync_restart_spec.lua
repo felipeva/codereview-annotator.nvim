@@ -1,15 +1,17 @@
 -- **Pending removals** across a restart of Neovim.
 --
--- Three sessions. The first two are child processes (sync_restart_child.lua); the third is
+-- Four sessions. The first three are child processes (sync_restart_child.lua); the last is
 -- this process. The queue is read back once per session, so only a new process can show
 -- what a session left on the disk.
 --
 --   1. A queue owner listens. The child captures three bare notes, and the queue owner
 --      holds them.
+--   1b. The queue owner also holds a note of another tool. A child drops that **mirrored
+--      entry**, and the connection closes before the queue owner reads the `remove`.
 --   2. No queue owner listens. The child drops one, submits the other two through the
 --      `send` adapter, and captures a fourth.
 --   3. This process starts the sync against the same queue owner, which still holds the
---      first three.
+--      first three and the note of the other tool.
 --
 -- The fake queue owner runs in this process. A child is waited for with `vim.wait`, not
 -- with `SystemObj:wait`, which runs only fast events: the fake answers in the main loop.
@@ -27,8 +29,9 @@ local owner = fake.start()
 
 ---Run one session of the child, and give the uuid of each entry it printed, by note.
 ---@param env table<string, string>
+---@param during fun()|nil Called on each turn of the wait, while the child runs
 ---@return table<string, string> uuids, string text, integer code
-local function session(env)
+local function session(env, during)
   local done
   vim.system(
     { vim.v.progpath, "--clean", "-l", vim.fs.joinpath(h.root, "tests", "codereview", "sync_restart_child.lua") },
@@ -42,6 +45,9 @@ local function session(env)
     end
   )
   assert(vim.wait(60000, function()
+    if during and not done then
+      during()
+    end
     return done ~= nil
   end, 10))
   -- `-l` prints to stderr, so both streams are read.
@@ -104,6 +110,47 @@ describe("the first session, with a queue owner", function()
   end)
 end)
 
+-- A note of another tool, as the queue owner holds it.
+local M = "7c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
+owner.queue[#owner.queue + 1] = {
+  id = M:upper(),
+  type = "bug",
+  note = "made in another tool",
+  selection = { none = vim.empty_dict() },
+  source = { appName = "Helium" },
+  createdAt = "2026-11-02T10:00:00Z",
+}
+owner:delay("remove", math.huge)
+local closed = false
+local _, drop_text, drop_code = session(
+  { MODE = "drop", SOCKET = owner.path, DROP = "made in another tool" },
+  function()
+    for _, r in ipairs(owner.requests) do
+      if not closed and r.op == "remove" then
+        closed = true
+        owner:drop_clients()
+      end
+    end
+  end
+)
+owner:delay("remove", nil)
+
+describe("a session that drops a mirrored entry, whose remove has no reply at the close", function()
+  it("exits cleanly", function()
+    assert.same(0, drop_code, drop_text)
+    assert.is_true(closed)
+  end)
+
+  -- The control: the queue owner did not read the `remove`.
+  it("leaves the note with the queue owner", function()
+    assert.is_not_nil(owner:find(M))
+  end)
+
+  it("writes its uuid as a pending removal", function()
+    assert.same({ M }, uuids_of(stored().removals))
+  end)
+end)
+
 local second, second_text, second_code = session({
   MODE = "away",
   SOCKET = vim.fn.tempname() .. ".sock",
@@ -120,7 +167,7 @@ describe("the second session, with no queue owner", function()
   end)
 
   it("writes the drop and the dispatch as pending removals, in the store with no root", function()
-    assert.same(sorted({ A, B, C }), uuids_of(stored().removals))
+    assert.same(sorted({ A, B, C, M }), uuids_of(stored().removals))
   end)
 
   it("does not make the new capture a pending removal", function()
@@ -160,7 +207,7 @@ describe("the next connect, after the restart", function()
         return r.op
       end, after)
     )
-    assert.same(sorted({ A, B, C }), sorted(after[4].ids))
+    assert.same(sorted({ A, B, C, M }), sorted(after[4].ids))
   end)
 
   it("gives the queue owner the capture made while it was away, and only that", function()
@@ -181,7 +228,7 @@ describe("the next connect, after the restart", function()
     )
   end)
 
-  it("does not bring the dropped and the dispatched entries back", function()
+  it("does not bring the dropped and the dispatched entries back, the mirrored one too", function()
     assert.same(
       { E },
       vim.tbl_map(function(e)

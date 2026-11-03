@@ -9,6 +9,9 @@
 --
 --   * MODE=capture: capture a bare note for each text in NOTES (comma-separated), wait until
 --     the sync started, which is after the queue owner replied to every `keep`, and exit.
+--   * MODE=drop: a queue owner listens. Wait until the sync started and the entry DROP is
+--     in the queue, drop it in the queue float, and wait until the sync stops: the parent
+--     holds the `remove` and closes the connection.
 --   * MODE=away: no queue owner listens. In the queue float, drop the note DROP; then, when
 --     SUBMIT is set, submit through the `send` adapter; then, when CAPTURE is set, capture a
 --     bare note with that text; then, when EDIT is set (`old=new`), edit the note `old` to
@@ -93,6 +96,20 @@ if mode == "capture" then
       return said("Queue sync started")
     end, 10),
     "the sync did not start"
+  )
+elseif mode == "drop" then
+  assert(
+    vim.wait(5000, function()
+      return said("Queue sync started")
+    end, 10),
+    "the sync did not start"
+  )
+  in_float(vim.env.DROP, "x")
+  assert(
+    vim.wait(10000, function()
+      return said("Queue sync stopped")
+    end, 10),
+    "the sync did not stop"
   )
 else
   assert(not said("Queue sync started"), "a queue owner listens, and this mode needs none")
