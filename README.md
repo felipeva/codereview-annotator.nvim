@@ -45,18 +45,19 @@ With no [`send`](#adapters) adapter, the batch goes to the `+` register and stay
 
 | Command | Action |
 | --- | --- |
-| `:CodeReview [scope]` | Open a review. No scope = the branch against its base |
+| `:CodeReview [scope]` | Open a review. No scope = the branch against its base branch |
 | `:CodeReviewAnnotate [type]` | Annotate the current buffer or range, with or without a review |
 | `:CodeReviewCopy` | Copy the batch to `+` without submitting it |
 | `:CodeReviewLastBatch` | Show the last batch you sent |
 | `:CodeReviewSwitch` | Move the review to another checkout (worktree) of this repo |
+| `:CodeReviewBase {branch}` | Measure the branch review from another branch, such as the parent of a stacked branch |
 | `:CodeReviewBack` | Go back to the previous checkout |
 | `:CodeReviewOverlay [margin\|inline]` | Show or hide the queued annotations on the current file, in a margin or as captions |
 
 Scopes:
 
 ```vim
-:CodeReview                  " branch vs base (default)
+:CodeReview                  " branch vs its base branch (default)
 :CodeReview staged           " the index
 :CodeReview unstaged         " working tree vs index
 :CodeReview worktree         " everything uncommitted
@@ -64,6 +65,23 @@ Scopes:
 :CodeReview HEAD~3           " any revspec
 :CodeReview main...feature   " any range
 ```
+
+The branch review is measured from the default branch. On a stacked branch, that also shows
+the commits of the branch it was forked from. To measure from that branch, store it as the
+**base branch**:
+
+```vim
+:CodeReviewBase feat/A          " the review now says: branch vs feat/A
+:CodeReviewBase origin/feat/A   " a remote-tracking branch works too
+:CodeReviewBase origin/main     " the default branch again
+```
+
+The plugin keeps the base branch per branch, in this checkout, and draws an open branch review
+again at once. It never guesses a base branch, and it does not read `@{upstream}`. On a
+detached `HEAD` it is kept for the session only. A branch that no longer exists falls back to
+the default branch. Two gaps, where you must pick again: after the base branch is rebased, the
+merge base goes back to the default branch and its old commits show again; and a renamed
+branch loses its base branch, as it loses its trim.
 
 ## Keymaps
 
@@ -456,9 +474,9 @@ Full contracts: `:help codereview-adapters`. Wiring to a Claude session over her
 
 ## Persistence
 
-The queue, reviewed marks, commit selections and sent batches persist per checkout, under
-`stdpath("state")/codereview/`. If a file changes, its reviewed mark is removed and its
-annotations are marked `⚠ stale`.
+The queue, reviewed marks, commit selections, base branches and sent batches persist per
+checkout, under `stdpath("state")/codereview/`. If a file changes, its reviewed mark is removed and
+its annotations are marked `⚠ stale`.
 
 The overlay checks this again each time it draws a file, but only for annotations you captured
 from a buffer, and only for the file it draws. It hashes the file on disk: a change you

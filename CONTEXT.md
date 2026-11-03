@@ -10,8 +10,9 @@ receives it.
 
 **Checkout**:
 One working directory of a repository — the main clone or any git worktree of it. It is the
-unit everything is scoped to: a **queue**, an **archive**, the **trims** and the reviewed
-marks belong to one checkout, and two checkouts of one repository share none of them.
+unit everything is scoped to: a **queue**, an **archive**, the **trims**, the **base branches**
+and the reviewed marks belong to one checkout, and two checkouts of one repository share none
+of them.
 _Avoid_: session (a session is an agent's, see **Target**), worktree (a **scope** name),
 repository, root, project
 
@@ -49,6 +50,18 @@ an annotation covers, and not _span_, which is the changed characters inside a p
 Not _selection_ either: that is on **Range**'s avoid list, and reusing it invites the
 collision that list exists to prevent.
 _Avoid_: filter, mode, range, span, selection, cutoff
+
+**Base branch**:
+The branch a **branch** scope is measured from: the review diffs from the merge base with it
+to the working tree. The default branch, unless the reviewer picked another for this branch.
+Kept per branch in its **checkout**, as a **trim** is, and never guessed: git does not record
+which branch a branch was forked from, so the plugin is told. Picking the default branch is a
+recorded choice too, and not an empty entry. Like **trim**, a modifier on the branch scope and
+never a scope of its own, so `gs` gets no new stop. Not _base_ alone, which collides with the
+base revision and the merge base. Not _parent_, which is git's parent commit. Not _upstream_,
+which is git's `@{upstream}` and which this plugin does not read. Not _target_, which is where
+a **batch** goes. Not _onto_, which is a rebase word.
+_Avoid_: base, parent, upstream, target, onto
 
 **Review view**:
 The syntax-highlighted diff of a scope, with annotations projected onto its lines. Means
