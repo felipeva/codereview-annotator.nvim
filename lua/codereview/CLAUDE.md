@@ -33,7 +33,7 @@ change there is felt through.
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that edit, retype, drop, jump, copy and submit, and the one that lists them | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file and what a base revision are called wherever they are named, and how a winbar is assembled from typed segments; and one memo, of the groups a host's icon adapters answered with | stateful (one memo) |
-| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, the **sweep** that discards the state of checkouts that are gone, and, in the store with no root, the **pending removals** and the unsent edits of the **sync** | stateful (disk) |
+| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, and its **base branch**, the **sweep** that discards the state of checkouts that are gone, and, in the store with no root, the **pending removals** and the unsent edits of the **sync** | stateful (disk) |
 | `sync.lua` | The **sync**: the queue socket to a **queue owner**, one JSON line per message, requests and their replies, the events, the retry, an entry turned into a note and back, a note of another tool turned into a **mirrored entry** and taken out at the stop, each change to an entry sent with its guard against a snapshot written before it, the **pending removals** sent before the `keep` of a connect, the `send` of a submit, and the **archive** written from each `sent` | stateful (socket, queue, disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
@@ -69,12 +69,12 @@ Forcing the two apart costs more than it returns.
 
 `git` and `state` are the second, and much the smaller: `state` mints a snapshot and hashes
 blobs through `git`, and `git` reads the newest snapshot back out of the archive to resolve
-the `since-batch` scope. The **trim** rides the same edge in both directions — `git` reads the
-branch's stored trim to resolve `branch`, and `state` asks `git` which branch that is and
-whether `HEAD` still descends from what it stored. Function-local on both sides, as above. The
-alternative is handing the snapshot in from outside, which would put the one scope that needs
-it into every caller of `resolve_scope` — and scope resolution is exactly what must stay one
-function.
+the `since-batch` scope. The **trim** and the **base branch** ride the same edge in both
+directions — `git` reads the branch's stored trim and base branch to resolve `branch`, and
+`state` asks `git` which branch that is and whether `HEAD` still descends from what it stored.
+Function-local on both sides, as above. The alternative is handing the snapshot in from
+outside, which would put the one scope that needs it into every caller of `resolve_scope` —
+and scope resolution is exactly what must stay one function.
 
 `delivery` and `composer` are the third, and the smallest. A **preamble** is composed at
 submit time, so the submit has to reach whichever composer is wired — and the plugin's own

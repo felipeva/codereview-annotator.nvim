@@ -120,6 +120,25 @@ takes commits off the start of the branch included, works on any git.
         offer a path through checkouts that may no longer exist. Needs no
         review open.
 
+                                                            *:CodeReviewBase*
+:CodeReviewBase {branch}
+        Store {branch} as the **base branch** of the current branch: the
+        branch review is then measured from the merge base with {branch}, and
+        the winbar says `branch vs {branch}`. {branch} is a local or a
+        remote-tracking branch, used as you type it: `origin/feat/A` is not
+        read as `feat/A`. >
+            :CodeReviewBase feat/A
+            :CodeReviewBase origin/feat/A
+<       The default branch, by the name the branch review shows it under, is
+        stored as an explicit "default" choice, and the review reads from the
+        default branch again. A name that is not a commit here is reported and
+        nothing is stored. With no {branch}, the usage is reported.
+
+        Acts on the checkout the plugin is acting on: the open review's own
+        after a |:CodeReviewSwitch|, and the working directory's with no
+        review open. An open branch review is drawn again at once; a review on
+        another scope stays on that scope. See |codereview-base-branch|.
+
                                                        *:CodeReviewLastBatch*
 :CodeReviewLastBatch
         Read the last dispatched batch back: its annotations, grouped by type
@@ -482,7 +501,7 @@ scope: normal mode captures the file, a live selection captures those lines.
 ==============================================================================
 4. SCOPES                                                *codereview-scopes*
 
-    branch        merge-base with the default branch .. working tree (default)
+    branch        merge-base with the base branch .. working tree (default)
     staged        git diff --cached
     unstaged      git diff
     worktree      git diff HEAD
@@ -500,6 +519,35 @@ common enough that hardcoding `main` would silently diff against nothing.
 Untracked files appear as all-added entries in the `branch`, `worktree` and
 `since-batch` scopes; set `untracked = false` to hide them. `git diff` never
 reports them, so a brand-new file would otherwise be invisible to the review.
+
+Base branch                                          *codereview-base-branch*
+
+The `branch` scope is measured from its base branch: the default branch,
+unless you stored another one for this branch with |:CodeReviewBase|. On a
+stacked branch -- `child` forked from `feat/A` -- the default branch makes the
+review show the commits of `feat/A` too. Store `feat/A` as the base branch and
+the review holds only the commits of `child`.
+
+Git does not record which branch a branch was forked from, so the plugin never
+guesses one. It does not read `@{upstream}` either: `git push -u` and
+`gh pr create` set it to the branch's own remote copy, so a base branch read
+from it would change at the first push.
+
+The base branch is a modifier of the `branch` scope and not a scope of its
+own: `gs` has no new stop. It is kept per branch, in the state file of this
+checkout (|codereview-persistence|), and never in `git config`, which every
+checkout of the repository shares. Each branch keeps its own. On a detached
+`HEAD` it is kept for the session only, and you are told so once. A stored
+branch that no longer exists falls back to the default branch, so the review
+still opens. Reviewed marks are kept per merge base, so two base branches
+with one merge base share their marks.
+
+What a base branch does not solve, and when to store it again:
+    - A rebased base branch. After `feat/A` is rebased, the merge base of
+      `child` with it goes back to the default branch, and the review shows
+      the old commits of `feat/A` again.
+    - A renamed branch. The base branch is kept under the branch name, so a
+      renamed branch has none, as it has no trim.
 
 Since the last batch                                *codereview-since-batch*
 
@@ -1902,7 +1950,8 @@ foreground gets no tint, and without 'termguicolors' none is defined.
 ==============================================================================
 11. PERSISTENCE                                     *codereview-persistence*
 
-Reviewed marks, the queue and the batches already dispatched are written to
+Reviewed marks, the queue, the base branches (|codereview-base-branch|) and
+the batches already dispatched are written to
 `stdpath("state")/codereview/{repo}.json`, keyed by scope and diff base.
 Half-written notes are kept separately, in `drafts.json` -- see
 |codereview-drafts|.
@@ -2200,6 +2249,9 @@ require("codereview").close()                           *codereview.close()*
 require("codereview").switch()                         *codereview.switch()*
         Switch the review to another checkout of this repository. Works with
         no review open. See |:CodeReviewSwitch|.
+require("codereview").base({branch})                     *codereview.base()*
+        Store {branch} as the base branch of the current branch. See
+        |:CodeReviewBase|.
 require("codereview").annotate({type}, {range}, {opts})
                                                      *codereview.annotate()*
         Annotate the current buffer, with no review view involved. {type} is

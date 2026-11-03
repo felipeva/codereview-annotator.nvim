@@ -80,7 +80,7 @@ end
 function M.load(root)
   local file = M.path(root)
   if vim.fn.filereadable(file) == 0 then
-    return { version = VERSION, scopes = {}, queue = {}, archive = {}, trims = {} }
+    return { version = VERSION, scopes = {}, queue = {}, archive = {}, trims = {}, base_branches = {} }
   end
   local ok, decoded = pcall(function()
     return vim.json.decode(table.concat(vim.fn.readfile(file), "\n"), {
@@ -91,17 +91,18 @@ function M.load(root)
     -- A corrupt or older file is discarded rather than migrated: the cost of losing
     -- review progress is far lower than the cost of restoring marks that mean something
     -- different than they did when written.
-    return { version = VERSION, scopes = {}, queue = {}, archive = {}, trims = {} }
+    return { version = VERSION, scopes = {}, queue = {}, archive = {}, trims = {}, base_branches = {} }
   end
   decoded.scopes = decoded.scopes or {}
   decoded.queue = decoded.queue or {}
   -- A document written before the archive existed lacks the key entirely, and defaulting
   -- it here is the whole of what it takes to read one: nothing about the marks stored
-  -- beside it means anything different than it did. The **trims** arrived the same way,
-  -- for the same reason -- a bump would throw away every reviewed mark in the file to add
-  -- a key those files simply lack.
+  -- beside it means anything different than it did. The **trims** and the **base branches**
+  -- arrived the same way, for the same reason -- a bump would throw away every reviewed mark
+  -- in the file to add a key those files simply lack.
   decoded.archive = decoded.archive or {}
   decoded.trims = decoded.trims or {}
+  decoded.base_branches = decoded.base_branches or {}
   -- The **checkout** and the save stamp are deliberately *not* defaulted here, though they
   -- arrived exactly as those two did. A document written before them has neither, and that
   -- absence is the whole of what keeps it out of a **sweep**: defaulted, it would reach the
@@ -537,6 +538,63 @@ function M.set_trim(root, skipped)
     return
   end
   store_trim(root, branch, skipped)
+end
+
+--- The base branch --------------------------------------------------------------
+
+---What a reviewer stores by picking the default branch itself.
+---
+---A value of its own, and never the entry cleared: a pick of the default branch is a choice
+---the reviewer made, and an empty entry says no choice was made at all. Spelled with a colon
+---because no ref name can hold one, so no branch can ever be read as this marker.
+M.DEFAULT_BASE_BRANCH = ":default"
+
+---A base branch set while `HEAD` is detached, keyed by root, as `session_trims` is.
+local session_bases = {}
+
+---Roots already told that a detached `HEAD` keeps no base branch. A latch of its own and not
+---the trim's: the two are different sentences, and hearing one says nothing of the other.
+local said_detached_base = {}
+
+---@param root string
+---@param branch string
+---@param base string|nil nil removes it
+local function store_base_branch(root, branch, base)
+  local data = M.load(root)
+  data.base_branches = data.base_branches or {}
+  data.base_branches[branch] = base
+  M.save(root, data)
+end
+
+---The **base branch** the current branch's review is measured from, as it was stored: a ref
+---name, `DEFAULT_BASE_BRANCH`, or nil when nothing was picked.
+---
+---Kept beside the trim and in the same shape: in the checkout's own document, keyed by branch,
+---and never in `git config`, whose `branch.<name>.*` keys every checkout of the repository
+---shares.
+---@param root string
+---@return string|nil
+function M.base_branch(root)
+  local branch = require("codereview.git").current_branch(root)
+  if not branch then
+    return session_bases[root]
+  end
+  return (M.load(root).base_branches or {})[branch]
+end
+
+---@param root string
+---@param base string|nil A ref name, or `DEFAULT_BASE_BRANCH`; nil removes the entry
+function M.set_base_branch(root, base)
+  local branch = require("codereview.git").current_branch(root)
+  if not branch then
+    session_bases[root] = base
+    if base and not said_detached_base[root] then
+      said_detached_base[root] = true
+      info("HEAD is detached — this base branch is not kept for the next session")
+    end
+    return
+  end
+  store_base_branch(root, branch, base)
 end
 
 --- The archive ------------------------------------------------------------------

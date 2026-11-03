@@ -2125,6 +2125,34 @@ function M.trim_to(skipped)
   M.set_scope("branch")
 end
 
+---Store `ref` as the **base branch** of the current branch, in the checkout the plugin is
+---acting on (ADR-0008), and draw an open branch review again from it.
+---
+---Works with no review open, as a **switch** does. The default branch, by the name
+---`git.default_branch` gives it, is stored as the explicit marker and not as its name: the
+---one place a pick of the default becomes that marker, so the picker reaches it here too.
+---@param ref string
+function M.set_base_branch(ref)
+  if M.current() and without_checkout("setting the base branch") then
+    return
+  end
+  local state = require("codereview.state")
+  local root = state.current_checkout()
+  if not root then
+    warn("not inside a git repository")
+    return
+  end
+  if not git.is_commit(ref, root) then
+    warn(("not a branch in this repository: %s — the base branch is unchanged"):format(ref))
+    return
+  end
+  state.set_base_branch(root, ref == git.default_branch(root) and state.DEFAULT_BASE_BRANCH or ref)
+  local v = M.current()
+  if v and v.scope.name == "branch" then
+    M.set_scope("branch")
+  end
+end
+
 ---Read the last dispatched **batch** back, from inside a review.
 ---
 ---The surface is `archive`'s, and it consults no view: a batch has already gone, so nothing

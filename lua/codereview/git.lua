@@ -142,6 +142,15 @@ function M.current_branch(root)
   return name
 end
 
+---Whether `ref` names a commit in this repository. Exact: `feat/A` does not match
+---`origin/feat/A`.
+---@param ref string
+---@param root string
+---@return boolean
+function M.is_commit(ref, root)
+  return line({ "rev-parse", "--verify", "--quiet", ref .. "^{commit}" }, root) ~= nil
+end
+
 ---@param a string
 ---@param b string
 ---@param root string
@@ -699,13 +708,26 @@ function M.resolve_scope(spec, root)
       identity = batch.snapshot,
     }
   elseif spec == "branch" or spec == "" or spec == nil then
-    local branch = M.default_branch(root)
-    if not branch then
-      return nil, "could not determine the default branch"
+    -- The **base branch** the reviewer stored, else the default branch. There is no upstream
+    -- rule and no inference -- see `docs/design-notes.md`. Read from the store on the same
+    -- edge as the trim below, for the same reason. A stored ref that no longer gives a merge
+    -- base falls back to the default branch, so the review still opens.
+    local state = require("codereview.state")
+    local stored = state.base_branch(root)
+    local branch, base
+    if stored and stored ~= state.DEFAULT_BASE_BRANCH then
+      base = M.merge_base(stored, "HEAD", root)
+      branch = base and stored
     end
-    local base = M.merge_base(branch, "HEAD", root)
     if not base then
-      return nil, ("no merge base with %s"):format(branch)
+      branch = M.default_branch(root)
+      if not branch then
+        return nil, "could not determine the default branch"
+      end
+      base = M.merge_base(branch, "HEAD", root)
+      if not base then
+        return nil, ("no merge base with %s"):format(branch)
+      end
     end
 
     -- The **trim**, read here rather than taken as an argument -- the shape `since-batch`
@@ -714,7 +736,7 @@ function M.resolve_scope(spec, root)
     -- is exactly what has to stay one function. What comes back is already checked: the
     -- store drops a set holding a commit `HEAD` no longer descends from, and says so, so a
     -- commit this repository cannot read from never reaches the anchor below.
-    local skipped = require("codereview.state").trim(root)
+    local skipped = state.trim(root)
     -- Only the first answer, deliberately. A refusal belongs to the **pick**, which asks
     -- before it stores anything and still has the reviewer in front of it; here a set that
     -- cannot be built gives the whole branch back, which is what an unresolvable trim has
@@ -800,7 +822,7 @@ function M.resolve_scope(spec, root)
     }
   end
 
-  if not line({ "rev-parse", "--verify", "--quiet", spec .. "^{commit}" }, root) then
+  if not M.is_commit(spec, root) then
     return nil, ("not a valid revision: %s"):format(spec)
   end
   return {

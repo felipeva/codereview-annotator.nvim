@@ -984,6 +984,23 @@ opened — and then it names a key nothing was ever written under, and an assert
 compares two empty tables and passes. `tests/codereview/state_spec.lua` built its key by hand
 and had exactly this shape before #140.
 
+**A base branch has no upstream rule, though `@{upstream}` looks like the answer git already
+keeps.** On a stacked branch made with `git checkout -b child feat/A --track`, `@{upstream}`
+is `feat/A` — until the first push. `git push -u` and `gh pr create` both set it to the
+branch's own remote copy, `origin/child`, and from then on the rule would measure the review
+from the branch itself: the base branch changes at the first push, with no notice, and the
+review goes empty or wrong. So the resolution order is the stored **base branch**, else the
+default branch, and nothing between them. Inference is out for a similar reason: the nearest
+branch is often a branch forked from this one, or a backup at `HEAD`, and one `merge-base` per
+ref took 2.7 s on a repository with 110 refs.
+
+**A base branch is stored in the state document, and never in `git config`.** `branch.<name>.*`
+is the obvious home, and it is in `.git/config`, which every checkout of the repository
+shares. Two worktrees on two branches would not collide, but the plugin would be writing to a
+file that is the reviewer's, and the per-checkout rule every other piece of review state
+follows would have one exception. It sits beside the **trim**, keyed by branch, with the same
+detached-`HEAD` rule.
+
 **That cwd is realpath'd first, and only that side.** Every `abs_path` in the queue is
 already canonical — `git rev-parse --show-toplevel` answers with symlinks resolved, and
 buffer capture realpaths for the same reason — but a target's `cwd` is whatever the adapter

@@ -48,6 +48,14 @@ function M.setup(opts)
     desc = "Go back to the checkout the review came from",
   })
 
+  -- A command, for the reason the switch is one: it has to work with no review open.
+  vim.api.nvim_create_user_command("CodeReviewBase", function(cmd)
+    M.base(cmd.args ~= "" and cmd.args or nil)
+  end, {
+    nargs = "?",
+    desc = "Measure the branch review of the current branch from another branch",
+  })
+
   -- Takes no arguments and needs no review open, for the reason the copy above does not:
   -- the batch it reads back has already gone, so nothing about the current window could
   -- change which one went last.
@@ -140,6 +148,17 @@ end
 ---not review state.
 function M.back()
   require("codereview.checkout").back()
+end
+
+---Store the **base branch** the current branch's review is measured from, and draw an open
+---branch review again from it.
+---@param ref string|nil A branch, local or remote-tracking. nil reports the usage.
+function M.base(ref)
+  if not ref then
+    vim.notify("Usage: :CodeReviewBase {branch}", vim.log.levels.WARN, { title = "Code review" })
+    return
+  end
+  require("codereview.view").set_base_branch(ref)
 end
 
 ---Annotate the file in the current buffer, from anywhere.

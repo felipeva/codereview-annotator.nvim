@@ -15,7 +15,7 @@ M.UUID = "^%x%x%x%x%x%x%x%x%-%x%x%x%x%-4%x%x%x%-[89ab]%x%x%x%-%x%x%x%x%x%x%x%x%x
 ---
 ---Anything after the script name is passed to it after the path, which is how `mkbig` is
 ---asked for a diff of a particular height: it takes a file count and a line count.
----@param script "mkfixture"|"mktree"|"mkbig"|"mkcommits"|"mkcheckouts"|"mktextconv"
+---@param script "mkfixture"|"mktree"|"mkbig"|"mkcommits"|"mkcheckouts"|"mktextconv"|"mkstack"
 ---@param ... string
 ---@return string dir
 function M.fixture(script, ...)
@@ -27,7 +27,7 @@ function M.fixture(script, ...)
 end
 
 ---Build a fixture and make it the current directory.
----@param script "mkfixture"|"mktree"|"mkbig"|"mkcommits"|"mkcheckouts"|"mktextconv"
+---@param script "mkfixture"|"mktree"|"mkbig"|"mkcommits"|"mkcheckouts"|"mktextconv"|"mkstack"
 ---@param ... string
 ---@return string dir
 function M.cd_fixture(script, ...)
