@@ -362,7 +362,7 @@ _Avoid_: foreign entry, remote entry, external note
 **Pending removal**:
 The uuid of an **entry** that was dropped or **dispatched** while no **queue owner** could take
 a `remove`: with no connection, during a connect before its `keep`, or with a `remove`
-that had no reply when the connection closed. Kept in the store
+that had no reply when the connection closed or Neovim quit. Kept in the store
 for entries with no repository, so a restart does not lose it, and swept after 7 days. The
 next connect removes it from the queue owner's queue before it gives the plugin's entries,
 so an entry that went to the agent does not come back. A submit through the queue owner

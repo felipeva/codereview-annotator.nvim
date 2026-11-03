@@ -12,6 +12,9 @@
 --   * MODE=drop: a queue owner listens. Wait until the sync started and the entry DROP is
 --     in the queue, drop it in the queue float, and wait until the sync stops: the parent
 --     holds the `remove` and closes the connection.
+--   * MODE=quit: a queue owner listens. Capture a bare note for each text in NOTES, wait
+--     until the sync started, print the entries, drop the note DROP in the queue float, and
+--     exit with `:qa` while the parent holds the `remove`. The connection is open at the exit.
 --   * MODE=away: no queue owner listens. In the queue float, drop the note DROP; then, when
 --     SUBMIT is set, submit through the `send` adapter; then, when CAPTURE is set, capture a
 --     bare note with that text; then, when EDIT is set (`old=new`), edit the note `old` to
@@ -97,6 +100,23 @@ if mode == "capture" then
     end, 10),
     "the sync did not start"
   )
+elseif mode == "quit" then
+  for text in vim.env.NOTES:gmatch("[^,]+") do
+    bare(text)
+  end
+  assert(
+    vim.wait(5000, function()
+      return said("Queue sync started")
+    end, 10),
+    "the sync did not start"
+  )
+  for _, item in ipairs(queue.entries()) do
+    print(("entry: %s %s"):format(item.note, item.uuid))
+  end
+  in_float(vim.env.DROP, "x")
+  -- Long enough for the `remove` to be written. The parent never answers it.
+  vim.wait(300)
+  vim.cmd("qa")
 elseif mode == "drop" then
   assert(
     vim.wait(5000, function()

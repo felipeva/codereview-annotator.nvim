@@ -340,6 +340,19 @@ end
 
 local repaint
 
+---Write the uuids of each `remove` with no reply as **pending removals**: such a `remove` is
+---not known to have reached the queue owner, so the next connect sends it again. A uuid
+---that is a pending removal already keeps its stamp.
+---
+---For each end of a connection: its close (`stop`), and the exit of Neovim, which closes
+---it without `stop`.
+---@param conn CRSyncConn
+local function write_unanswered(conn)
+  if next(conn.removing) then
+    state.add_removals(vim.tbl_keys(conn.removing))
+  end
+end
+
 ---Close a connection. The plugin's own entries stay in the queue. The **mirrored
 ---entries** leave it: only the queue owner holds them and can render them, and a submit
 ---without it would send a screenshot as a bare note.
@@ -349,12 +362,7 @@ local function stop(conn)
     return
   end
   conn.closed = true
-  -- A `remove` with no reply is not known to have reached the queue owner, so its uuids
-  -- become **pending removals**: the next connect sends them again. A uuid that is a
-  -- pending removal already keeps its stamp.
-  if next(conn.removing) then
-    state.add_removals(vim.tbl_keys(conn.removing))
-  end
+  write_unanswered(conn)
   if not conn.pipe:is_closing() then
     conn.pipe:close()
   end
@@ -1156,6 +1164,15 @@ function M.start(review_view)
   view = review_view
   state.restaled = M.restale
   unsent = state.unsent()
+  -- The exit does nothing else: no request, and no repaint.
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = vim.api.nvim_create_augroup("CodeReviewSync", { clear = true }),
+    callback = function()
+      if current and not current.closed then
+        write_unanswered(current)
+      end
+    end,
+  })
   if current then
     stop(current)
   end

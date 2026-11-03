@@ -1,6 +1,6 @@
 -- **Pending removals** across a restart of Neovim.
 --
--- Four sessions. The first three are child processes (sync_restart_child.lua); the last is
+-- Five sessions. The first four are child processes (sync_restart_child.lua); the last is
 -- this process. The queue is read back once per session, so only a new process can show
 -- what a session left on the disk.
 --
@@ -8,6 +8,8 @@
 --      holds them.
 --   1b. The queue owner also holds a note of another tool. A child drops that **mirrored
 --      entry**, and the connection closes before the queue owner reads the `remove`.
+--   1c. A child captures a note, drops it, and quits Neovim with `:qa` before the queue
+--      owner replies to the `remove`.
 --   2. No queue owner listens. The child drops one, submits the other two through the
 --      `send` adapter, and captures a fourth.
 --   3. This process starts the sync against the same queue owner, which still holds the
@@ -54,7 +56,10 @@ local function session(env, during)
   local text = (done.stdout or "") .. (done.stderr or "")
   local uuids = {}
   for line in text:gmatch("[^\r\n]+") do
-    local note, uuid = line:match("^entry: (.-) (%S+)$")
+    -- By the shape of a uuid, not to the end of the line: the text of a notification can
+    -- follow it on the same line.
+    local note, uuid =
+      line:match("^entry: (.-) (%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x)")
     if note then
       uuids[note] = uuid
     end
@@ -151,6 +156,35 @@ describe("a session that drops a mirrored entry, whose remove has no reply at th
   end)
 end)
 
+owner:delay("remove", math.huge)
+local quit, quit_text, quit_code = session({
+  MODE = "quit",
+  SOCKET = owner.path,
+  NOTES = "dropped at the quit",
+  DROP = "dropped at the quit",
+})
+owner:delay("remove", nil)
+local Q = quit["dropped at the quit"]
+
+describe("a session that quits before the reply to a remove", function()
+  it("exits cleanly", function()
+    assert.same(0, quit_code, quit_text)
+  end)
+
+  -- The control: the `remove` arrived, got no reply, and the queue owner holds the note.
+  it("leaves the note with the queue owner", function()
+    local held = vim.tbl_filter(function(r)
+      return r.op == "remove" and vim.deep_equal(r.ids, { Q })
+    end, owner.requests)
+    assert.same(1, #held, quit_text)
+    assert.is_not_nil(owner:find(Q))
+  end)
+
+  it("writes its uuid as a pending removal at the exit", function()
+    assert.is_true(vim.tbl_contains(uuids_of(stored().removals), Q))
+  end)
+end)
+
 local second, second_text, second_code = session({
   MODE = "away",
   SOCKET = vim.fn.tempname() .. ".sock",
@@ -167,7 +201,7 @@ describe("the second session, with no queue owner", function()
   end)
 
   it("writes the drop and the dispatch as pending removals, in the store with no root", function()
-    assert.same(sorted({ A, B, C, M }), uuids_of(stored().removals))
+    assert.same(sorted({ A, B, C, M, Q }), uuids_of(stored().removals))
   end)
 
   it("does not make the new capture a pending removal", function()
@@ -207,7 +241,7 @@ describe("the next connect, after the restart", function()
         return r.op
       end, after)
     )
-    assert.same(sorted({ A, B, C, M }), sorted(after[4].ids))
+    assert.same(sorted({ A, B, C, M, Q }), sorted(after[4].ids))
   end)
 
   it("gives the queue owner the capture made while it was away, and only that", function()

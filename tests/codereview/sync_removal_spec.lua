@@ -88,6 +88,14 @@ local function stored()
   )
 end
 
+---The autocmds that write the unanswered `remove`s at the exit of Neovim.
+---@return table[]
+local function exit_hooks()
+  return vim.tbl_filter(function(a)
+    return a.group_name == "CodeReviewSync"
+  end, vim.api.nvim_get_autocmds({ event = "VimLeavePre" }))
+end
+
 ---@param owner FakeQueueOwner
 ---@param op string
 ---@return table[]
@@ -111,6 +119,10 @@ describe("without sync", function()
     assert.same(0, queue.count())
     assert.same(1, #state.global_archive())
     assert.same("edited again without sync", state.global_archive()[1].entries[1].note)
+  end)
+
+  it("registers nothing for the exit", function()
+    assert.same({}, exit_hooks())
   end)
 
   it("writes no pending removal and no unsent edit", function()
@@ -379,6 +391,11 @@ describe("a mirrored entry whose uuid is on the unsent list on the disk", functi
 
   it("shows each change that the queue owner makes", function()
     assert.is_not_nil(by_note("changed in another tool"))
+  end)
+
+  -- This spec has called `setup()` with `sync` five times by now.
+  it("leaves one exit hook after each setup, not one more each time", function()
+    assert.same(1, #exit_hooks())
   end)
 
   other:stop()

@@ -2244,3 +2244,11 @@ wins over a snapshot only for an entry of this plugin. Without the first, the co
 the note of another tool with this plugin's `review`. Without the second, Neovim shows its
 old note over each change that the queue owner makes, for up to 7 days.
 `sync_removal_spec` writes such a list by hand.
+
+**The exit of Neovim does not call `stop`, so it writes the unanswered `remove`s itself.**
+`:qa` ends the process with the connection open: no read callback gets the end of the
+stream, so `stop` never runs, and a drop whose `remove` had no reply is lost. A
+`VimLeavePre` autocmd calls `write_unanswered`, the function that `stop` calls, so the two
+ends of a connection cannot drift. It does nothing else: no request, and no repaint. `start`
+makes it in the `CodeReviewSync` augroup with `clear`, so a second `setup()` replaces it.
+`sync_restart_spec` quits a child with `:qa` while the fake holds the `remove`.
