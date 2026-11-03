@@ -132,6 +132,10 @@ function M.diff(buf, view)
     -- which is dead in a nomodifiable buffer for the reason `a` became the annotation
     -- prefix: nothing here can be commented out, so the key costs a keystroke and no motion.
     ["gc"] = { view.commit_list, "List the commits on the branch, and trim the review" },
+    -- `gm` for the **merge base** the base branch gives, from the same `g` family. It shadows
+    -- the move to the middle of the screen line, which in a rendered diff names no position a
+    -- reviewer could ask for.
+    ["gm"] = { view.pick_base_branch, "Pick the base branch the branch review is measured from" },
     -- `gA` for **archived** entries, and uppercase because `ga` is `:ascii`. It overrides
     -- the configured switch for the session rather than editing it.
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
@@ -243,6 +247,7 @@ function M.panel(buf, view)
     ["gl"] = { view.toggle_layout, "Toggle the unified and split layouts" },
     ["gb"] = { view.last_batch, "Read the last batch back" },
     ["gc"] = { view.commit_list, "List the commits on the branch, and trim the review" },
+    ["gm"] = { view.pick_base_branch, "Pick the base branch the branch review is measured from" },
     ["gA"] = { view.toggle_archived, "Show or hide archived entries" },
     ["gS"] = { view.switch, "Switch the review to another checkout" },
     -- Bound in the tree as well as in the diff, as every view-wide key is: a reviewer

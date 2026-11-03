@@ -121,7 +121,7 @@ takes commits off the start of the branch included, works on any git.
         review open.
 
                                                             *:CodeReviewBase*
-:CodeReviewBase {branch}
+:CodeReviewBase [{branch}]
         Store {branch} as the **base branch** of the current branch: the
         branch review is then measured from the merge base with {branch}, and
         the winbar says `branch vs {branch}`. {branch} is a local or a
@@ -132,7 +132,10 @@ takes commits off the start of the branch included, works on any git.
 <       The default branch, by the name the branch review shows it under, is
         stored as an explicit "default" choice, and the review reads from the
         default branch again. A name that is not a commit here is reported and
-        nothing is stored. With no {branch}, the usage is reported.
+        nothing is stored. With no {branch}, the list `gm` opens is opened
+        (|codereview-base-branch|), and the branch you pick is stored; in a
+        review on another scope it refuses, as `gm` does. The command
+        completes branch names from the same list.
 
         Acts on the checkout the plugin is acting on: the open review's own
         after a |:CodeReviewSwitch|, and the working directory's with no
@@ -212,6 +215,8 @@ Buffer-local, inside the review view:
     gb               Read the last dispatched batch back
     gc               List the commits on the branch and check the ones to
                      review -- see |codereview-commits|
+    gm               Pick the base branch the branch review is measured
+                     from -- see |codereview-base-branch|
     gA               Show or hide archived entries, for the rest of the
                      session -- see |codereview-archived|
     gS               Switch the review to another checkout of this
@@ -287,6 +292,8 @@ In the file tree:                                         *codereview-tree*
     gb               Read the last dispatched batch back
     gc               List the commits on the branch and check the ones to
                      review -- see |codereview-commits|
+    gm               Pick the base branch the branch review is measured
+                     from -- see |codereview-base-branch|
     gA               Show or hide archived entries, for the rest of the
                      session -- see |codereview-archived|
     gS               Switch the review to another checkout of this
@@ -527,6 +534,18 @@ unless you stored another one for this branch with |:CodeReviewBase|. On a
 stacked branch -- `child` forked from `feat/A` -- the default branch makes the
 review show the commits of `feat/A` too. Store `feat/A` as the base branch and
 the review holds only the commits of `child`.
+
+`gm`, in the diff or in the file tree, opens a list of branches through
+|vim.ui.select()|; |:CodeReviewBase| with no {branch} opens the same list. The
+default branch is the first row, so you can always go back to it. The other
+rows are the local and remote-tracking branches, newest commit first. The list
+leaves out the current branch, its remote copy, `origin/HEAD`, and every
+branch that already contains `HEAD`: each of those gives an empty or a
+meaningless review. The pick is stored as |:CodeReviewBase| {branch} stores
+it, and the review is drawn again. A dismissed list changes nothing. In a
+review on another scope, `gm` says that a base branch is for a branch review
+and changes nothing, as `gc` does. `gm` replaces Vim's move to the middle of
+the screen line, which names no useful place in a rendered diff.
 
 Git does not record which branch a branch was forked from, so the plugin never
 guesses one. It does not read `@{upstream}` either: `git push -u` and
@@ -2250,8 +2269,8 @@ require("codereview").switch()                         *codereview.switch()*
         Switch the review to another checkout of this repository. Works with
         no review open. See |:CodeReviewSwitch|.
 require("codereview").base({branch})                     *codereview.base()*
-        Store {branch} as the base branch of the current branch. See
-        |:CodeReviewBase|.
+        Store {branch} as the base branch of the current branch. With nil,
+        open the list to pick it from. See |:CodeReviewBase|.
 require("codereview").annotate({type}, {range}, {opts})
                                                      *codereview.annotate()*
         Annotate the current buffer, with no review view involved. {type} is

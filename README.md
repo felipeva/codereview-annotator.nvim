@@ -50,7 +50,7 @@ With no [`send`](#adapters) adapter, the batch goes to the `+` register and stay
 | `:CodeReviewCopy` | Copy the batch to `+` without submitting it |
 | `:CodeReviewLastBatch` | Show the last batch you sent |
 | `:CodeReviewSwitch` | Move the review to another checkout (worktree) of this repo |
-| `:CodeReviewBase {branch}` | Measure the branch review from another branch, such as the parent of a stacked branch |
+| `:CodeReviewBase [branch]` | Measure the branch review from another branch, such as the parent of a stacked branch. No branch = pick one from a list |
 | `:CodeReviewBack` | Go back to the previous checkout |
 | `:CodeReviewOverlay [margin\|inline]` | Show or hide the queued annotations on the current file, in a margin or as captions |
 
@@ -68,7 +68,10 @@ Scopes:
 
 The branch review is measured from the default branch. On a stacked branch, that also shows
 the commits of the branch it was forked from. To measure from that branch, store it as the
-**base branch**:
+**base branch**. Press `gm` in a branch review, or run `:CodeReviewBase` with no branch, to pick
+it from a list. The list starts with the default branch, then the local and remote-tracking
+branches, newest commit first. It leaves out the current branch, its remote copy, and every
+branch that already contains `HEAD`. Or name the branch:
 
 ```vim
 :CodeReviewBase feat/A          " the review now says: branch vs feat/A
@@ -101,6 +104,7 @@ branch loses its base branch, as it loses its trim.
 | `gs` | Cycle scope |
 | `gr` | Reload from git |
 | `gc` | Choose which branch commits to review ([commit list](#commit-list)) |
+| `gm` | Pick the base branch the branch review is measured from |
 | `gS` | Switch to another checkout |
 | `gl` | Toggle unified / split |
 | `gw` | Toggle wrap of long lines (unified only) |
@@ -140,7 +144,7 @@ first.
 | `]f` `[f` | Next / previous file |
 | `R` | Toggle reviewed (on a directory: the whole subtree) |
 | `gd` `<C-p>` | Same as in the diff |
-| `gl` `gb` `gc` `gA` `gS` `gw` `go` | Same as in the diff |
+| `gl` `gb` `gc` `gm` `gA` `gS` `gw` `go` | Same as in the diff |
 | `<Tab>` / `gp` | Back to the diff / close the tree |
 | `q` | Close |
 
