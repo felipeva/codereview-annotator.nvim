@@ -151,6 +151,39 @@ function M.is_commit(ref, root)
   return line({ "rev-parse", "--verify", "--quiet", ref .. "^{commit}" }, root) ~= nil
 end
 
+---The branches a **base branch** can be picked from: the default branch first, then every
+---local and remote-tracking branch, newest commit first.
+---
+---One `for-each-ref`, and no `merge-base` per ref: that took 2.7 s on 110 refs. A branch that
+---already contains `HEAD` would give an empty review, so `--no-contains` leaves it out, and
+---the current branch with it. Its own remote copy can be behind `HEAD`, so it is left out by
+---name. The default branch goes first also when the filter drops it, so the reviewer can
+---always go back.
+---@param root string
+---@return string[]
+function M.base_branch_choices(root)
+  local out = run({
+    "for-each-ref",
+    "--sort=-committerdate",
+    "--no-contains=HEAD",
+    "--format=%(refname)%09%(refname:short)%09%(symref)",
+    "refs/heads",
+    "refs/remotes",
+  }, { cwd = root }) or ""
+  local current = M.current_branch(root)
+  local default = M.default_branch(root)
+  local choices = { default }
+  for _, row in ipairs(vim.split(out, "\n", { trimempty = true })) do
+    local ref, short, symref = unpack(vim.split(row, "\t", { plain = true }))
+    -- `origin/HEAD` is a symref, and its short name is `origin`.
+    local own_copy = current and ref:match("^refs/remotes/[^/]+/(.+)$") == current
+    if symref == "" and not own_copy and short ~= default then
+      choices[#choices + 1] = short
+    end
+  end
+  return choices
+end
+
 ---@param a string
 ---@param b string
 ---@param root string
