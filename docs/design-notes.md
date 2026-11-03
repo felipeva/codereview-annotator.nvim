@@ -2235,3 +2235,12 @@ live drop with no reply or a pending removal already on the disk, which keeps it
 `remove` that got a refusal or no reply in 5 s is no longer in `conn.removing`: it was
 undone, and it is not written. `sync_removal_spec` holds the `remove` with `math.huge` and
 closes the connection.
+
+**A mirrored entry on the unsent list on the disk is neither sent nor kept over a
+snapshot.** `send_update` never puts a mirrored entry on `unsent`, but `start` reads the
+list from the disk, and that list can hold a uuid that this session did not put there. Two
+guards follow from it: `send_unsent` skips a mirrored entry, and in `apply` an unsent mark
+wins over a snapshot only for an entry of this plugin. Without the first, the connect sends
+the note of another tool with this plugin's `review`. Without the second, Neovim shows its
+old note over each change that the queue owner makes, for up to 7 days.
+`sync_removal_spec` writes such a list by hand.

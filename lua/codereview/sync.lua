@@ -505,7 +505,8 @@ end
 ---The same guard for an `update` and a `remove` that have no reply yet: a snapshot that the
 ---queue owner wrote before it read them does not undo them. While an `update` waits, the
 ---local entry stays as it is, also when the snapshot does not hold it. While a `remove`
----waits, the entry does not come back. An entry on `unsent` keeps its local change too.
+---waits, the entry does not come back. An entry on `unsent` keeps its local change too,
+---but not a **mirrored entry**: no connect sends its change, so it would keep it forever.
 ---
 ---A note that another tool made becomes a **mirrored entry**, under the same guards.
 ---@param conn CRSyncConn
@@ -532,7 +533,7 @@ local function apply(conn, rev, notes)
     local uuid = type(note) == "table" and type(note.id) == "string" and lower(note.id)
     if uuid and not conn.removing[uuid] then
       local entry = here[uuid]
-      if not (entry and (conn.updating[uuid] or unsent[uuid])) then
+      if not (entry and (conn.updating[uuid] or (unsent[uuid] and not entry.mirrored))) then
         entry = own(note) and to_entry(note) or to_mirrored(note)
         entry.id = ids[uuid]
       end
@@ -952,10 +953,14 @@ local function send_update(conn, entry, fields, revive)
 end
 
 ---Every change on `unsent`, in full, for the entries that are still in the queue.
+---
+---Not for a **mirrored entry**, also when its uuid is on the list that `start` read from the
+---disk. `send_update` puts no mirrored entry on it, but the list on the disk can hold a uuid
+---that this session did not put there.
 ---@param conn CRSyncConn
 local function send_unsent(conn)
   for _, entry in ipairs(queue.entries()) do
-    if unsent[lower(entry.uuid)] then
+    if unsent[lower(entry.uuid)] and not entry.mirrored then
       send_update(conn, entry, { note = entry.note or "", type = entry.type or "", review = review_of(entry) }, false)
     end
   end

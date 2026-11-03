@@ -322,3 +322,64 @@ describe("a pending removal older than 7 days", function()
 
   owner:stop()
 end)
+
+describe("a mirrored entry whose uuid is on the unsent list on the disk", function()
+  local other = fake.start()
+  local N = "8c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f"
+  ---@param note string
+  ---@return table
+  local function foreign(note)
+    return {
+      id = N:upper(),
+      type = "question",
+      note = note,
+      selection = { none = vim.empty_dict() },
+      source = { appName = "Helium" },
+      createdAt = "2026-11-02T10:00:00Z",
+    }
+  end
+  other.queue = { foreign("made in another tool") }
+  -- As an older session or another process can leave it: `send_update` puts no mirrored
+  -- entry on the list.
+  local doc = stored()
+  doc.unsent = { { uuid = N, at = os.time() } }
+  vim.fn.writefile({ vim.json.encode(doc) }, state.global_path())
+  -- A snapshot before the reply to `list`, so the mirrored entry is in the queue when the
+  -- connect sends the unsent changes.
+  other:after("subscribe", function(o)
+    o:push_queue(vim.deepcopy(o.queue))
+  end)
+  -- Read when the queue owner replies to the `keep` of the connect: the unsent changes go
+  -- after that reply.
+  local during
+  other:after("keep", function()
+    during = by_note("made in another tool")
+  end)
+  local messages_here, restore = h.capture_notify()
+  setup(sync_to(other))
+  wait(function()
+    return h.notified(messages_here, "Queue sync started")
+  end)
+  other:push_queue({ foreign("changed in another tool") })
+  wait(function()
+    return by_note("changed in another tool") ~= nil
+  end)
+  vim.wait(150)
+  restore()
+
+  -- The control: the entry was in the queue when the connect sent the unsent changes.
+  it("is in the queue when the connect sends its unsent changes", function()
+    assert.is_not_nil(during)
+    assert.is_true(during.mirrored)
+  end)
+
+  it("is never sent with update", function()
+    assert.same({}, requests(other, "update"))
+  end)
+
+  it("shows each change that the queue owner makes", function()
+    assert.is_not_nil(by_note("changed in another tool"))
+  end)
+
+  other:stop()
+end)
