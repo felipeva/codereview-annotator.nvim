@@ -33,7 +33,7 @@ change there is felt through.
 | `queue.lua` | The queue itself — one per **checkout**, one more for what belongs to no checkout, and the single id counter they all draw from | stateful (memory) |
 | `queue_float.lua` | The float over the queue: an entry as a run of bar-marked rows, and the keys that edit, retype, drop, jump, copy and submit, and the one that lists them | stateful (float) |
 | `render.lua` | Parsed diff to buffer lines, extmarks and the anchor map; both panes from one walk; what a file and what a base revision are called wherever they are named, and how a winbar is assembled from typed segments; and one memo, of the groups a host's icon adapters answered with | stateful (one memo) |
-| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` before it is handed back, and its **base branch**, the **sweep** that discards the state of checkouts that are gone, and, in the store with no root, the **pending removals** and the unsent edits of the **sync** | stateful (disk) |
+| `state.lua` | Persisted review progress, filed under the **checkout** each entry is about, which checkout the plugin is acting on at all, the blob comparisons over it — staleness, and touchedness kept in a function of its own — each branch's **trim**, checked against `HEAD` and against the base branch it was made under before it is handed back, and its **base branch**, the **sweep** that discards the state of checkouts that are gone, and, in the store with no root, the **pending removals** and the unsent edits of the **sync** | stateful (disk) |
 | `sync.lua` | The **sync**: the queue socket to a **queue owner**, one JSON line per message, requests and their replies, the events, the retry, an entry turned into a note and back, a note of another tool turned into a **mirrored entry** and taken out at the stop, each change to an entry sent with its guard against a snapshot written before it, the **pending removals** sent before the `keep` of a connect, the `send` of a submit, and the **archive** written from each `sent` | stateful (socket, queue, disk) |
 | `syntax.lua` | Treesitter harvest and replay onto the diff's rows, bounded by the viewport | stateful (extmarks) |
 | `trim_float.lua` | The float over the branch's commits: the first-parent listing from the base handed in, a checkbox and a size on every row, and the pick that applies the **trim** they add up to | stateful (float) |
@@ -104,8 +104,9 @@ function-locally, as `keymaps` does: an edit from the float and one from the dif
 one path, and that path is `annotate`'s. `overlay` is handed the view by `init`, through its
 toggle, and does the same for the **margin**'s keys, so the margin is a third surface on
 that one path. `trim_float` reads none at all: what it takes beside the view is the
-repository and the commit the branch starts at, both as plain values, because a second
-derivation of *where does this branch start* is a second chance to answer it differently.
+repository, the commit the branch starts at and its **base branch**, all as plain values,
+because a second derivation of *where does this branch start* is a second chance to answer it
+differently.
 The view keeps the one refusal only the view can make — the **scope** on screen.
 `view_layout` and `view_panel` do read view state, but never their own copy of it: the
 `CRView` table is handed in beside the view and mutated in place, exactly as `syntax` and

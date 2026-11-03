@@ -924,6 +924,23 @@ rewritten history are still the same reading is a claim nothing here can make. I
 keeps the sentence one sentence — a set that survives in part fails again on the next read,
 one commit at a time.
 
+**A stored trim records the base branch it was made under, and is keyed by it rather than by
+the merge base.** `trims[branch]` is `{ skipped, base_branch }`, and the read compares the
+recorded name with the base branch the scope resolved to *after* its fallback — the name the
+label shows, not the value in the store. That is what makes every cause of a change drop the
+trim alike: a pick, a stored ref that is gone and falls back, and the check that drops a stored
+base branch. A trim is a selection out of the commits one base branch gives, so the same set
+under another base branch is a selection the reviewer never made: a prefix under `feat/A` is
+a hole under the default branch. The merge base looks like the tighter key and is wrong: a
+merge of the default branch into the branch moves it, and a trim has always survived that
+merge. Keyed by the merge base, `trim_base_spec`'s merge case goes red, and so do 29 cases in
+`trim_spec` and 10 in `trim_float_spec`. A document written before the record holds the bare
+set; it reads as made under the default branch, so an upgrade drops nothing — read as made
+under no base branch instead, it reds 28 cases in `trim_spec`, whose trims are all stored
+without one. The commit list is handed the base branch with the identity and reads the trim
+with it: read without it, it compares against the default branch and drops a trim made under
+`feat/A` the moment `gc` opens.
+
 **The one thing memoised is the built tree, and the key is why that is not the trap above.**
 A trim with a hole in it reads from a tree that never existed as a commit, so it is built —
 and without a cache every scope cycle, every reopen and every pick pays the whole accumulation

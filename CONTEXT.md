@@ -41,7 +41,10 @@ to four commits" and "reset the trim" both read correctly, and the verb and the 
 word. Uncommitted and untracked work stay in the review under every trim, because the
 post-image of a branch review is the working tree and no trim of any shape reaches it. Kept
 per branch, and dropped whole when any commit in it leaves the branch: a trim belongs to one
-reading of one branch, and a rewritten commit is not that reading. Said of a **branch**
+reading of one branch, and a rewritten commit is not that reading. For the same reason it
+belongs to the **base branch** it was made under, and is dropped when the base branch changes;
+a merge of the default branch moves the merge base and changes no base branch, so the trim
+survives it. Said of a **branch**
 scope only: the working-tree scopes have no commits to take. A modifier on that scope and
 never a scope of its own, because a sixth name would have to answer what it means with
 nothing taken out, and because `gs` is a key held down and must not get a new stop. Not
