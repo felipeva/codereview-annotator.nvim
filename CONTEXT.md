@@ -261,7 +261,8 @@ A typed remark bound to a place in the code. The unit a reviewer creates.
 _Avoid_: comment, remark, note (a note is the prose inside an annotation)
 
 **Entry**:
-An annotation as it sits in the queue. An entry never records which path captured it.
+An annotation as it sits in the queue. An entry never records which path captured it. The
+one exception is a **mirrored entry**, which no path of this plugin captured (ADR-0013).
 _Avoid_: item, record
 
 **Annotation type**:
@@ -350,6 +351,14 @@ renders the **payload** and delivers the **batch**. The plugin does not name it:
 that speaks the protocol can be one.
 _Avoid_: server, daemon, peer, backend
 
+**Mirrored entry**:
+An **entry** that another tool made, in the **queue** only while the **sync** runs: a
+loose entry of the **bare note** kind, with its **note**, its **annotation type** and a
+short label made from what was selected and where, such as `Area · Helium`. The reviewer
+can edit and drop it as any entry. It is never persisted, nothing places it in a diff or a
+buffer, and it leaves the queue when the sync stops (ADR-0013).
+_Avoid_: foreign entry, remote entry, external note
+
 **Pending removal**:
 The uuid of an **entry** that was dropped or **dispatched** while no **queue owner** could take
 a `remove`: with no connection, during a connect before its `keep`, or with a `remove`
@@ -407,10 +416,10 @@ _Avoid_: quick note, one-off, direct send
 
 **Archive**:
 The batches already dispatched from a **checkout**, kept after the queue that held them was
-cleared — the **entries** as they went and the **preamble** they went under. Only a
-**dispatch** writes it, so a payload copied to a register is not in it. While the **sync**
-runs, the queue owner's `sent` event writes it, also for a batch that another process
-submitted. Read-only, which is a claim about the record and not a feature left unwritten.
+cleared — the **entries** as they went and the **preamble** they went under, and the
+**payload** for a batch that the **queue owner** sent. Only a **dispatch** writes it, so a
+payload copied to a register is not in it. While the **sync** runs, the queue owner's
+`sent` event writes it, also for a batch that another process submitted. Read-only, which is a claim about the record and not a feature left unwritten.
 _Avoid_: history, sent queue, outbox
 
 **Snapshot**:

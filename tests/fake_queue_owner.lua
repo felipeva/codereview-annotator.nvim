@@ -27,7 +27,9 @@
 ---    queued when the `send` came, and `sent` names all of it, also a note that a `remove`
 ---    took out meanwhile (`transmit`, `clearSent`).
 ---  * Replies and `queue` events carry `rev`, `queue`, a `types` list of the owner's shape and
----    `default`. `sent` always carries `preamble` as a string.
+---    `default`. `sent` always carries `preamble` as a string, and a `text` that the fake
+---    renders when the `send` comes, as the owner does (see `Owner:render`, which says how
+---    reduced it is).
 ---
 ---What a spec controls:
 ---  * `owner.requests`: every request it decoded, in order. `owner:ops()` gives the `op` of
@@ -435,8 +437,9 @@ end
 ---@param msg table
 ---@param line string The raw line, for what decoding cannot tell apart
 ---@param taken string[]|nil For a held `send`, the ids of the batch it took when it came
+---@param text string|nil For a held `send`, the payload it rendered when it came
 ---@return table reply, fun()|nil after Run after the reply is written
-function Owner:answer(client, msg, line, taken)
+function Owner:answer(client, msg, line, taken, text)
   if msg.op == "hello" then
     if msg.protocol ~= 1 then
       return { ok = false, error = "protocol" }, function()
@@ -519,6 +522,7 @@ function Owner:answer(client, msg, line, taken)
       if refusal then
         return refusal
       end
+      text = text or self:render(msg.ids, msg.preamble)
     end
     local removed = {}
     for _, id in ipairs(msg.ids) do
@@ -540,12 +544,48 @@ function Owner:answer(client, msg, line, taken)
         ids = taken or removed,
         target = msg.target,
         preamble = msg.preamble or "",
-        text = "",
+        text = text,
         at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
       })
     end
   end
   return { ok = false, error = "unknown op" }
+end
+
+---The payload of a `send`, reduced: the owner's header, and under `### N.` alone each note
+---as `vim.trim` leaves it, with an empty one left out. No groups, no references, no code, and
+---the notes in the order of `ids`. It is enough to show which text of a note went.
+---
+---From the notes queued now. The owner renders the batch when the `send` comes, before it
+---gives it to the agent tool (`transmit`, AppModel+Delivery.swift:103, from the notes that
+---`QueueOps.sending` takes, AppModel+Sync.swift:155), so an edit after that is not in it.
+---@param ids string[]
+---@param preamble string|nil
+---@return string
+function Owner:render(ids, preamble)
+  local out = {}
+  preamble = vim.trim(preamble or "")
+  if preamble ~= "" then
+    out = { preamble, "" }
+  end
+  local notes = {}
+  for _, id in ipairs(ids) do
+    local i = self:find(id)
+    if i then
+      notes[#notes + 1] = self.queue[i]
+    end
+  end
+  out[#out + 1] = ("Annotations — %d item%s"):format(#notes, #notes == 1 and "" or "s")
+  for i, note in ipairs(notes) do
+    out[#out + 1] = ""
+    out[#out + 1] = ("### %d."):format(i)
+    local text = vim.trim(note.note or "")
+    if text ~= "" then
+      out[#out + 1] = ""
+      out[#out + 1] = text
+    end
+  end
+  return table.concat(out, "\n")
 end
 
 ---The answer the owner gives a `send` before it gives the batch to the agent tool, or nil.
@@ -587,12 +627,13 @@ function Owner:receive(client, line)
   local refused = self.refusals[msg.op]
   ---Do the op, and give what writes its answer.
   ---@param taken string[]|nil For a held `send`, the ids of the batch it took
-  local function answer(taken)
+  ---@param text string|nil For a held `send`, the payload of that batch
+  local function answer(taken, text)
     local reply, after
     if refused then
       reply = { ok = false, error = refused }
     else
-      reply, after = self:answer(client, msg, line, taken)
+      reply, after = self:answer(client, msg, line, taken, text)
     end
     reply.req = msg.req
     local hook = self.hooks[msg.op]
@@ -620,8 +661,9 @@ function Owner:receive(client, line)
         taken[#taken + 1] = self.queue[i].id
       end
     end
+    local text = self:render(msg.ids, msg.preamble)
     vim.defer_fn(function()
-      answer(taken)()
+      answer(taken, text)()
     end, ms)
   else
     vim.defer_fn(answer(), ms)

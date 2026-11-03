@@ -214,7 +214,7 @@ function M.describe(entry)
   -- Nothing to name. Every branch below reads a path, and a bare thought has none, so
   -- without this the composer title and the confirmation both say "nil:nil".
   if entry.kind == "note" then
-    return "(no file)"
+    return entry.label or "(no file)"
   end
   -- Outside a checkout there is no repository-relative path, and the absolute one is the
   -- only name the file has.

@@ -95,7 +95,7 @@ local function describe(entry, base)
   -- for the `@ref`-versus-inline rules below to decide -- and every one of them would be
   -- reading a path that is not there.
   if entry.kind == "note" then
-    return "(no file)", nil
+    return entry.label or "(no file)", nil
   end
 
   local rel = M.relative_to(entry.abs_path, base)
@@ -145,14 +145,77 @@ function M.preamble(preamble)
   return text ~= "" and text or nil
 end
 
+---The characters that the **queue owner** trims from the ends of a **note**, in UTF-8.
+---
+---Swift's `CharacterSet.whitespacesAndNewlines` (Payload.swift:51), all 26 scalars of it,
+---as the owner's Foundation lists them. `vim.trim` trims only the six ASCII ones, so a note
+---that ends in U+00A0 or U+3000 would render differently on the two sides. U+FEFF is not
+---in the set.
+local OWNER_SPACE = {}
+for _, c in ipairs({ "\t", "\n", "\v", "\f", "\r", " " }) do
+  OWNER_SPACE[c] = true
+end
+-- U+0085, U+00A0, U+1680, U+2028, U+2029, U+202F, U+205F, U+3000.
+for _, c in ipairs({
+  "\194\133",
+  "\194\160",
+  "\225\154\128",
+  "\226\128\168",
+  "\226\128\169",
+  "\226\128\175",
+  "\226\129\159",
+  "\227\128\128",
+}) do
+  OWNER_SPACE[c] = true
+end
+-- U+2000 to U+200B.
+for last = 128, 139 do
+  OWNER_SPACE["\226\128" .. string.char(last)] = true
+end
+
+---A note trimmed as the queue owner trims it, one scalar at a time from each end.
+---
+---Each scalar in the set is three bytes or fewer. A match at the end cannot be the tail of
+---a longer scalar, because each match starts with an ASCII byte or a lead byte.
+---@param note string
+---@return string
+local function owner_trim(note)
+  local i, j = 1, #note
+  local function at_start()
+    for n = 1, 3 do
+      if i + n - 1 <= j and OWNER_SPACE[note:sub(i, i + n - 1)] then
+        return n
+      end
+    end
+  end
+  local function at_end()
+    for n = 1, 3 do
+      if j - n + 1 >= i and OWNER_SPACE[note:sub(j - n + 1, j)] then
+        return n
+      end
+    end
+  end
+  local n = at_start()
+  while n do
+    i = i + n
+    n = at_start()
+  end
+  n = at_end()
+  while n do
+    j = j - n
+    n = at_end()
+  end
+  return note:sub(i, j)
+end
+
 ---Render the whole queue as one message.
 ---@param items CRAnnotation[]
 ---@param base string Directory `@refs` should resolve against
 ---@param opts { types: CRType[], preamble?: string, scope_label?: string, files?: integer, reviewed?: integer, sync?: boolean }
 ---       `preamble` is the prose the batch is covered by, composed at submit time. It is
 ---       not an entry and never comes out of the queue. `sync` is true when the host set
----       the **sync**: the header is then the queue owner's, and the scope and the file
----       counts are not used.
+---       the **sync**: the header is then the queue owner's, the scope and the file
+---       counts are not used, and each note is written as the queue owner writes it.
 ---@return string
 function M.render(items, base, opts)
   local out = {}
@@ -216,8 +279,18 @@ function M.render(items, base, opts)
         vim.list_extend(out, block)
         out[#out + 1] = "```"
       end
-      out[#out + 1] = ""
-      out[#out + 1] = entry.note
+      if opts.sync then
+        -- As the queue owner writes it (Payload.swift:51-52): trimmed, and a note that is
+        -- then empty is not written, nor the blank line above it.
+        local note = owner_trim(entry.note or "")
+        if note ~= "" then
+          out[#out + 1] = ""
+          out[#out + 1] = note
+        end
+      else
+        out[#out + 1] = ""
+        out[#out + 1] = entry.note
+      end
     end
   end
 

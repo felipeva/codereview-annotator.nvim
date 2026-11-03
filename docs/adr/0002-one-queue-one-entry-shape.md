@@ -1,5 +1,7 @@
 # One queue, one entry shape, whichever path captured it
 
+_Narrowed by [ADR-0013](0013-a-mirrored-entry-is-the-one-entry-that-records-its-origin.md): true of the entries this plugin captured; a **mirrored entry** carries a mark that two consumers read._
+
 An annotation made from the **review path** and one made from the **capture path** produce
 the same entry, join the same queue and render through the same code. An entry does not
 record which way it was captured.

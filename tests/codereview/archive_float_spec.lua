@@ -531,10 +531,11 @@ describe("the preamble on a surface that refuses to edit", function()
   end)
 
   -- The whole of what this surface binds, asserted as a set rather than one key at a time:
-  -- a key added to rewrite a preamble is exactly what this case exists to red.
+  -- a key added to rewrite a preamble is exactly what this case exists to red. `p` only
+  -- swaps the rows for the **payload** a batch keeps, and writes nothing.
   it("binds nothing that could rewrite it", function()
     local expected = {}
-    for _, key in ipairs({ "x", "<C-s>", "q", "<Esc>" }) do
+    for _, key in ipairs({ "x", "<C-s>", "p", "q", "<Esc>" }) do
       expected[vim.keycode(key)] = true
     end
     assert.same(expected, bound(buf))
@@ -593,6 +594,75 @@ describe("a batch dispatched with no preamble", function()
 
   it("opens on the batch itself, with nothing above it", function()
     assert.same(1, first_heading(buf))
+  end)
+
+  -- Only a batch that the queue owner sent keeps the payload. This one went through the send
+  -- adapter, which got the payload that the entries and the preamble render.
+  it("records no payload, as the plugin dispatched it", function()
+    assert.is_nil(state.archive(root)[1].text)
+  end)
+
+  it("offers no payload, and says why on p", function()
+    assert.is_falsy(chrome(win, "footer"):find("payload", 1, true), chrome(win, "footer"))
+    local before = lines(buf)
+    local msgs, restore = h.capture_notify()
+    h.feed("p")
+    restore()
+    assert.is_true(h.notified(msgs, "keeps no payload"), vim.inspect(msgs))
+    assert.same(before, lines(buf))
+  end)
+
+  vim.api.nvim_win_close(win, true)
+end)
+
+-- A document as the plugin wrote it before the archive kept a payload: the batch has no
+-- `text` key. Written by hand, so that the case does not depend on what a dispatch writes now.
+describe("a record written before the archive kept a payload", function()
+  fresh()
+  vim.fn.mkdir(vim.fs.dirname(state.path(root)), "p")
+  vim.fn.writefile({
+    vim.json.encode({
+      version = 1,
+      scopes = vim.empty_dict(),
+      queue = {},
+      trims = vim.empty_dict(),
+      archive = {
+        {
+          at = os.time(),
+          target = "agent",
+          preamble = "an older preamble",
+          entries = {
+            {
+              id = 1,
+              type = "bug",
+              kind = "line",
+              path = "src/main.lua",
+              abs_path = main,
+              key = "src/main.lua:n:1",
+              first = 1,
+              last = 1,
+              note = "from an older record",
+            },
+          },
+        },
+      },
+    }),
+  }, state.path(root))
+
+  local win, buf = open_float()
+
+  it("loads", function()
+    assert.same(1, #state.archive(root))
+    assert.is_nil(state.archive(root)[1].text)
+  end)
+
+  it("lists its batch under its preamble", function()
+    assert.same("an older preamble", lines(buf)[1])
+    assert.is_truthy(row_of(buf, note_row("from an older record")), table.concat(lines(buf), "\n"))
+  end)
+
+  it("offers no payload", function()
+    assert.is_falsy(chrome(win, "footer"):find("payload", 1, true), chrome(win, "footer"))
   end)
 
   vim.api.nvim_win_close(win, true)

@@ -212,6 +212,8 @@ describe("a capture in the review view", function()
   end)
 end)
 
+local FOREIGN = "1C2D3E4F-5A6B-4C7D-8E9F-0A1B2C3D4E5F"
+
 describe("a snapshot from the queue owner", function()
   codereview.queue()
   local float = vim.api.nvim_get_current_win()
@@ -248,7 +250,7 @@ describe("a snapshot from the queue owner", function()
   elsewhere.selection.text.file.path = vim.fs.joinpath(other, "src/main.lua")
 
   local foreign = {
-    id = "1C2D3E4F-5A6B-4C7D-8E9F-0A1B2C3D4E5F",
+    id = FOREIGN,
     type = "bug",
     note = "a screenshot",
     selection = { area = { imagePath = "/tmp/shot.png" } },
@@ -279,7 +281,10 @@ describe("a snapshot from the queue owner", function()
   end)
 
   it("gives each uuid not seen before the next integer id, in snapshot order", function()
-    assert.same({ highest + 1, highest + 2 }, { entry_of(FRESH).id, entry_of(ELSEWHERE).id })
+    assert.same(
+      { highest + 1, highest + 2, highest + 3 },
+      { entry_of(foreign.id).id, entry_of(FRESH).id, entry_of(ELSEWHERE).id }
+    )
   end)
 
   it("files an entry by its checkout", function()
@@ -291,10 +296,16 @@ describe("a snapshot from the queue owner", function()
     assert.is_true(vim.tbl_contains(here, FRESH:lower()))
   end)
 
-  it("leaves out a note that another tool made", function()
-    for _, e in ipairs(queue.entries()) do
-      assert.are_not.same("a screenshot", e.note)
-    end
+  it("makes a note that another tool made a mirrored entry, loose and labelled", function()
+    local mirrored = entry_of(foreign.id)
+    assert.same({ true, "Area · Helium", "note", "bug", "a screenshot" }, {
+      mirrored.mirrored,
+      mirrored.label,
+      mirrored.kind,
+      mirrored.type,
+      mirrored.note,
+    })
+    assert.is_nil(mirrored.path)
   end)
 
   it("repaints the queue float", function()
@@ -436,9 +447,12 @@ describe("the queue owner closing the connection", function()
     assert.same(1, said("Queue sync stopped"))
   end)
 
-  it("keeps the plugin's own entries in the queue", function()
+  it("keeps the plugin's own entries in the queue, and takes the mirrored entry out", function()
+    assert.is_true(vim.tbl_contains(held, FOREIGN:lower()))
     assert.same(
-      held,
+      vim.tbl_filter(function(uuid)
+        return uuid ~= FOREIGN:lower()
+      end, held),
       vim.tbl_map(function(e)
         return e.uuid
       end, queue.entries())

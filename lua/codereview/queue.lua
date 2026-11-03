@@ -44,6 +44,10 @@ local M = {}
 ---@field note string
 ---@field stale boolean|nil
 ---@field at integer           When it was captured
+---@field mirrored true|nil     A **mirrored entry**: another tool made it, and the sync shows
+---                             it. Outside the sync, only persistence reads it (ADR-0013)
+---@field label string|nil      What a mirrored entry is and where it came from, shown where
+---                             a bare note says "(no file)"
 
 ---The key a checkout's queue is held under. Outside every checkout there is still a queue
 ---to add to -- a **bare note** can be written anywhere -- and nil is not a table key.
