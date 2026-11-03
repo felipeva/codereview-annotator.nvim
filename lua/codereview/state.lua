@@ -649,6 +649,25 @@ function M.set_base_branch(root, base)
   store_base_branch(root, branch, base)
 end
 
+---Drop a stored base branch that failed the check scope resolution makes, and say so.
+---
+---Said here for the reason the trim's sentences are: this module is the one place that says
+---anything about the store. Said once because the entry is gone after it -- the next resolve
+---has nothing to check. The detached-`HEAD` value of the session is cleared on the same path.
+---@param root string
+---@param ref string The stored base branch
+---@param default string|nil The default branch the review is measured from instead; nil when
+---the repository has none, and then no branch review opens
+---@param cause "gone"|"behind" No merge base with `HEAD`, or one behind the default branch's
+function M.drop_base_branch(root, ref, default, cause)
+  M.set_base_branch(root, nil)
+  local why = cause == "gone" and "it gives no merge base with this branch now"
+    or ("it shows more of this branch than %s does"):format(default)
+  local after = default and ("so the review is measured from %s"):format(default)
+    or "and there is no default branch to measure the review from"
+  info(("The base branch %s was dropped — %s, %s"):format(ref, why, after))
+end
+
 --- The archive ------------------------------------------------------------------
 
 ---Add a batch to an archive, dropping the oldest once it is full.

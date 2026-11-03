@@ -192,6 +192,16 @@ function M.merge_base(a, b, root)
   return line({ "merge-base", a, b }, root)
 end
 
+---Whether `a` is `b` or an ancestor of it. Any failure answers false.
+---@param a string
+---@param b string
+---@param root string
+---@return boolean
+function M.is_ancestor(a, b, root)
+  local _, _, code = run({ "merge-base", "--is-ancestor", a, b }, { cwd = root, ok_codes = { 0, 1 } })
+  return code == 0
+end
+
 ---Whether `HEAD` still descends from every one of them.
 ---
 ---What a stored **trim** is checked with before a review reads from it. A rebase, an amend
@@ -744,24 +754,35 @@ function M.resolve_scope(spec, root)
   elseif spec == "branch" or spec == "" or spec == nil then
     -- The **base branch** the reviewer stored, else the default branch. There is no upstream
     -- rule and no inference -- see `docs/design-notes.md`. Read from the store on the same
-    -- edge as the trim below, for the same reason. A stored ref that no longer gives a merge
-    -- base falls back to the default branch, so the review still opens.
+    -- edge as the trim below, for the same reason.
     local state = require("codereview.state")
     local stored = state.base_branch(root)
-    local branch, base
+    local default = M.default_branch(root)
+    local default_base = default and M.merge_base(default, "HEAD", root)
+    local branch, base = default, default_base
+    -- Checked on every resolve, and here rather than in the store's getter, because the
+    -- merge base the check computes is the one the review then reads from. A stored base
+    -- branch has gone wrong when it gives no merge base, or one strictly behind the default
+    -- branch's: it then reads more than the default branch would. That is a parent
+    -- squash-merged with the branch rebased onto master, or a stale remote-tracking ref --
+    -- see `docs/design-notes.md`. A merge base at or past the default branch's is kept,
+    -- `HEAD` included. With no default branch there is nothing to compare with, and the
+    -- stored base branch is the only branch review there is, so only a gone one is dropped.
     if stored and stored ~= state.DEFAULT_BASE_BRANCH then
-      base = M.merge_base(stored, "HEAD", root)
-      branch = base and stored
+      local stored_base = M.merge_base(stored, "HEAD", root)
+      if not stored_base then
+        state.drop_base_branch(root, stored, default, "gone")
+      elseif default_base and stored_base ~= default_base and M.is_ancestor(stored_base, default_base, root) then
+        state.drop_base_branch(root, stored, default, "behind")
+      else
+        branch, base = stored, stored_base
+      end
+    end
+    if not branch then
+      return nil, "could not determine the default branch"
     end
     if not base then
-      branch = M.default_branch(root)
-      if not branch then
-        return nil, "could not determine the default branch"
-      end
-      base = M.merge_base(branch, "HEAD", root)
-      if not base then
-        return nil, ("no merge base with %s"):format(branch)
-      end
+      return nil, ("no merge base with %s"):format(branch)
     end
 
     -- The **trim**, read here rather than taken as an argument -- the shape `since-batch`

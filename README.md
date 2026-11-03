@@ -81,8 +81,15 @@ branch that already contains `HEAD`. Or name the branch:
 
 The plugin keeps the base branch per branch, in this checkout, and draws an open branch review
 again at once. It never guesses a base branch, and it does not read `@{upstream}`. On a
-detached `HEAD` it is kept for the session only. A branch that no longer exists falls back to
-the default branch. A change of base branch, for any cause, drops the
+detached `HEAD` it is kept for the session only.
+
+The plugin checks a stored base branch each time it reads the branch review. If the branch no
+longer exists, or if it shows more than the default branch does, the plugin drops it, tells you
+once, and measures from the default branch again. A base branch shows more after `feat/A` was
+squash-merged into the default branch and you rebased onto it, and when it is a remote-tracking
+branch that nobody pruned. In a repository with no default branch, there is nothing to compare
+with: the plugin uses a stored base branch as it is, and drops it only when it no longer
+exists. A change of base branch, for any cause, drops the
 [commit selection](#commit-list). Two gaps, where you must pick again: after the base branch
 is rebased, the merge base goes back to the default branch and its old commits show again;
 and a renamed branch loses its base branch, as it loses its trim.
