@@ -45,7 +45,7 @@ With no [`send`](#adapters) adapter, the batch goes to the `+` register and stay
 
 | Command | Action |
 | --- | --- |
-| `:CodeReview [scope]` | Open a review. No scope = the branch against its base |
+| `:CodeReview [scope]` | Open a review. No scope = the branch against its base branch |
 | `:CodeReviewAnnotate [type]` | Annotate the current buffer or range, with or without a review |
 | `:CodeReviewCopy` | Copy the batch to `+` without submitting it |
 | `:CodeReviewLastBatch` | Show the last batch you sent |
@@ -57,7 +57,7 @@ With no [`send`](#adapters) adapter, the batch goes to the `+` register and stay
 Scopes:
 
 ```vim
-:CodeReview                  " branch vs base (default)
+:CodeReview                  " branch vs its base branch (default)
 :CodeReview staged           " the index
 :CodeReview unstaged         " working tree vs index
 :CodeReview worktree         " everything uncommitted
