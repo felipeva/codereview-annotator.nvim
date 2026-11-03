@@ -1018,6 +1018,31 @@ file that is the reviewer's, and the per-checkout rule every other piece of revi
 follows would have one exception. It sits beside the **trim**, keyed by branch, with the same
 detached-`HEAD` rule.
 
+**A stored parent that has landed reads more than the default branch, and the check is
+the ancestry of the two merge bases.** `child` forked from `feat/A` at a2; `feat/A` is then
+squash-merged into master as one new commit S, and `child` is rebased with
+`git rebase --onto master feat/A`. The local `feat/A` is usually kept, so the stored ref still
+resolves, and it still points at a2 — but a2 is no longer in `child`. The merge base of `child`
+with `feat/A` drops back to c0, where `feat/A` forked from master, while the merge base with
+the default branch is now S. The review measured from c0 reads S as work of `child`: the whole
+parent, which the base branch was stored to hide. A remote-tracking `origin/feat/A` that was
+never pruned does the same, with no squash needed. So a stored base branch is dropped when
+`merge-base(stored, HEAD)` is a *strict* ancestor of `merge-base(default, HEAD)`: it then
+reads more than the default branch would, which no base branch is stored for. "Does the ref
+resolve" cannot catch this, and neither can "is the stored tip an ancestor of `HEAD`" — a
+healthy parent with commits not yet in `child` fails that too. Equal merge bases are kept (a
+base branch at the default branch's point, such as a local `master`), and so is a merge base
+at `HEAD` (the parent merged `child` in; the review is empty, as a branch with no work of its
+own is today). The check runs in `resolve_scope`'s branch case and not in the store's getter,
+because the merge base with the stored ref is the one the review then reads from: one more
+`merge-base` and one `--is-ancestor`, the second skipped when the two bases are equal, and
+nothing when nothing or the default marker is stored. The drop goes through the setter, so
+the detached-`HEAD` value of the session is held to the same rule, and the entry being gone is
+what says it once. The trim made under the dropped base branch needs no code of its own: the
+resolved base branch changed, so the rule above drops it. `mkstack.sh <path> squash` builds the
+case, and `base_branch_spec` asserts first that git's own diff from the stale merge base
+holds the squash commit's files, so a review without the check has something to read wrong.
+
 **That cwd is realpath'd first, and only that side.** Every `abs_path` in the queue is
 already canonical — `git rev-parse --show-toplevel` answers with symlinks resolved, and
 buffer capture realpaths for the same reason — but a target's `cwd` is whatever the adapter

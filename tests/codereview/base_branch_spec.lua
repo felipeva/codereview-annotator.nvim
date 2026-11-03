@@ -59,6 +59,31 @@ local function stored(dir)
   return state.load(dir).base_branches or {}
 end
 
+---How many of `msgs` hold `needle`.
+---@param msgs string[]
+---@param needle string
+---@return integer
+local function count(msgs, needle)
+  local n = 0
+  for _, msg in ipairs(msgs) do
+    if type(msg) == "string" and msg:find(needle, 1, true) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+---Resolve the branch scope of `dir`, and what it said while it did.
+---@param dir string
+---@return CRScope|nil scope, string[] msgs, string|nil err
+local function resolve_told(dir)
+  local msgs, restore = h.capture_notify()
+  local scope, err = git.resolve_scope("branch", dir)
+  restore()
+  return scope, msgs, err
+end
+
+local DROPPED = "was dropped"
 local DEFAULT = "origin/master"
 
 describe("the stacked fixture", function()
@@ -90,7 +115,21 @@ end)
 
 describe("feat/A stored on child", function()
   state.set_base_branch(root, "feat/A")
-  local scope = assert(git.resolve_scope("branch", root))
+  local scope, msgs = resolve_told(root)
+  assert(scope)
+
+  it("has a merge base that descends from the default branch's, and is not the same", function()
+    assert.are_not.equal(merge_base(DEFAULT), merge_base("feat/A"))
+    local res = vim
+      .system({ "git", "merge-base", "--is-ancestor", merge_base(DEFAULT), (merge_base("feat/A")) }, { cwd = fixture })
+      :wait()
+    assert.equal(0, res.code)
+  end)
+
+  it("passes the check: it stays in the store, and nothing is said", function()
+    assert.equal("feat/A", stored(root).child)
+    assert.equal(0, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
 
   it("is measured from the merge base with feat/A", function()
     assert.equal(merge_base("feat/A"), scope.before)
@@ -120,11 +159,56 @@ end)
 
 describe("the default marker stored", function()
   state.set_base_branch(root, state.DEFAULT_BASE_BRANCH)
-  local scope = assert(git.resolve_scope("branch", root))
+  local scope, msgs = resolve_told(root)
+  assert(scope)
 
   it("is measured from the default branch", function()
     assert.equal(merge_base(DEFAULT), scope.before)
     assert.equal("branch vs origin/master", scope.label)
+  end)
+
+  it("is not checked: it stays in the store, and nothing is said", function()
+    assert.equal(state.DEFAULT_BASE_BRANCH, stored(root).child)
+    assert.equal(0, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
+end)
+
+describe("a stored base branch whose merge base is the default branch's", function()
+  state.set_base_branch(root, "master")
+  local scope, msgs = resolve_told(root)
+  assert(scope)
+
+  it("has the same merge base as the default branch", function()
+    assert.equal(merge_base(DEFAULT), merge_base("master"))
+  end)
+
+  it("is kept and used, and nothing is said", function()
+    assert.equal("master", stored(root).child)
+    assert.equal("branch vs master", scope.label)
+    assert.equal(0, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
+end)
+
+describe("a stored base branch that merged this branch in", function()
+  git_at(fixture, { "checkout", "-q", "-b", "up", "feat/A" })
+  git_at(fixture, { "merge", "-q", "--no-ff", "-m", "merge child", "child" })
+  git_at(fixture, { "checkout", "-q", "child" })
+  state.set_base_branch(root, "up")
+  local scope, msgs = resolve_told(root)
+  assert(scope)
+
+  it("has HEAD as its merge base", function()
+    assert.equal(h.git_lines(fixture, { "rev-parse", "HEAD" })[1], merge_base("up"))
+  end)
+
+  it("is kept and used, and nothing is said", function()
+    assert.equal("up", stored(root).child)
+    assert.equal("branch vs up", scope.label)
+    assert.equal(0, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
+
+  it("gives an empty review", function()
+    assert.same({}, paths(assert(git.collect(scope, root, {}))))
   end)
 end)
 
@@ -132,12 +216,30 @@ describe("a stored base branch that no longer resolves", function()
   git_at(fixture, { "branch", "gone", "feat/A" })
   state.set_base_branch(root, "gone")
   git_at(fixture, { "branch", "-D", "-q", "gone" })
-  local scope, err = git.resolve_scope("branch", root)
+  local before_doc = stored(root).child
+  local scope, msgs, err = resolve_told(root)
+
+  it("was in the store before the resolve", function()
+    assert.equal("gone", before_doc)
+  end)
 
   it("falls back to the default branch, so the review still opens", function()
     assert.is_not_nil(scope, err)
     assert.equal(merge_base(DEFAULT), scope.before)
     assert.equal("branch vs origin/master", scope.label)
+  end)
+
+  it("is dropped from the store", function()
+    assert.is_nil(stored(root).child)
+  end)
+
+  it("says so once, naming it", function()
+    assert.equal(1, count(msgs, "The base branch gone was dropped"), vim.inspect(msgs))
+  end)
+
+  it("says nothing on the next resolve", function()
+    local _, again = resolve_told(root)
+    assert.equal(0, count(again, DROPPED), vim.inspect(again))
   end)
 end)
 
@@ -411,4 +513,152 @@ describe("base branches stored in the session before", function()
     assert.equal("branch vs origin/feat/A", scope.label)
     git_at(kept, { "checkout", "-q", "child" })
   end)
+end)
+
+--- The squash trap ------------------------------------------------------------------
+
+-- A copy in which feat/A has landed: squash-merged into master, child rebased onto master, the
+-- local feat/A kept and origin/feat/A never pruned. Both refs still resolve, so only the check
+-- on the two merge bases can reject them.
+local sq = h.fixture("mkstack", "squash")
+local sq_root = assert(vim.uv.fs_realpath(sq))
+local squash = h.git_lines(sq, { "rev-parse", "master" })[1]
+
+---@param args string[]
+---@return string[]
+local function names(args)
+  return h.git_lines(sq, vim.list_extend({ "diff", "--name-only" }, args))
+end
+
+describe("the squash copy", function()
+  local d, l, r = merge_base(DEFAULT, sq), merge_base("feat/A", sq), merge_base("origin/feat/A", sq)
+
+  it("has child one commit above the default branch", function()
+    assert.equal("1", h.git_lines(sq, { "rev-list", "--count", DEFAULT .. "..HEAD" })[1])
+  end)
+
+  it("gives merge bases with feat/A and origin/feat/A strictly behind the default branch's", function()
+    assert.are_not.equal(d, l)
+    assert.are_not.equal(d, r)
+    for _, mb in ipairs({ l, r }) do
+      assert.equal(0, vim.system({ "git", "merge-base", "--is-ancestor", mb, d }, { cwd = sq }):wait().code)
+    end
+  end)
+
+  it("keeps origin/feat/A stale, behind the local feat/A", function()
+    assert.are_not.equal(
+      h.git_lines(sq, { "rev-parse", "feat/A" })[1],
+      h.git_lines(sq, { "rev-parse", "origin/feat/A" })[1]
+    )
+  end)
+
+  it("reads the squash commit as work of child when measured from feat/A", function()
+    assert.same({ "a1.txt", "a2.txt", "k1.txt" }, names({ l, "HEAD" }))
+    assert.same({ "k1.txt" }, names({ d, "HEAD" }))
+  end)
+end)
+
+for _, ref in ipairs({ "feat/A", "origin/feat/A" }) do
+  describe(ref .. " stored in the squash copy", function()
+    state.set_base_branch(sq_root, ref)
+    local before_doc = (state.load(sq_root).base_branches or {}).child
+    local scope, msgs, err = resolve_told(sq_root)
+
+    it("was in the store before the resolve", function()
+      assert.equal(ref, before_doc)
+    end)
+
+    it("is measured from the default branch", function()
+      assert.is_not_nil(scope, err)
+      assert.equal(merge_base(DEFAULT, sq), scope.before)
+      assert.equal("branch vs origin/master", scope.label)
+      assert.same({ "k1.txt" }, paths(assert(git.collect(scope, sq_root, {}))))
+    end)
+
+    it("is dropped from the store", function()
+      assert.is_nil((state.load(sq_root).base_branches or {}).child)
+    end)
+
+    it("says so once, naming it and the default branch", function()
+      assert.equal(1, count(msgs, ("The base branch %s was dropped"):format(ref)), vim.inspect(msgs))
+      assert.equal(1, count(msgs, "more of this branch than origin/master"), vim.inspect(msgs))
+    end)
+
+    it("says nothing on the next resolve", function()
+      local _, again = resolve_told(sq_root)
+      assert.equal(0, count(again, DROPPED), vim.inspect(again))
+    end)
+  end)
+end
+
+describe("a trim made under feat/A, in the squash copy", function()
+  -- The squash commit taken out: what a reviewer trims when feat/A reads it as branch work.
+  -- Still an ancestor of HEAD, so only the change of base branch can drop the trim.
+  state.set_base_branch(sq_root, "feat/A")
+  state.set_trim(sq_root, { squash }, "feat/A")
+  local before_trim = (state.load(sq_root).trims or {}).child
+  local scope, msgs = resolve_told(sq_root)
+
+  it("was in the store before the resolve", function()
+    assert.same({ skipped = { squash }, base_branch = "feat/A" }, before_trim)
+  end)
+
+  it("is dropped with the base branch, and each is said once", function()
+    assert.equal(1, count(msgs, "The base branch feat/A was dropped"), vim.inspect(msgs))
+    assert.equal(1, count(msgs, "The trim was lost"), vim.inspect(msgs))
+    assert.is_nil((state.load(sq_root).trims or {}).child)
+    assert.is_nil((state.load(sq_root).base_branches or {}).child)
+  end)
+
+  it("leaves the whole branch, from the default branch", function()
+    assert.equal(merge_base(DEFAULT, sq), assert(scope).before)
+    assert.equal("branch vs origin/master", scope.label)
+  end)
+
+  it("says neither again on the next resolve", function()
+    local _, again = resolve_told(sq_root)
+    assert.equal(0, count(again, DROPPED), vim.inspect(again))
+    assert.equal(0, count(again, "The trim was lost"), vim.inspect(again))
+  end)
+end)
+
+describe("a review opened on the squash copy with feat/A stored", function()
+  state.set_base_branch(sq_root, "feat/A")
+  local msgs, restore = h.capture_notify()
+  assert(view.open("branch", sq_root), "the branch review did not open")
+  view.set_scope("branch")
+  restore()
+
+  it("opens from the default branch, and the winbar says so", function()
+    assert.equal(merge_base(DEFAULT, sq), current().scope.before)
+    assert.same({ "k1.txt" }, paths(current().files))
+    assert.is_truthy(h.winbar(current().win):find("branch vs origin/master", 1, true), h.winbar(current().win))
+  end)
+
+  it("says it once over an open and a redraw", function()
+    assert.equal(1, count(msgs, DROPPED), vim.inspect(msgs))
+  end)
+end)
+
+codereview.close()
+
+describe("a base branch of the session on a detached HEAD, in the squash copy", function()
+  git_at(sq, { "checkout", "-q", "--detach", "child" })
+  state.set_base_branch(sq_root, "feat/A")
+  local held = state.base_branch(sq_root)
+  local scope, msgs = resolve_told(sq_root)
+
+  it("was held for the session", function()
+    assert.equal("feat/A", held)
+  end)
+
+  it("follows the same check: dropped, and said once", function()
+    assert.equal(merge_base(DEFAULT, sq), assert(scope).before)
+    assert.is_nil(state.base_branch(sq_root))
+    assert.equal(1, count(msgs, "The base branch feat/A was dropped"), vim.inspect(msgs))
+    local _, again = resolve_told(sq_root)
+    assert.equal(0, count(again, DROPPED), vim.inspect(again))
+  end)
+
+  git_at(sq, { "checkout", "-q", "child" })
 end)
